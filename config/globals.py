@@ -23,3 +23,8 @@ load_dotenv(dotenv_path=env_path, override=False)
 # Common endpoints/configs
 firecrawl_url = os.environ.get("firecrawl_url", "http://localhost:3002")
 selfhosted_url = os.environ.get("selfhosted_url", None)
+data_path = os.environ.get("data_path", "data/")
+
+
+# Random seed for reproducibility
+random_seed = 42
