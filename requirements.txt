@@ -6,6 +6,7 @@ ezmm
 openai
 tiktoken
 anthropic
+google-genai
 sty
 ruff
 python-dotenv
