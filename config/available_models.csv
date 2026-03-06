@@ -2,5 +2,7 @@ Shorthand,Platform,Name, Context window,Cost per 1M input tokens,Cost per 1M out
 gpt_52,OPENAI,gpt-5.2-2025-12-11, 272_000,1.75,14.00
 gpt_5_mini,OPENAI,gpt-5-mini-2025-08-07, 272_000,0.25,2.00
 gpt_5,OPENAI,gpt-5-2025-08-07, 272_000,1.25,10.00
-claude_35_sonnet,ANTHROPIC,claude-3-5-sonnet-20240620, 200_000,3.0,15.0
+claude_4.6_opus,ANTHROPIC,claude-opus-4-6,200_000,5.0,25.0
+claude_4.6_sonnet,ANTHROPIC,claude-sonnet-4-6,200_000,3.0,15.0
+claude_4.5_haiku,ANTHROPIC,claude-haiku-4-5-20251001,200_000,1.0,5.0
 llama4_maverick,SELFHOSTED,meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8,1_000_000,0,0

@@ -5,6 +5,7 @@ tqdm
 ezmm
 openai
 tiktoken
+anthropic
 sty
 ruff
 python-dotenv
