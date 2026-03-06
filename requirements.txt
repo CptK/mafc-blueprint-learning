@@ -1,0 +1,10 @@
+numpy
+pandas
+pydantic
+tqdm
+ezmm
+openai
+tiktoken
+sty
+ruff
+python-dotenv
