@@ -1,23 +1,24 @@
 from enum import Enum
+from typing import Protocol, runtime_checkable
 
 
-class Label(Enum):
-    SUPPORTED = "supported"
-    NEI = "not enough information"
-    REFUTED = "refuted"
-    CONFLICTING = "conflicting evidence"
-    CHERRY_PICKING = "cherry-picking"
-    REFUSED_TO_ANSWER = "error: refused to answer"
-    OUT_OF_CONTEXT = "out of context"
-    MISCAPTIONED = "miscaptioned"
-    INTACT = "intact"
-    COMPROMISED = "compromised"
-    UNKNOWN = "unknown"
+class BaseLabel(str, Enum):
+    """Base class for benchmark-specific label enums.
 
-    # 7-class integrity labels (with uncertainty levels)
-    INTACT_CERTAIN = "intact (certain)"
-    INTACT_RATHER_CERTAIN = "intact (rather certain)"
-    INTACT_RATHER_UNCERTAIN = "intact (rather uncertain)"
-    COMPROMISED_RATHER_UNCERTAIN = "compromised (rather uncertain)"
-    COMPROMISED_RATHER_CERTAIN = "compromised (rather certain)"
-    COMPROMISED_CERTAIN = "compromised (certain)"
+    Subclass this for each benchmark's labels, e.g., `class VeritasLabel(BaseLabel): ...`.
+    Using `str` as a mixin ensures labels have stable string values.
+    """
+    pass
+
+
+@runtime_checkable
+class LabelLike(Protocol):
+    """Structural type for label enums used across the codebase.
+
+    Read-only name/value properties match Enum's interface.
+    """
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def value(self) -> str: ...

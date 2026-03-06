@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from mafc.common.label import Label
+from mafc.common.label import BaseLabel
 from mafc.utils.console import remove_string_formatters, bold, red, yellow, gray, green
 from mafc.utils.utils import flatten_dict
 from config.globals import result_base_dir
@@ -230,8 +230,8 @@ class Logger:
         self,
         sample_index: int,
         claim: str,
-        target: Label | None,
-        predicted: Label,
+        target: BaseLabel | None,
+        predicted: BaseLabel,
         justification: str,
         gt_justification: str | None
     ):
