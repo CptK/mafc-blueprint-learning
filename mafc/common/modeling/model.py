@@ -52,3 +52,12 @@ class Model(ABC):
     def generate(self, prompt: Prompt) -> Response:
         """Sends the prompt to the model and returns the response."""
         pass
+
+    def compute_cost(self, api_response: APIResponse) -> float:
+        total_cost = 0.0
+        if api_response.input_token_count and api_response.output_token_count:
+            total_cost = (
+                (api_response.input_token_count / 1_000_000) * self.input_token_cost
+                + (api_response.output_token_count / 1_000_000) * self.output_token_cost
+            )
+        return total_cost

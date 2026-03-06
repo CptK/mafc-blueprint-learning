@@ -183,19 +183,12 @@ class AnthropicModel(Model):
             # Errors already logged in API layer
             raise
 
-        total_cost = 0.0
-        if api_response.input_token_count and api_response.output_token_count:
-            total_cost = (
-                (api_response.input_token_count / 1_000_000) * self.input_token_cost
-                + (api_response.output_token_count / 1_000_000) * self.output_token_cost
-            )
-
         return Response(
             text=api_response.text,
             input_token_count=api_response.input_token_count,
             output_token_count=api_response.output_token_count,
             total_token_count=api_response.total_token_count,
-            total_cost=total_cost,
+            total_cost=self.compute_cost(api_response),
         )
 
 
