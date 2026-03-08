@@ -23,7 +23,13 @@ load_dotenv(dotenv_path=env_path, override=False)
 # Common endpoints/configs
 firecrawl_url = os.environ.get("firecrawl_url", "http://localhost:3002")
 selfhosted_url = os.environ.get("selfhosted_url", None)
+geolocator_url = os.environ.get("geolocator_url", "http://0.0.0.0:5555")
 data_path = os.environ.get("data_path", "data/")
+
+# Geolocator defaults
+default_countries_path = Path(__file__).resolve().with_name("default_countries_list.txt")
+with default_countries_path.open("r", encoding="utf-8") as f:
+    geolocator_default_countries = [line.strip() for line in f if line.strip()]
 
 
 # Random seed for reproducibility

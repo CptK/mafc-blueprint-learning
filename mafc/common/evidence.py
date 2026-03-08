@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from ezmm import MultimodalSequence
 
 from mafc.common.results import Results
@@ -12,6 +12,7 @@ class Evidence(BaseModel):
     raw: Results  # The raw output from the executed tool
     action: Action  # The action which led to this evidence
     takeaways: MultimodalSequence | None  # Contains all info helpful for the fact-check, if any
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def is_useful(self) -> bool:
         """Returns True if the contained information helps the fact-check,
