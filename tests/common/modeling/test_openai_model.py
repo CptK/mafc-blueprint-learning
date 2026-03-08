@@ -175,6 +175,7 @@ def test_openai_model_generate_error_paths(monkeypatch) -> None:
     )
     monkeypatch.setattr("mafc.common.modeling.model.get_model_context_window", lambda n: 1000)
     monkeypatch.setattr("mafc.common.modeling.model.get_model_api_pricing", lambda n: (1.0, 2.0))
+    monkeypatch.setattr("mafc.common.modeling.openai_model.OpenAIAPI", lambda model, context_window: None)
 
     class DummyRateLimitError(Exception):
         pass
