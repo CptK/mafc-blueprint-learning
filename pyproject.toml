@@ -1,0 +1,16 @@
+[tool.black]
+line-length = 110
+target-version = ["py313"]  # adjust to your Python version
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+\.git
+| \.venv
+| venv
+| build
+| dist
+)/
+'''
+
+[tool.ruff]
+line-length = 110
