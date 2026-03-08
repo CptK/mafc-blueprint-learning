@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from multiprocessing.connection import Connection
-from typing import Literal
+from typing import Any, Literal
 from pathlib import Path
 import pandas as pd
 import yaml
@@ -40,6 +40,7 @@ logging.getLogger('httpx').setLevel(logging.ERROR)
 logging.getLogger('urllib3.connection').setLevel(logging.ERROR)
 logging.getLogger('markdown_it').setLevel(logging.WARNING)
 logging.getLogger('asyncio').setLevel(logging.WARNING)
+logging.getLogger('ezMM').propagate = False
 
 
 LOG_LEVELS = {
@@ -228,12 +229,12 @@ class Logger:
 
     def save_next_prediction(
         self,
-        sample_index: int,
+        sample_index: int | str,
         claim: str,
         target: BaseLabel | None,
         predicted: BaseLabel,
-        justification: str,
-        gt_justification: str | None
+        justification: str | dict[str, Any] | list[Any] | None,
+        gt_justification: str | dict[str, Any] | list[Any] | None
     ):
         assert self.experiment_dir is not None
 
@@ -242,18 +243,28 @@ class Logger:
 
         target_label_str = target.name if target is not None else None
         is_correct = target == predicted if target is not None else None
+        justification_payload = (
+            json.dumps(justification, ensure_ascii=False)
+            if isinstance(justification, (dict, list))
+            else justification
+        )
+        gt_justification_payload = (
+            json.dumps(gt_justification, ensure_ascii=False)
+            if isinstance(gt_justification, (dict, list))
+            else gt_justification
+        )
         with open(self.predictions_path, "a") as f:
             csv.writer(f).writerow((
                 sample_index,
                 claim,
                 target_label_str,
                 predicted.name,
-                justification,
+                justification_payload,
                 is_correct,
-                gt_justification
+                gt_justification_payload
             ))
 
-    def save_next_instance_stats(self, stats: dict, claim_id: int):
+    def save_next_instance_stats(self, stats: dict, claim_id: int | str):
         assert self.experiment_dir is not None
 
         # Convert statistics dict to flattened format
