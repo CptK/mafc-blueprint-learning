@@ -10,3 +10,4 @@ google-genai
 sty
 ruff
 python-dotenv
+pytest
