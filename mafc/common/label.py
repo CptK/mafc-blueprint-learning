@@ -8,6 +8,7 @@ class BaseLabel(str, Enum):
     Subclass this for each benchmark's labels, e.g., `class VeritasLabel(BaseLabel): ...`.
     Using `str` as a mixin ensures labels have stable string values.
     """
+
     pass
 
 
@@ -17,6 +18,7 @@ class LabelLike(Protocol):
 
     Read-only name/value properties match Enum's interface.
     """
+
     @property
     def name(self) -> str: ...
 

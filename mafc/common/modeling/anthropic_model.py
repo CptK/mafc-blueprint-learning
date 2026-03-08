@@ -8,12 +8,11 @@ from mafc.common.modeling.model import API, APIResponse, Model, Response
 from mafc.common.modeling.prompt import Prompt
 from mafc.common.logger import logger
 
-
 encoding = tiktoken.get_encoding("cl100k_base")
 
 
 def _resolve_anthropic_key() -> str | None:
-    return  os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("anthropic_api_key")
+    return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("anthropic_api_key")
 
 
 def count_image_tokens_estimate(image: Image) -> int:
@@ -140,7 +139,9 @@ class AnthropicAPI(API):
         input_tokens = getattr(usage, "input_tokens", None) if usage else None
         output_tokens = getattr(usage, "output_tokens", None) if usage else None
         total_tokens = (
-            (input_tokens or 0) + (output_tokens or 0) if (input_tokens is not None or output_tokens is not None) else None
+            (input_tokens or 0) + (output_tokens or 0)
+            if (input_tokens is not None or output_tokens is not None)
+            else None
         )
 
         return APIResponse(

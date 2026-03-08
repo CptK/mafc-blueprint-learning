@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
 from mafc.common.modeling.prompt import Prompt
-from mafc.common.modeling.utils import model_specifier_to_shorthand, get_model_context_window, get_model_api_pricing
+from mafc.common.modeling.utils import (
+    model_specifier_to_shorthand,
+    get_model_context_window,
+    get_model_api_pricing,
+)
 
 
 class Response(BaseModel):
@@ -35,7 +39,7 @@ class Model(ABC):
         top_p: float = 1.0,
         top_k: int = 50,
         max_response_length: int = 2048,
-        video_frames_to_sample: int = 5
+        video_frames_to_sample: int = 5,
     ):
         self.specifier = specifier
         self.temperature = temperature
@@ -56,8 +60,7 @@ class Model(ABC):
     def compute_cost(self, api_response: APIResponse) -> float:
         total_cost = 0.0
         if api_response.input_token_count and api_response.output_token_count:
-            total_cost = (
-                (api_response.input_token_count / 1_000_000) * self.input_token_cost
-                + (api_response.output_token_count / 1_000_000) * self.output_token_cost
-            )
+            total_cost = (api_response.input_token_count / 1_000_000) * self.input_token_cost + (
+                api_response.output_token_count / 1_000_000
+            ) * self.output_token_cost
         return total_cost

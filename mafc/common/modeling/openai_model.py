@@ -36,7 +36,7 @@ class OpenAIAPI(API):
             messages=messages,
             temperature=kwargs.get("temperature", 1.0),
             top_p=kwargs.get("top_p", 1.0),
-            max_completion_tokens=kwargs.get("max_response_length", 2048)
+            max_completion_tokens=kwargs.get("max_response_length", 2048),
         )
 
         return APIResponse(
@@ -56,7 +56,7 @@ class OpenAIModel(Model):
         top_p: float = 1.0,
         top_k: int = 50,
         max_response_length: int = 2048,
-        video_frames_to_sample: int = 5
+        video_frames_to_sample: int = 5,
     ):
         super().__init__(
             specifier=specifier,
@@ -64,7 +64,7 @@ class OpenAIModel(Model):
             top_p=top_p,
             top_k=top_k,
             max_response_length=max_response_length,
-            video_frames_to_sample=video_frames_to_sample
+            video_frames_to_sample=video_frames_to_sample,
         )
         self.api = OpenAIAPI(model=self.model, context_window=self.context_window)
 
@@ -74,10 +74,12 @@ class OpenAIModel(Model):
                 prompt.with_videos_as_frames(self.video_frames_to_sample),
                 temperature=self.temperature,
                 top_p=self.top_p,
-                max_response_length=self.max_response_length
+                max_response_length=self.max_response_length,
             )
         except openai.RateLimitError as e:
-            logger.error("Rate limit exceeded. Consider reducing the frequency of requests or upgrading your OpenAI plan.")
+            logger.error(
+                "Rate limit exceeded. Consider reducing the frequency of requests or upgrading your OpenAI plan."
+            )
             raise e
         except openai.AuthenticationError as e:
             logger.error("Authentication failed. Check your OpenAI API key.")
@@ -91,9 +93,10 @@ class OpenAIModel(Model):
             input_token_count=api_response.input_token_count,
             output_token_count=api_response.output_token_count,
             total_token_count=api_response.total_token_count,
-            total_cost=self.compute_cost(api_response)
+            total_cost=self.compute_cost(api_response),
         )
-    
+
+
 def count_tokens(prompt: Prompt | str) -> int:
     n_text_tokens = len(encoding.encode(str(prompt), disallowed_special=()))
     n_image_tokens = 0
@@ -101,6 +104,7 @@ def count_tokens(prompt: Prompt | str) -> int:
         for image in prompt.images:
             n_image_tokens += count_image_tokens(image)
     return n_text_tokens + n_image_tokens
+
 
 def count_image_tokens(image: Image) -> int:
     """See the formula here: https://openai.com/api/pricing/
@@ -110,6 +114,7 @@ def count_image_tokens(image: Image) -> int:
     # Use integer math for tile counting and ensure integer return
     n_tiles = int(np.ceil(image.width / 512) * np.ceil(image.height / 512))
     return int(85 + 170 * n_tiles)
+
 
 def format_input(prompt: Prompt, context_window: int) -> list[dict]:
     """Formats the prompt into a string that can be sent to the model.
@@ -143,10 +148,9 @@ def format_input(prompt: Prompt, context_window: int) -> list[dict]:
                 # Do not include partial images
                 break
             image_encoded = block.get_base64_encoded()
-            content_formatted.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{image_encoded}"}
-            })
+            content_formatted.append(
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_encoded}"}}
+            )
             remaining -= image_token_count
 
         elif isinstance(block, Video):

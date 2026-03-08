@@ -1,18 +1,19 @@
 import numpy as np
 import pandas as pd
 
-
 AVAILABLE_MODELS = pd.read_csv("config/available_models.csv", skipinitialspace=True)
 
 
 def model_specifier_to_shorthand(specifier: str) -> tuple[str, str]:
     """Returns model shorthand and name for the given specifier."""
     try:
-        platform, model_name = specifier.split(':')
+        platform, model_name = specifier.split(":")
     except Exception as e:
         print(e)
-        raise ValueError(f'Invalid model specification "{specifier}". Check "config/available_models.csv" for available\
-                          models. Standard format "<PLATFORM>:<Specifier>".')
+        raise ValueError(
+            f'Invalid model specification "{specifier}". Check "config/available_models.csv" for available\
+                          models. Standard format "<PLATFORM>:<Specifier>".'
+        )
 
     match = (AVAILABLE_MODELS["Platform"] == platform) & (AVAILABLE_MODELS["Name"] == model_name)
     if not np.any(match):
@@ -40,6 +41,10 @@ def get_model_api_pricing(name: str) -> tuple[float, float]:
     specified model."""
     if name not in AVAILABLE_MODELS["Shorthand"].to_list():
         name, _ = model_specifier_to_shorthand(name)
-    input_cost = float(AVAILABLE_MODELS["Cost per 1M input tokens"][AVAILABLE_MODELS["Shorthand"] == name].iloc[0])
-    output_cost = float(AVAILABLE_MODELS["Cost per 1M output tokens"][AVAILABLE_MODELS["Shorthand"] == name].iloc[0])
+    input_cost = float(
+        AVAILABLE_MODELS["Cost per 1M input tokens"][AVAILABLE_MODELS["Shorthand"] == name].iloc[0]
+    )
+    output_cost = float(
+        AVAILABLE_MODELS["Cost per 1M output tokens"][AVAILABLE_MODELS["Shorthand"] == name].iloc[0]
+    )
     return input_cost, output_cost

@@ -11,12 +11,12 @@ from mafc.common.modeling.model import API, APIResponse, Model, Response
 from mafc.common.modeling.prompt import Prompt
 from mafc.common.logger import logger
 
-
 encoding = tiktoken.get_encoding("cl100k_base")
 
 
 def _resolve_gemini_key() -> str | None:
     return os.environ.get("GEMINI_API_KEY") or os.environ.get("gemini_api_key")
+
 
 def count_image_tokens_estimate(image: Image) -> int:
     # Heuristic similar to OpenAI tiling to avoid overflows

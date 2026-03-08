@@ -9,9 +9,9 @@ def read_md_file(file_path: str | Path) -> str:
     file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"No Markdown file found at '{file_path}'.")
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         return f.read()
-    
+
 
 def fill_placeholders(text: str, placeholder_targets: dict[str, Any]) -> str:
     """Replaces all specified placeholders in placeholder_targets with the respective target content."""
@@ -28,7 +28,7 @@ def fill_placeholders(text: str, placeholder_targets: dict[str, Any]) -> str:
 def compose_prompt(template_file_path: str | Path, placeholder_targets: dict) -> str:
     """Turns a template prompt into a ready-to-send prompt string."""
     template = read_md_file(template_file_path)
-    return fill_placeholders(template, placeholder_targets).strip(' \n')
+    return fill_placeholders(template, placeholder_targets).strip(" \n")
 
 
 class Prompt(MultimodalSequence):
@@ -41,7 +41,7 @@ class Prompt(MultimodalSequence):
         text: str | None = None,
         name: str | None = None,
         placeholder_targets: dict = {},
-        template_file_path: str | None = None
+        template_file_path: str | None = None,
     ):
         if template_file_path is not None:
             self.template_file_path = template_file_path
@@ -57,10 +57,11 @@ class Prompt(MultimodalSequence):
     def with_videos_as_frames(self, n_frames: int = 5) -> "Prompt":
         """Returns a new Prompt with all Video items replaced by sampled frames as Images."""
         from ezmm.common.items import Image, Video
+
         new_data = []
         for item in self.data:
             if isinstance(item, Video):
-                frames = item.sample_frames(n_frames, format='jpeg')
+                frames = item.sample_frames(n_frames, format="jpeg")
                 for frame_bytes in frames:
                     new_data.append(Image(binary_data=frame_bytes))
             else:

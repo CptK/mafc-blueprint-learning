@@ -16,31 +16,30 @@ from mafc.utils.console import remove_string_formatters, bold, red, yellow, gray
 from mafc.utils.utils import flatten_dict
 from config.globals import result_base_dir
 
-
 # Suppress unwanted logging from other libraries
-logging.getLogger('bs4').setLevel(logging.ERROR)
-logging.getLogger('google').setLevel(logging.WARNING)
-logging.getLogger('PIL').setLevel(logging.WARNING)
-logging.getLogger('git').setLevel(logging.WARNING)
-logging.getLogger('wandb').setLevel(logging.WARNING)
-logging.getLogger('urllib3').setLevel(logging.ERROR)
-logging.getLogger('openai').setLevel(logging.ERROR)
-logging.getLogger('anthropic').setLevel(logging.WARNING)
-logging.getLogger('google_genai').setLevel(logging.WARNING)
-logging.getLogger('duckduckgo_search').setLevel(logging.WARNING)
-logging.getLogger('matplotlib').setLevel(logging.WARNING)
-logging.getLogger('huggingface_hub').setLevel(logging.ERROR)
-logging.getLogger('transformers').setLevel(logging.ERROR)
-logging.getLogger('timm.models._builder').setLevel(logging.ERROR)
-logging.getLogger('timm.models._hub').setLevel(logging.ERROR)
-logging.getLogger('filelock').setLevel(logging.ERROR)
-logging.getLogger('sentence_transformers').setLevel(logging.ERROR)
-logging.getLogger('httpcore').setLevel(logging.ERROR)
-logging.getLogger('httpx').setLevel(logging.ERROR)
-logging.getLogger('urllib3.connection').setLevel(logging.ERROR)
-logging.getLogger('markdown_it').setLevel(logging.WARNING)
-logging.getLogger('asyncio').setLevel(logging.WARNING)
-logging.getLogger('ezMM').propagate = False
+logging.getLogger("bs4").setLevel(logging.ERROR)
+logging.getLogger("google").setLevel(logging.WARNING)
+logging.getLogger("PIL").setLevel(logging.WARNING)
+logging.getLogger("git").setLevel(logging.WARNING)
+logging.getLogger("wandb").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.ERROR)
+logging.getLogger("openai").setLevel(logging.ERROR)
+logging.getLogger("anthropic").setLevel(logging.WARNING)
+logging.getLogger("google_genai").setLevel(logging.WARNING)
+logging.getLogger("duckduckgo_search").setLevel(logging.WARNING)
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("timm.models._builder").setLevel(logging.ERROR)
+logging.getLogger("timm.models._hub").setLevel(logging.ERROR)
+logging.getLogger("filelock").setLevel(logging.ERROR)
+logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("urllib3.connection").setLevel(logging.ERROR)
+logging.getLogger("markdown_it").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("ezMM").propagate = False
 
 
 LOG_LEVELS = {
@@ -61,7 +60,7 @@ class Logger:
     config_filename = "config.yaml"
     predictions_filename = "predictions.csv"
     instance_stats_filename = "instance_stats.csv"
-    
+
     def __init__(self):
         self.experiment_dir = None
         self._current_fact_check_id: str | None = None
@@ -72,7 +71,7 @@ class Logger:
 
         logging.basicConfig(level=logging.DEBUG)
 
-        self.logger = logging.getLogger('mafc')
+        self.logger = logging.getLogger("mafc")
         self.logger.propagate = False  # Disable propagation to avoid duplicate logs
         stdout_handler = logging.StreamHandler(sys.stdout)
         stdout_handler.setLevel(LOG_LEVELS[self.print_log_level])
@@ -80,7 +79,7 @@ class Logger:
         self.logger.setLevel(logging.DEBUG)
 
         # Initialize a separate logger for model communication logs
-        self.model_comm_logger = logging.getLogger('model_communication')
+        self.model_comm_logger = logging.getLogger("model_communication")
         self.model_comm_logger.setLevel(logging.DEBUG)
         self.model_comm_logger.propagate = False  # Prevent propagation to the main logger
 
@@ -90,7 +89,7 @@ class Logger:
         benchmark_name: str | None = None,
         procedure_name: str | None = None,
         model_name: str | None = None,
-        experiment_name: str | None = None
+        experiment_name: str | None = None,
     ):
         """Specify the experiment directory to print the logs and experiment results into.
 
@@ -108,7 +107,9 @@ class Logger:
         if path is not None:
             self.experiment_dir = Path(path)
         else:
-            self.experiment_dir = _determine_target_dir(benchmark_name, procedure_name, model_name, experiment_name)
+            self.experiment_dir = _determine_target_dir(
+                benchmark_name, procedure_name, model_name, experiment_name
+            )
 
         if benchmark_name == "averitec":
             self.is_averitec_run = True
@@ -157,10 +158,12 @@ class Logger:
     def send(self, msg: str):
         """Sends the message through the connection."""
         if self.connection is not None and self._current_fact_check_id is not None:
-            self.connection.send(dict(
-                task_id=self._current_fact_check_id,
-                status_message=msg,
-            ))
+            self.connection.send(
+                dict(
+                    task_id=self._current_fact_check_id,
+                    status_message=msg,
+                )
+            )
 
     def critical(self, *args, send: bool = True):
         msg = compose_message(*args)
@@ -219,13 +222,17 @@ class Logger:
     def _init_predictions_csv(self):
         assert self.experiment_dir is not None
         with open(self.predictions_path, "w") as f:
-            csv.writer(f).writerow(("sample_index",
-                                    "claim",
-                                    "target",
-                                    "predicted",
-                                    "justification",
-                                    "correct",
-                                    "gt_justification"))
+            csv.writer(f).writerow(
+                (
+                    "sample_index",
+                    "claim",
+                    "target",
+                    "predicted",
+                    "justification",
+                    "correct",
+                    "gt_justification",
+                )
+            )
 
     def save_next_prediction(
         self,
@@ -234,7 +241,7 @@ class Logger:
         target: BaseLabel | None,
         predicted: BaseLabel,
         justification: str | dict[str, Any] | list[Any] | None,
-        gt_justification: str | dict[str, Any] | list[Any] | None
+        gt_justification: str | dict[str, Any] | list[Any] | None,
     ):
         assert self.experiment_dir is not None
 
@@ -254,15 +261,17 @@ class Logger:
             else gt_justification
         )
         with open(self.predictions_path, "a") as f:
-            csv.writer(f).writerow((
-                sample_index,
-                claim,
-                target_label_str,
-                predicted.name,
-                justification_payload,
-                is_correct,
-                gt_justification_payload
-            ))
+            csv.writer(f).writerow(
+                (
+                    sample_index,
+                    claim,
+                    target_label_str,
+                    predicted.name,
+                    justification_payload,
+                    is_correct,
+                    gt_justification_payload,
+                )
+            )
 
     def save_next_instance_stats(self, stats: dict, claim_id: int | str):
         assert self.experiment_dir is not None
@@ -285,7 +294,7 @@ class Logger:
             # Append single row without loading entire file
             df = pd.DataFrame([instance_stats])
             df.set_index("ID", inplace=True)
-            df.to_csv(self.instance_stats_path, mode='a', header=False)
+            df.to_csv(self.instance_stats_path, mode="a", header=False)
 
     def _load_stats_df(self):
         if os.path.exists(self.instance_stats_path):
@@ -340,7 +349,7 @@ class Logger:
 
     @property
     def log_path(self) -> Path:
-        return self.target_dir / self.log_filename 
+        return self.target_dir / self.log_filename
 
     @property
     def model_comm_path(self) -> Path:
@@ -355,10 +364,12 @@ class RemoveStringFormattingFormatter(logging.Formatter):
         return remove_string_formatters(msg)
 
 
-def _determine_target_dir(benchmark_name: str | None = "testing",
-                          procedure_name: str | None = None,
-                          model_name: str | None = None,
-                          experiment_name: str | None = None) -> Path:
+def _determine_target_dir(
+    benchmark_name: str | None = "testing",
+    procedure_name: str | None = None,
+    model_name: str | None = None,
+    experiment_name: str | None = None,
+) -> Path:
     # assert benchmark_name is not None
 
     benchmark_name = benchmark_name if benchmark_name else "testing"

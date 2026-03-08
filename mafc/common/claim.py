@@ -73,7 +73,7 @@ class Claim(MultimodalSequence):
         if meta_info := self.meta_info:
             out += f"\nMeta info: {meta_info}"
         return out
-    
+
     def __repr__(self):
         return (
             f"Claim(str_len={len(self.__str__())}, "
