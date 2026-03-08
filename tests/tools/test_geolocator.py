@@ -119,7 +119,9 @@ def test_locate_posts_payload_and_parses_response(monkeypatch) -> None:
 
 def test_summarize_returns_multimodal_text(monkeypatch) -> None:
     tool = _make_geolocator(monkeypatch)
-    result = GeolocationResults(text="summary text", most_likely_location="Germany", top_k_locations=["Germany"])
+    result = GeolocationResults(
+        text="summary text", most_likely_location="Germany", top_k_locations=["Germany"]
+    )
 
     summary = tool._summarize(result)
 

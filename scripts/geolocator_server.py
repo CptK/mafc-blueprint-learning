@@ -6,6 +6,7 @@ instances without CUDA/fork issues.
 Usage:
     python scripts/geolocator_server.py --model geolocal/StreetCLIP --port 5555 --workers 5
 """
+
 import argparse
 import base64
 from contextlib import asynccontextmanager
@@ -22,11 +23,11 @@ from transformers import AutoProcessor, AutoModel
 
 from config.globals import geolocator_default_countries
 
-
 # Populated in lifespan startup after fork, so each worker process has its own copy.
 processor: Any | None = None
 model: Any | None = None
 device: torch.device | None = None
+
 
 class GeolocateRequest(BaseModel):
     image_b64: str
@@ -79,7 +80,7 @@ def geolocate(req: GeolocateRequest):
 
     prediction = outputs.logits_per_image.softmax(dim=1)
     confidences = {choices[i]: round(float(prediction[0][i].item()), 2) for i in range(len(choices))}
-    top_k = dict(sorted(confidences.items(), key=lambda x: x[1], reverse=True)[:req.top_k])
+    top_k = dict(sorted(confidences.items(), key=lambda x: x[1], reverse=True)[: req.top_k])
     most_likely = max(top_k.items(), key=lambda item: item[1])[0] if top_k else ""
 
     return GeolocateResponse(
