@@ -16,3 +16,4 @@ pytest
 black
 pytest-cov
 scrapeMM
+google-cloud-vision
