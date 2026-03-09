@@ -20,7 +20,6 @@ def make_model(name: str, **kwargs) -> Model:
         specifier = name
 
     platform = specifier.split(":")[0].lower()
-    model_name = specifier.split(":")[1].lower()
 
     match platform:
         case "openai":
