@@ -169,6 +169,11 @@ class SerperAPI:
                 result_date = datetime.strptime(result["date"], "%b %d, %Y").date()
             except (ValueError, KeyError):
                 result_date = None
+
+            # If a date constraint is set, only keep results provably on or before that date.
+            if query.end_date is not None and (result_date is None or result_date > query.end_date):
+                continue
+
             sources.append(WebSource(reference=url, release_date=result_date, title=title))
         return sources
 

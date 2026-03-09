@@ -154,3 +154,18 @@ def test_parse_sources_uses_limit_and_date_parsing() -> None:
     assert sources[0].reference == "https://a.example.com/1"
     assert sources[0].release_date == date(2024, 1, 10)
     assert sources[0].title == "A"
+
+
+def test_parse_sources_applies_strict_end_date_filter() -> None:
+    api = SerperAPI()
+    response = {
+        "organic": [
+            {"link": "https://a.example.com/1", "title": "A", "date": "Jan 10, 2024"},
+            {"link": "https://b.example.com/2", "title": "B", "date": "Feb 10, 2024"},
+            {"link": "https://c.example.com/3", "title": "C", "date": "bad"},
+        ]
+    }
+    sources = api._parse_sources(response, Query(text="q", end_date=date(2024, 1, 31)))
+
+    assert len(sources) == 1
+    assert sources[0].reference == "https://a.example.com/1"
