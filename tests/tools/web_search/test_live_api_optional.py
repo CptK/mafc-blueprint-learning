@@ -5,6 +5,7 @@ import pytest
 import requests
 from ezmm import Image
 from google.api_core.exceptions import GoogleAPICallError
+from typing import cast
 
 import config.globals  # noqa: F401  # Triggers .env loading like normal app startup.
 from mafc.tools.web_search.common import Query
@@ -48,7 +49,7 @@ def test_google_vision_live_api_small_call() -> None:
         pytest.skip("Google Vision client could not be initialized from available credentials.")
 
     image_path = Path(__file__).resolve().parents[2] / "assets" / "Paris.avif"
-    query = Query(text="landmark", image=Image(file_path=image_path))
+    query = Query(text="landmark", image=cast(Image, Image(file_path=image_path)))
 
     out = _call_or_skip(lambda: api.search(query))
 
