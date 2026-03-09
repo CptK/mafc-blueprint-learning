@@ -13,11 +13,14 @@ from dotenv import load_dotenv
 working_dir = Path.cwd()  # working_dir should be project root
 data_root_dir = Path("data/")  # Where the datasets are stored
 result_base_dir = working_dir / "out/"  # Where outputs are to be saved
+temp_dir = working_dir / "temp/"  # Where to store temporary files (e.g. search cache)
+os.makedirs(temp_dir, exist_ok=True)
 
 
 # Try to load local .env (optional). Do not overwrite existing env vars.
 env_path = working_dir / "config/.env"
 load_dotenv(dotenv_path=env_path, override=False)
+google_service_account_key_path = Path("config/google_service_account_key.json")
 
 
 # Common endpoints/configs
