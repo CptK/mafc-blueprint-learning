@@ -46,3 +46,37 @@ def test_retrieve_rejects_domains_not_in_allowlist() -> None:
     out = retriever.retrieve("https://wikipedia.org/wiki/Test")
     assert out is None
     assert retriever.calls == 0
+
+
+def test_retrieve_batch_preserves_order_and_deduplicates() -> None:
+    retriever = WildcardRetriever()
+    urls = [
+        "https://example.com/a",
+        "https://example.com/b",
+        "https://example.com/a",
+    ]
+
+    out = retriever.retrieve_batch(urls)
+
+    assert [str(item) if item is not None else None for item in out] == [
+        "content:https://example.com/a",
+        "content:https://example.com/b",
+        "content:https://example.com/a",
+    ]
+    assert retriever.calls == 2
+
+
+def test_retrieve_batch_applies_domain_filtering() -> None:
+    retriever = RestrictedRetriever()
+    out = retriever.retrieve_batch(
+        [
+            "https://example.com/allowed",
+            "https://wikipedia.org/wiki/Test",
+        ]
+    )
+
+    assert [str(item) if item is not None else None for item in out] == [
+        "content:https://example.com/allowed",
+        None,
+    ]
+    assert retriever.calls == 1

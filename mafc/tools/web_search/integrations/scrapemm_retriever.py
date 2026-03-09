@@ -23,8 +23,8 @@ class ScrapeMMRetriever(RetrievalIntegration):
 
     domains = ["*"]  # can retrieve from any domain
 
-    def __init__(self, timeout_seconds: float = 30.0):
-        super().__init__()
+    def __init__(self, timeout_seconds: float = 30.0, n_workers: int = 8):
+        super().__init__(n_workers=n_workers)
         self.timeout_seconds = timeout_seconds
 
     async def _retrieve_with_timeout(self, coro: Awaitable[ScrapingResponse]) -> ScrapingResponse:
