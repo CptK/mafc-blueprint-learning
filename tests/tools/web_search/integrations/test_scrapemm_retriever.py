@@ -1,3 +1,5 @@
+import asyncio
+
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
 
 
@@ -13,7 +15,7 @@ def test_scrapemm_retriever_success(monkeypatch) -> None:
     retriever = ScrapeMMRetriever()
     calls = {"n": 0}
 
-    def fake_retrieve(given_url, show_progress=False):
+    async def fake_retrieve(given_url, show_progress=False):
         calls["n"] += 1
         assert given_url == url
         assert show_progress is False
@@ -30,7 +32,7 @@ def test_scrapemm_retriever_success(monkeypatch) -> None:
 def test_scrapemm_retriever_failure_response(monkeypatch) -> None:
     retriever = ScrapeMMRetriever()
 
-    def fake_retrieve(*args, **kwargs):
+    async def fake_retrieve(*args, **kwargs):
         return FakeScrapingResponse(successful=False, errors=["unreachable"])
 
     monkeypatch.setattr("mafc.tools.web_search.integrations.scrapemm_retriever.retrieve", fake_retrieve)
@@ -42,7 +44,7 @@ def test_scrapemm_retriever_failure_response(monkeypatch) -> None:
 def test_scrapemm_retriever_handles_exception(monkeypatch) -> None:
     retriever = ScrapeMMRetriever()
 
-    def fake_retrieve(*args, **kwargs):
+    async def fake_retrieve(*args, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr("mafc.tools.web_search.integrations.scrapemm_retriever.retrieve", fake_retrieve)
@@ -56,7 +58,7 @@ def test_scrapemm_retriever_uses_cache(monkeypatch) -> None:
     retriever = ScrapeMMRetriever()
     calls = {"n": 0}
 
-    def fake_retrieve(*args, **kwargs):
+    async def fake_retrieve(*args, **kwargs):
         calls["n"] += 1
         return FakeScrapingResponse(successful=True, content="cached-content")
 
@@ -68,3 +70,16 @@ def test_scrapemm_retriever_uses_cache(monkeypatch) -> None:
     assert str(out1) == "cached-content"
     assert str(out2) == "cached-content"
     assert calls["n"] == 1
+
+
+def test_scrapemm_retriever_times_out(monkeypatch) -> None:
+    retriever = ScrapeMMRetriever(timeout_seconds=0.01)
+
+    async def fake_retrieve(*args, **kwargs):
+        await asyncio.sleep(0.1)
+        return FakeScrapingResponse(successful=True, content="late")
+
+    monkeypatch.setattr("mafc.tools.web_search.integrations.scrapemm_retriever.retrieve", fake_retrieve)
+
+    out = retriever.retrieve("https://example.com/slow")
+    assert out is None
