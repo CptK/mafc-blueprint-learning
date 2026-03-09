@@ -1,6 +1,7 @@
 import builtins
 import io
 from pathlib import Path
+from typing import Any, cast
 
 from PIL import Image as PILImage
 import pytest
@@ -43,7 +44,7 @@ def _make_geolocator(monkeypatch, top_k: int = 3) -> Geolocator:
 def test_perform_returns_error_for_invalid_action(monkeypatch) -> None:
     tool = _make_geolocator(monkeypatch)
 
-    result = tool._perform(object())
+    result = tool._perform(cast(Geolocate, object()))
 
     assert isinstance(result, GeolocationResults)
     assert result.text == "Invalid action type"
@@ -66,7 +67,7 @@ def test_perform_delegates_to_locate(monkeypatch) -> None:
     tool = _make_geolocator(monkeypatch)
     action = object.__new__(Geolocate)
     pil_image = PILImage.new("RGB", (2, 2), color="white")
-    action.image = _ImageWrapper(pil_image)
+    action.image = cast(Any, _ImageWrapper(pil_image))
 
     captured = {}
 

@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import date
+from typing import cast
 
 from mafc.tools.web_search.common import Query, SearchMode, SearchResults, Source
 from mafc.tools.web_search.search_platform import RemoteSearchPlatform, SearchPlatform
@@ -64,7 +65,7 @@ def test_remote_platform_cache_write_error_is_counted(monkeypatch, tmp_path) -> 
         def execute(self, *args, **kwargs):
             raise sqlite3.OperationalError
 
-    platform.cur = BrokenCursor()
+    platform.cur = cast(sqlite3.Cursor, BrokenCursor())
 
     try:
         platform._add_to_cache(Query(text="q"), SearchResults(sources=[], query=Query(text="q")))

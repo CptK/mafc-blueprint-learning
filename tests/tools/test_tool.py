@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import cast
 
 import pytest
 from ezmm import MultimodalSequence
@@ -78,7 +79,8 @@ def test_perform_executes_and_summarizes() -> None:
     evidence = tool.perform(action, summarize=True, note="keep")
 
     assert evidence.action == action
-    assert evidence.raw.values == [7, 2, 3]
+    raw = cast(SizedDummyResults, evidence.raw)
+    assert raw.values == [7, 2, 3]
     assert evidence.takeaways is not None
     assert tool.summarize_calls == 1
     assert tool.last_kwargs == {"note": "keep"}
@@ -97,7 +99,7 @@ def test_perform_rejects_forbidden_action() -> None:
     tool = SizedDummyTool()
 
     with pytest.raises(AssertionError, match="Forbidden action"):
-        tool.perform(OtherAction())
+        tool.perform(cast(DummyAction, OtherAction()))
 
 
 def test_perform_handles_unsized_result() -> None:
@@ -105,4 +107,5 @@ def test_perform_handles_unsized_result() -> None:
 
     evidence = tool.perform(DummyAction(), summarize=False)
 
-    assert evidence.raw.text == "ok"
+    raw = cast(UnsizedDummyResults, evidence.raw)
+    assert raw.text == "ok"
