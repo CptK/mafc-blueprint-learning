@@ -11,6 +11,7 @@ from typing import cast
 from ezmm import MultimodalSequence
 
 from mafc.agents.agent import Agent, AgentResult
+from mafc.agents.common import AgentMessage, AgentMessageType, AgentSession
 from mafc.common.logger import logger
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
@@ -94,20 +95,33 @@ class WebSearchAgent(Agent):
         self.max_results_per_query = max_results_per_query
         self.latest_allowed_date = latest_allowed_date
 
-    def run(self, task: Prompt) -> AgentResult:
+    def run(self, session: AgentSession) -> AgentResult:
         """Run iterative planning, searching, retrieval, and synthesis for a task.
 
         Args:
-            task: Prompt containing the claim/instruction to investigate.
+            session: Investigation session containing the goal to investigate.
 
         Returns:
             AgentResult with aggregated syntheses and collected non-fatal errors.
         """
-        instruction = str(task).strip()
+        self._mark_running(session)
+        instruction = str(session.goal).strip()
         if self._should_stop:
-            return AgentResult(result=None, errors=["Agent was stopped before execution started."])
+            self._mark_failed(session)
+            return AgentResult(
+                session=session,
+                result=None,
+                errors=["Agent was stopped before execution started."],
+                status=session.status,
+            )
         if not instruction:
-            return AgentResult(result=None, errors=["Task prompt is empty."])
+            self._mark_failed(session)
+            return AgentResult(
+                session=session,
+                result=None,
+                errors=["Task prompt is empty."],
+                status=session.status,
+            )
 
         errors: list[str] = []
         memory: list[str] = []
@@ -144,10 +158,29 @@ class WebSearchAgent(Agent):
                 break
 
         if not memory:
-            return AgentResult(result=None, errors=errors)
+            self._mark_failed(session)
+            return AgentResult(session=session, result=None, errors=errors, status=session.status)
 
         final_text = "\n\n".join(memory)
-        return AgentResult(result=MultimodalSequence(final_text), errors=errors)
+        result_text = MultimodalSequence(final_text)
+        result_message = AgentMessage(
+            id=f"{session.id}:result",
+            session_id=session.id,
+            sender=self.name,
+            receiver=session.parent_session_id or session.id,
+            message_type=AgentMessageType.RESULT,
+            content=result_text,
+        )
+        session.messages.append(result_message)
+        self._mark_completed(session)
+        return AgentResult(
+            session=session,
+            result=result_text,
+            messages=[result_message],
+            evidences=[],
+            errors=errors,
+            status=session.status,
+        )
 
     def _resolve_step_query_plan(
         self,

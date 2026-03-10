@@ -1,16 +1,21 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ezmm import MultimodalSequence
 
+from mafc.agents.common import AgentMessage, AgentSession, AgentStatus
+from mafc.common.evidence import Evidence
 from mafc.common.modeling.model import Model
-from mafc.common.modeling.prompt import Prompt
 from mafc.tools.tool import Tool
 
 
 @dataclass
 class AgentResult:
+    session: AgentSession
     result: MultimodalSequence | None
-    errors: list[str]
+    messages: list[AgentMessage] = field(default_factory=list)
+    evidences: list[Evidence] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    status: AgentStatus | None = None
 
 
 class Agent(ABC):
@@ -24,9 +29,18 @@ class Agent(ABC):
         self._should_stop = False
 
     @abstractmethod
-    def run(self, task: Prompt) -> AgentResult:
-        """Run the agent on the given task. This is the main entry point for using the agent."""
-        pass
+    def run(self, session: AgentSession) -> AgentResult:
+        """Run the agent on the given investigation session."""
+        raise NotImplementedError
+
+    def _mark_running(self, session: AgentSession) -> None:
+        session.status = AgentStatus.RUNNING
+
+    def _mark_completed(self, session: AgentSession) -> None:
+        session.status = AgentStatus.COMPLETED
+
+    def _mark_failed(self, session: AgentSession) -> None:
+        session.status = AgentStatus.FAILED
 
     def stop(self):
         """Signal the agent to stop execution.

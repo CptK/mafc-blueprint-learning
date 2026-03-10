@@ -1,5 +1,6 @@
 from datetime import date
 
+from mafc.agents.common import AgentSession, AgentStatus
 from mafc.agents.web_search_agent import WebSearchAgent
 from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
@@ -51,6 +52,10 @@ def _make_search_result(query_text: str, urls: list[str]) -> SearchResults:
     return SearchResults(sources=sources, query=query)
 
 
+def _make_session(goal: str) -> AgentSession:
+    return AgentSession(id=f"session:{goal}", goal=Prompt(text=goal))
+
+
 def test_web_search_agent_iterative_loop() -> None:
     planner = SequencedModel(
         outputs=[
@@ -76,9 +81,11 @@ def test_web_search_agent_iterative_loop() -> None:
         retriever=retriever,
         max_iterations=4,
     )
-    out = agent.run(Prompt(text="Retrieve incidents during the election campaign of Samrat Choudhary."))
+    out = agent.run(_make_session("Retrieve incidents during the election campaign of Samrat Choudhary."))
 
     assert out.result is not None
+    assert out.session.status == AgentStatus.COMPLETED
+    assert len(out.messages) == 1
     assert "Iteration 1 synthesis:" in str(out.result)
     assert "Summary step 1" in str(out.result)
     assert out.errors == []
@@ -92,7 +99,7 @@ def test_web_search_agent_handles_invalid_planner_output() -> None:
     retriever = FakeRetriever({})
     agent = WebSearchAgent(main_model=planner, search_tool=search_tool, retriever=retriever)
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
     assert out.result is not None
     assert "Falling back to the original task text" in out.errors[0]
     assert search_tool.queries == ["Any task"]
@@ -111,8 +118,9 @@ def test_web_search_agent_collects_query_search_errors() -> None:
         search_tool=BrokenSearchTool({}),
     )
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
     assert out.result is None
+    assert out.session.status == AgentStatus.FAILED
     assert any("Search failed for query 'q1'" in error for error in out.errors)
 
 
@@ -128,7 +136,7 @@ def test_web_search_agent_collects_retrieval_errors() -> None:
         retriever=retriever,
     )
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
     assert out.result is not None
     assert out.errors == ["Failed to retrieve content from https://a.example.com"]
 
@@ -145,7 +153,7 @@ def test_web_search_agent_parses_json_embedded_in_text() -> None:
         retriever=retriever,
     )
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
     assert out.result is not None
     assert out.errors == []
     assert search_tool.queries == ["q1"]
@@ -168,7 +176,7 @@ def test_web_search_agent_repairs_non_json_planner_output() -> None:
         retriever=retriever,
     )
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
     assert out.result is not None
     assert out.errors == []
     assert search_tool.queries == ["q1"]
@@ -186,7 +194,7 @@ def test_web_search_agent_falls_back_when_summary_is_failure_text() -> None:
         retriever=retriever,
     )
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
     assert out.result is not None
     assert "retrieved content" in str(out.result)
 
@@ -234,7 +242,7 @@ def test_web_search_agent_passes_end_date_to_query() -> None:
         latest_allowed_date=cutoff,
     )
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
 
     assert out.result is not None
     assert search_tool.query_objects[0].end_date == cutoff
@@ -273,7 +281,7 @@ def test_web_search_agent_filters_sources_with_model_when_many_candidates() -> N
         max_results_per_query=5,
     )
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
 
     assert out.result is not None
     assert sorted(retriever.calls) == sorted(["https://b.example.com", "https://d.example.com"])
@@ -325,7 +333,7 @@ def test_web_search_agent_filters_sources_globally_across_queries() -> None:
         max_results_per_query=5,
     )
 
-    out = agent.run(Prompt(text="Any task"))
+    out = agent.run(_make_session("Any task"))
 
     assert out.result is not None
     assert sorted(retriever.calls) == sorted(["https://c.example.com", "https://e.example.com"])
