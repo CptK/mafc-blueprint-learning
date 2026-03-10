@@ -18,8 +18,9 @@ class Agent(ABC):
     description: str
     allowed_tools: list[type[Tool]]
 
-    def __init__(self, model: Model):
+    def __init__(self, model: Model, n_workers: int = 1):
         self.model = model
+        self.n_workers = n_workers
         self._should_stop = False
 
     @abstractmethod
