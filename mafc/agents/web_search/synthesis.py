@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from mafc.common.modeling.prompt import Prompt
 
-from .parsing import is_failed_model_text
+from mafc.agents.web_search.parsing import is_failed_model_text
 
 
 def synthesize_step(agent, instruction: str, observations: list[str]) -> str:

@@ -14,10 +14,10 @@ from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
 from mafc.common.modeling.model import Model
 
-from .models import SearchPlanStep, StepQueryPlan
-from .planner import plan_step
-from .retrieval import collect_observations_for_queries
-from .synthesis import synthesize_step
+from mafc.agents.web_search.models import SearchPlanStep, StepQueryPlan
+from mafc.agents.web_search.planner import plan_step
+from mafc.agents.web_search.retrieval import collect_observations_for_queries
+from mafc.agents.web_search.synthesis import synthesize_step
 
 
 class SearchTool(Protocol):

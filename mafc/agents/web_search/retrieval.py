@@ -8,9 +8,9 @@ from mafc.common.logger import logger
 from mafc.common.modeling.prompt import Prompt
 from mafc.tools.web_search.common import Query, Source, WebSource
 
-from .models import GlobalSourceCandidate, QuerySearchResult
-from .parsing import extract_json_object
-from .synthesis import summarize_observation
+from mafc.agents.web_search.models import GlobalSourceCandidate, QuerySearchResult
+from mafc.agents.web_search.parsing import extract_json_object
+from mafc.agents.web_search.synthesis import summarize_observation
 
 
 def collect_observations_for_queries(

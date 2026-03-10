@@ -5,8 +5,8 @@ import json
 from mafc.common.logger import logger
 from mafc.common.modeling.prompt import Prompt
 
-from .models import SearchPlanStep
-from .parsing import extract_json_object, is_failed_model_text
+from mafc.agents.web_search.models import SearchPlanStep
+from mafc.agents.web_search.parsing import extract_json_object, is_failed_model_text
 
 
 def plan_step(agent, instruction: str, memory: list[str], errors: list[str]) -> SearchPlanStep | None:
