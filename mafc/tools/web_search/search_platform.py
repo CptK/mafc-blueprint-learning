@@ -6,6 +6,7 @@ import json
 import os
 import pickle
 import sqlite3
+import threading
 from pathlib import Path
 
 from config.globals import temp_dir
@@ -63,6 +64,7 @@ class RemoteSearchPlatform(SearchPlatform):
         self.max_search_results = max_search_results
         self.conn: sqlite3.Connection | None = None
         self.cur: sqlite3.Cursor | None = None
+        self._cache_lock = threading.Lock()
 
         self.search_cached_first = activate_cache
         self.cache_file_name = f"{self.name}_cache.db"
@@ -109,8 +111,9 @@ class RemoteSearchPlatform(SearchPlatform):
         stmt = """
             CREATE TABLE Query(hash TEXT PRIMARY KEY, results BLOB);
         """
-        self.cur.execute(stmt)
-        self.conn.commit()
+        with self._cache_lock:
+            self.cur.execute(stmt)
+            self.conn.commit()
 
     def _add_to_cache(self, query: Query, search_result: SearchResults):
         """Adds the given query-results pair to the cache."""
@@ -123,8 +126,9 @@ class RemoteSearchPlatform(SearchPlatform):
             VALUES (?, ?);
         """
         try:
-            self.cur.execute(stmt, (self._cache_key(query), pickle.dumps(search_result)))
-            self.conn.commit()
+            with self._cache_lock:
+                self.cur.execute(stmt, (self._cache_key(query), pickle.dumps(search_result)))
+                self.conn.commit()
         except (sqlite3.IntegrityError, sqlite3.OperationalError):
             self.n_cache_write_errors += 1
 
@@ -136,8 +140,9 @@ class RemoteSearchPlatform(SearchPlatform):
         stmt = """
             SELECT results FROM Query WHERE hash = ?;
         """
-        response = self.cur.execute(stmt, (self._cache_key(query),))
-        result = response.fetchone()
+        with self._cache_lock:
+            response = self.cur.execute(stmt, (self._cache_key(query),))
+            result = response.fetchone()
         if result is not None:
             return pickle.loads(result[0])
 
