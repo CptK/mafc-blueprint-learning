@@ -245,3 +245,87 @@ def test_web_search_agent_passes_end_date_to_query() -> None:
             "https://c.example.com",
         ]
     )
+
+
+def test_web_search_agent_filters_sources_with_model_when_many_candidates() -> None:
+    planner = SequencedModel(
+        outputs=[
+            '{"queries":["q1"],"done":true}',
+            '{"selected_urls":["https://b.example.com","https://d.example.com"]}',
+        ]
+    )
+    summarizer = SequencedModel(outputs=["summary"])
+    urls = [
+        "https://a.example.com",
+        "https://b.example.com",
+        "https://c.example.com",
+        "https://d.example.com",
+        "https://e.example.com",
+        "https://f.example.com",
+    ]
+    search_tool = FakeSearchTool({"q1": _make_search_result("q1", urls)})
+    retriever = FakeRetriever({url: f"content:{url}" for url in urls})
+    agent = WebSearchAgent(
+        main_model=planner,
+        summarization_model=summarizer,
+        search_tool=search_tool,
+        retriever=retriever,
+        max_results_per_query=5,
+    )
+
+    out = agent.run(Prompt(text="Any task"))
+
+    assert out.result is not None
+    assert sorted(retriever.calls) == sorted(["https://b.example.com", "https://d.example.com"])
+
+
+def test_web_search_agent_filters_sources_globally_across_queries() -> None:
+    planner = SequencedModel(
+        outputs=[
+            '{"queries":["q1","q2"],"done":true}',
+            '{"selected_urls":["https://c.example.com","https://e.example.com"]}',
+        ]
+    )
+    summarizer = SequencedModel(outputs=["summary"])
+    search_tool = FakeSearchTool(
+        {
+            "q1": _make_search_result(
+                "q1",
+                [
+                    "https://a.example.com",
+                    "https://b.example.com",
+                    "https://c.example.com",
+                ],
+            ),
+            "q2": _make_search_result(
+                "q2",
+                [
+                    "https://d.example.com",
+                    "https://e.example.com",
+                    "https://f.example.com",
+                ],
+            ),
+        }
+    )
+    retriever = FakeRetriever(
+        {
+            "https://a.example.com": "content:a",
+            "https://b.example.com": "content:b",
+            "https://c.example.com": "content:c",
+            "https://d.example.com": "content:d",
+            "https://e.example.com": "content:e",
+            "https://f.example.com": "content:f",
+        }
+    )
+    agent = WebSearchAgent(
+        main_model=planner,
+        summarization_model=summarizer,
+        search_tool=search_tool,
+        retriever=retriever,
+        max_results_per_query=5,
+    )
+
+    out = agent.run(Prompt(text="Any task"))
+
+    assert out.result is not None
+    assert sorted(retriever.calls) == sorted(["https://c.example.com", "https://e.example.com"])

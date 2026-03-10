@@ -37,14 +37,22 @@ class StepQueryPlan:
 
 
 @dataclass
-class QueryObservationResult:
-    """Result container for one query execution in the worker pool."""
+class QuerySearchResult:
+    """Result container for one query search execution in the worker pool."""
 
     query_text: str
-    observation: str | None
+    sources: Sequence[Source] | None
     errors: list[str]
     mark_seen: bool = False
     stopped: bool = False
+
+
+@dataclass
+class GlobalSourceCandidate:
+    """One URL candidate with query context for global relevance filtering."""
+
+    query_text: str
+    source: WebSource
 
 
 class WebSearchAgent(Agent):
@@ -61,7 +69,7 @@ class WebSearchAgent(Agent):
         search_tool: GoogleSearchPlatform | None = None,
         retriever: RetrievalIntegration | None = None,
         max_iterations: int = 4,
-        max_queries_per_step: int = 3,
+        max_queries_per_step: int = 5,
         max_results_per_query: int = 5,
         latest_allowed_date: date | None = None,
     ):
@@ -191,7 +199,7 @@ class WebSearchAgent(Agent):
         seen_queries: set[str],
         errors: list[str],
     ) -> list[str]:
-        """Search for query results and build observation blocks.
+        """Search all queries first, then retrieve and format observations.
 
         Args:
             queries: Sanitized query texts for the current iteration.
@@ -206,13 +214,14 @@ class WebSearchAgent(Agent):
             return []
 
         if self.n_workers <= 1:
-            results = [self._execute_query(query_text) for query_text in queries]
+            results = [self._execute_search_query(query_text) for query_text in queries]
         else:
             max_workers = min(self.n_workers, len(queries))
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                results = list(pool.map(self._execute_query, queries))
+                results = list(pool.map(self._execute_search_query, queries))
 
         observations: list[str] = []
+        candidate_sources: list[tuple[str, Sequence[Source] | None]] = []
         stop_recorded = False
         for result in results:
             if result.errors:
@@ -222,23 +231,35 @@ class WebSearchAgent(Agent):
                 stop_recorded = True
             if result.mark_seen:
                 seen_queries.add(result.query_text)
-            if result.observation is not None:
-                observations.append(result.observation)
+                candidate_sources.append((result.query_text, result.sources))
+
+        selected_sources = self._select_sources_for_retrieval(candidate_sources)
+        for query_text, sources in selected_sources:
+            if sources is None:
+                observations.append(f"Query: {query_text}\nNo results.")
+                continue
+            observations.append(
+                self._retrieve_and_format_observation(
+                    query_text=query_text,
+                    sources=sources,
+                    errors=errors,
+                )
+            )
         return observations
 
-    def _execute_query(self, query_text: str) -> QueryObservationResult:
-        """Execute search and retrieval for one query.
+    def _execute_search_query(self, query_text: str) -> QuerySearchResult:
+        """Execute search for one query and return source candidates.
 
         Args:
             query_text: Query text to execute.
 
         Returns:
-            QueryObservationResult including observation text, errors, and status flags.
+            QuerySearchResult including source candidates, errors, and status flags.
         """
         if self._should_stop:
-            return QueryObservationResult(
+            return QuerySearchResult(
                 query_text=query_text,
-                observation=None,
+                sources=None,
                 errors=[],
                 mark_seen=False,
                 stopped=True,
@@ -252,32 +273,155 @@ class WebSearchAgent(Agent):
         try:
             result = self.search_tool.search(query)
         except Exception as exc:
-            return QueryObservationResult(
+            return QuerySearchResult(
                 query_text=query_text,
-                observation=None,
+                sources=None,
                 errors=[f"Search failed for query '{query_text}': {exc}"],
             )
 
-        if result is None:
-            return QueryObservationResult(
-                query_text=query_text,
-                observation=f"Query: {query_text}\nNo results.",
-                errors=[],
-                mark_seen=True,
-            )
-
-        query_errors: list[str] = []
-        observation = self._retrieve_and_format_observation(
+        return QuerySearchResult(
             query_text=query_text,
-            sources=result.sources,
-            errors=query_errors,
-        )
-        return QueryObservationResult(
-            query_text=query_text,
-            observation=observation,
-            errors=query_errors,
+            sources=result.sources if result is not None else None,
+            errors=[],
             mark_seen=True,
         )
+
+    def _select_sources_for_retrieval(
+        self,
+        candidates: list[tuple[str, Sequence[Source] | None]],
+    ) -> list[tuple[str, Sequence[Source] | None]]:
+        """Select relevant sources for retrieval from per-query candidates.
+
+        Args:
+            candidates: Per-query source candidates from the search phase.
+
+        Returns:
+            Per-query selected sources to retrieve. `None` means no sources for that query.
+        """
+        per_query_sources: dict[str, list[WebSource] | None] = {}
+        global_candidates: list[GlobalSourceCandidate] = []
+        for query_text, sources in candidates:
+            if sources is None:
+                per_query_sources[query_text] = None
+                continue
+            web_sources = [source for source in sources if isinstance(source, WebSource)]
+            per_query_sources[query_text] = web_sources
+            for source in web_sources:
+                global_candidates.append(GlobalSourceCandidate(query_text=query_text, source=source))
+
+        selected_urls: list[str] = []
+        logger.info(
+            f"All candidate URLs before filtering:\n{'\n    '.join([c.source.url for c in global_candidates])}"
+        )
+        if len(global_candidates) > 5:
+            max_selected_total = self.max_results_per_query * max(1, len(per_query_sources))
+            selected_urls = self._filter_sources_with_model(
+                candidates=global_candidates,
+                max_selected=max_selected_total,
+            )
+
+        selected_by_query: dict[str, list[WebSource]] = {query_text: [] for query_text, _ in candidates}
+        if selected_urls:
+            url_to_candidates: dict[str, list[GlobalSourceCandidate]] = {}
+            for candidate in global_candidates:
+                url_to_candidates.setdefault(candidate.source.url, []).append(candidate)
+            for url in selected_urls:
+                if url not in url_to_candidates or not url_to_candidates[url]:
+                    continue
+                candidate = url_to_candidates[url].pop(0)
+                selected_by_query[candidate.query_text].append(candidate.source)
+        else:
+            for query_text, sources in per_query_sources.items():
+                if sources is None:
+                    continue
+                selected_by_query[query_text].extend(sources)
+
+        selected: list[tuple[str, Sequence[Source] | None]] = []
+        for query_text, _ in candidates:
+            sources = per_query_sources.get(query_text)
+            if sources is None:
+                selected.append((query_text, None))
+                continue
+            picked = selected_by_query.get(query_text, [])[: self.max_results_per_query]
+            selected.append((query_text, picked))
+        return selected
+
+    def _filter_sources_with_model(
+        self,
+        candidates: list[GlobalSourceCandidate],
+        max_selected: int,
+    ) -> list[str]:
+        """Select the most relevant source URLs for a query via model reasoning.
+
+        Args:
+            candidates: Global URL candidates with source metadata and query context.
+            max_selected: Maximum number of URLs to keep.
+
+        Returns:
+            Ordered list of selected URLs. Returns an empty list if parsing fails.
+        """
+        candidates_payload = []
+        for idx, candidate in enumerate(candidates, start=1):
+            source = candidate.source
+            candidates_payload.append(
+                {
+                    "id": idx,
+                    "query": candidate.query_text,
+                    "url": source.url,
+                    "title": source.title or "",
+                    "snippet": source.preview or "",
+                    "release_date": source.release_date.isoformat() if source.release_date else None,
+                }
+            )
+
+        prompt_payload = {
+            "task": "Select globally relevant URLs across all query results.",
+            "max_selected": max_selected,
+            "candidates": candidates_payload,
+        }
+        selection_prompt = (
+            "You are a source relevance filter for fact-checking.\n"
+            "Select the most relevant URLs across all query results from the given candidates.\n"
+            "Favor specific, evidence-rich, and directly on-topic sources.\n"
+            "Return strict JSON only with schema:\n"
+            '{"selected_urls": ["https://..."]}\n\n'
+            f"Input JSON:\n{json.dumps(prompt_payload, ensure_ascii=True)}"
+        )
+        try:
+            response_text = self.model.generate(Prompt(text=selection_prompt)).text
+        except Exception as exc:
+            logger.error(f"[{self.name}] Global source filtering call failed: {exc}")
+            return []
+        return self._parse_selected_urls(response_text=response_text, max_selected=max_selected)
+
+    def _parse_selected_urls(self, response_text: str, max_selected: int) -> list[str]:
+        """Parse selected URL list from model output.
+
+        Args:
+            response_text: Raw model output expected to contain strict JSON.
+            max_selected: Maximum number of URLs allowed in the final selection.
+
+        Returns:
+            Parsed selected URL list, possibly empty on parse/validation failure.
+        """
+        text = response_text.strip()
+        if text.startswith("```"):
+            lines = [line for line in text.splitlines() if not line.startswith("```")]
+            text = "\n".join(lines).strip()
+        text = self._extract_json_object(text)
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            logger.error(f"[{self.name}] Failed to parse source filter output as JSON: {exc}")
+            return []
+
+        selected_urls = payload.get("selected_urls")
+        if not isinstance(selected_urls, list) or not all(isinstance(url, str) for url in selected_urls):
+            logger.error(f"[{self.name}] Invalid source filter output: selected_urls must be list[str].")
+            return []
+        selected_urls = [url.strip() for url in selected_urls if url.strip()]
+        logger.info(f"Model selected URLs:\n{"\n  ".join(selected_urls)}")
+        return selected_urls[:max_selected]
 
     def _plan_step(self, instruction: str, memory: list[str], errors: list[str]) -> SearchPlanStep | None:
         """Generate and parse the next search plan step from model output.
@@ -299,6 +443,7 @@ class WebSearchAgent(Agent):
             "Guidelines:\n"
             "- Keep queries specific and evidence-seeking.\n"
             "- If enough evidence is already gathered, set done=true and queries=[].\n"
+            f"- If you want to gather more information, set done=false and propose up to {self.max_queries_per_step} new queries.\n"
             "- You have multiple iterations to gather information, so you can search for facts building on previous findings.\n\n"
             f"Task:\n{instruction}\n\n"
             f"Previous syntheses:\n{chr(10).join(memory) if memory else 'None'}\n"
@@ -437,10 +582,7 @@ class WebSearchAgent(Agent):
             Formatted multi-line observation text for the query.
         """
         lines = [f"Query: {query_text}"]
-        web_sources = [source for source in sources if isinstance(source, WebSource)]
-
-        # Limit the number of sources to retrieve based on max_results_per_query.
-        selected_sources = web_sources[: self.max_results_per_query]
+        selected_sources = [source for source in sources if isinstance(source, WebSource)]
 
         # Batch retrieve content for all selected sources, handling retrieval errors gracefully.
         try:
