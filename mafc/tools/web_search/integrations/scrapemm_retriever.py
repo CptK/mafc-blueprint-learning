@@ -35,16 +35,14 @@ class ScrapeMMRetriever(RetrievalIntegration):
         return await asyncio.wait_for(coro, timeout=self.timeout_seconds)
 
     def _run_retrieve(self, url: str) -> Any:
-        from scrapemm.common.scraping_response import ScrapingResponse
-
         coro = _retrieve_url(url)
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(self._retrieve_with_timeout(coro))
 
-        result: ScrapingResponse | None = None
-        error: Exception | None = None
+        result = None
+        error = None
 
         def runner() -> None:
             nonlocal result, error
