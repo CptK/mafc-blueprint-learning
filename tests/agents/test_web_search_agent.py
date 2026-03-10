@@ -1,7 +1,7 @@
 from datetime import date
 
 from mafc.agents.common import AgentSession, AgentStatus
-from mafc.agents.web_search_agent import WebSearchAgent
+from mafc.agents.web_search.agent import WebSearchAgent
 from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
 from mafc.tools.web_search.common import Query, SearchResults, WebSource
