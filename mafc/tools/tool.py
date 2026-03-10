@@ -9,8 +9,8 @@ from ezmm import MultimodalSequence
 from mafc.common.modeling.model import Model
 from mafc.common.action import Action
 from mafc.common.logger import logger
-from mafc.common.evidence import Evidence
 from mafc.common.results import Results
+from mafc.tools.tool_result import ToolResult
 
 ActionType = TypeVar("ActionType", bound=Action)
 ResultType = TypeVar("ResultType", bound=Results)
@@ -28,7 +28,7 @@ class Tool(ABC, Generic[ActionType, ResultType]):
 
         self.current_claim_id: str | None = None  # used by few tools to adjust claim-specific behavior
 
-    def perform(self, action: ActionType, summarize: bool = True, **kwargs) -> Evidence:
+    def perform(self, action: ActionType, summarize: bool = True, **kwargs) -> ToolResult:
         assert type(action) in self.actions, f"Forbidden action: {action}"
 
         # Execute the action
@@ -61,9 +61,9 @@ class Tool(ABC, Generic[ActionType, ResultType]):
         else:
             summary = None
 
-        evidence = Evidence(raw=result, action=action, takeaways=summary)
+        tool_result = ToolResult(raw=result, action=action, takeaways=summary)
 
-        return evidence
+        return tool_result
 
     @abstractmethod
     def _perform(self, action: ActionType) -> ResultType:

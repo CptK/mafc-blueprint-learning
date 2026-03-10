@@ -6,6 +6,7 @@ from ezmm import MultimodalSequence
 
 from mafc.common.action import Action
 from mafc.common.results import Results
+from mafc.tools.tool_result import ToolResult
 from mafc.tools.tool import Tool
 
 
@@ -76,12 +77,13 @@ def test_perform_executes_and_summarizes() -> None:
     tool = SizedDummyTool()
     action = DummyAction(7)
 
-    evidence = tool.perform(action, summarize=True, note="keep")
+    result = tool.perform(action, summarize=True, note="keep")
 
-    assert evidence.action == action
-    raw = cast(SizedDummyResults, evidence.raw)
+    assert isinstance(result, ToolResult)
+    assert result.action == action
+    raw = cast(SizedDummyResults, result.raw)
     assert raw.values == [7, 2, 3]
-    assert evidence.takeaways is not None
+    assert result.takeaways is not None
     assert tool.summarize_calls == 1
     assert tool.last_kwargs == {"note": "keep"}
 
@@ -89,9 +91,9 @@ def test_perform_executes_and_summarizes() -> None:
 def test_perform_skips_summarization_when_disabled() -> None:
     tool = SizedDummyTool()
 
-    evidence = tool.perform(DummyAction(), summarize=False)
+    result = tool.perform(DummyAction(), summarize=False)
 
-    assert evidence.takeaways is None
+    assert result.takeaways is None
     assert tool.summarize_calls == 0
 
 
@@ -105,7 +107,7 @@ def test_perform_rejects_forbidden_action() -> None:
 def test_perform_handles_unsized_result() -> None:
     tool = UnsizedDummyTool()
 
-    evidence = tool.perform(DummyAction(), summarize=False)
+    result = tool.perform(DummyAction(), summarize=False)
 
-    raw = cast(UnsizedDummyResults, evidence.raw)
+    raw = cast(UnsizedDummyResults, result.raw)
     assert raw.text == "ok"
