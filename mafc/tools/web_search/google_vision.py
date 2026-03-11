@@ -17,7 +17,7 @@ class GoogleRisResults(SearchResults):
     """Reverse Image Search (RIS) results. Ship with additional object detection
     information next to the list of sources."""
 
-    entities: dict[str, float]  # mapping between entity description and confidence score
+    entities: dict[str, float]  # mapping between entity description and score
     best_guess_labels: list[str]
 
     @property
@@ -28,9 +28,9 @@ class GoogleRisResults(SearchResults):
         text = "**Reverse Image Search Results**"
 
         if self.entities:
-            text += "\n\nIdentified entities (confidence in parenthesis):\n"
+            text += "\n\nPossible identified entities:\n"
             text += "\n".join(
-                f"- {name} ({confidence * 100:.0f} %)" for name, confidence in self.entities.items()
+                f"- {name}" for name, _ in self.entities.items()
             )
 
         if self.best_guess_labels:

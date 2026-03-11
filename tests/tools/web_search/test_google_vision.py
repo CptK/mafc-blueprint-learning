@@ -15,7 +15,7 @@ def test_google_ris_results_string_and_repr() -> None:
     )
     text = str(results)
     assert "Reverse Image Search Results" in text
-    assert "Mountain (91 %)" in text
+    assert "Mountain" in text
     assert "Alps" in text
     assert "n_entities=1" in repr(results)
 
