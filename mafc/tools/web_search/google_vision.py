@@ -68,15 +68,15 @@ class GoogleVisionAPI:
 
     def search(self, query: Query) -> GoogleRisResults:
         """Run image reverse search through Google Vision API and parse results."""
-        if not query.has_image():
-            logger.error("[Google Vision API] Query does not contain an image for reverse search.")
+        if not query.has_media():
+            logger.error("[Google Vision API] Query does not contain media for reverse search.")
             return GoogleRisResults(sources=[], query=query, entities={}, best_guess_labels=[])
 
         if self.client is None:
             logger.error("[Google Vision API] Cannot perform search because client is not initialized.")
             return GoogleRisResults(sources=[], query=query, entities={}, best_guess_labels=[])
 
-        media = query.image
+        media = query.media
         if isinstance(media, Video):
             image_bytes = media.sample_frames(1, format="jpeg")[0]
         elif isinstance(media, Image):

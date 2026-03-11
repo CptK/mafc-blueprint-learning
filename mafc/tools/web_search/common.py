@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
 from typing import Sequence
-from ezmm import MultimodalSequence, Image
+from ezmm import MultimodalSequence, Image, Video
 
 from mafc.common.results import Results
 
@@ -18,20 +18,26 @@ class SearchMode(Enum):
 @dataclass
 class Query:
     text: str | None = None
-    image: Image | None = None
+    media: Image | Video | None = None
     search_mode: SearchMode | None = None
     limit: int | None = None
     start_date: date | None = None
     end_date: date | None = None
 
     def __post_init__(self):
-        assert self.text or self.image, "Query must have at least one of 'text' or 'image'."
+        assert self.text or self.media, "Query must have at least one of 'text' or 'media'."
 
     def has_text(self) -> bool:
         return self.text is not None
 
+    def has_media(self) -> bool:
+        return self.media is not None
+
     def has_image(self) -> bool:
-        return self.image is not None
+        return isinstance(self.media, Image)
+
+    def has_video(self) -> bool:
+        return isinstance(self.media, Video)
 
     @property
     def start_time(self) -> datetime | None:
@@ -44,7 +50,7 @@ class Query:
     def __eq__(self, other):
         return isinstance(other, Query) and (
             self.text == other.text
-            and self.image == other.image
+            and self.media == other.media
             and self.limit == other.limit
             and self.start_date == other.start_date
             and self.end_date == other.end_date
@@ -55,7 +61,7 @@ class Query:
         return hash(
             (
                 self.text,
-                self.image,
+                self.media,
                 self.limit,
                 self.start_date,
                 self.end_date,

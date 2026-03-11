@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 import pytest
-from ezmm import MultimodalSequence
+from ezmm import MultimodalSequence, Video
 
 from mafc.tools.web_search.common import Query, SearchMode, SearchResults, Source, WebSource
 
@@ -21,7 +21,9 @@ def test_query_helpers_and_time_properties() -> None:
     )
 
     assert query.has_text() is True
+    assert query.has_media() is False
     assert query.has_image() is False
+    assert query.has_video() is False
     assert query.start_time == datetime(2025, 1, 1, 0, 0, 0)
     assert query.end_time == datetime(2025, 1, 2, 23, 59, 59, 999999)
     assert query == Query(
@@ -32,6 +34,14 @@ def test_query_helpers_and_time_properties() -> None:
         end_date=date(2025, 1, 2),
     )
     assert len({query, Query(text="hello")}) == 2
+
+
+def test_query_accepts_video_media() -> None:
+    query = Query(media=Video(binary_data=b"video-bytes"))
+
+    assert query.has_media() is True
+    assert query.has_image() is False
+    assert query.has_video() is True
 
 
 def test_source_relevance_and_string() -> None:

@@ -164,7 +164,7 @@ class RemoteSearchPlatform(SearchPlatform):
 
         payload = {
             "text": query.text,
-            "image": _serialize(query.image),
+            "media": _serialize(query.media),
             "search_mode": _serialize(query.search_mode),
             "limit": query.limit,
             "start_date": _serialize(query.start_date),

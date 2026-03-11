@@ -9,7 +9,7 @@ Query = google_vision.Query
 def test_google_ris_results_string_and_repr() -> None:
     results = google_vision.GoogleRisResults(
         sources=[],
-        query=Query(text="q", image=object()),
+        query=Query(text="q", media=object()),
         entities={"Mountain": 0.91},
         best_guess_labels=["Alps"],
     )
@@ -35,7 +35,7 @@ def test_search_returns_empty_when_client_missing() -> None:
     api = google_vision.GoogleVisionAPI()
     api.client = None
 
-    out = api.search(Query(text="x", image=object()))
+    out = api.search(Query(text="x", media=object()))
 
     assert out.sources == []
 
@@ -52,7 +52,7 @@ def test_search_returns_empty_for_unsupported_media(monkeypatch) -> None:
     api = google_vision.GoogleVisionAPI()
     api.client = object()
 
-    out = api.search(Query(text="x", image=object()))
+    out = api.search(Query(text="x", media=object()))
 
     assert out.sources == []
 
@@ -74,7 +74,7 @@ def test_search_uses_parse_results_for_image(monkeypatch) -> None:
                 ),
             )
 
-    query = Query(text="x", image=FakeImage())
+    query = Query(text="x", media=FakeImage())
     api = google_vision.GoogleVisionAPI()
     api.client = FakeClient()
 
@@ -106,7 +106,7 @@ def test_parse_results_and_filter_unique_pages() -> None:
         pages_with_matching_images=[page1, page2, page3],
     )
 
-    result = google_vision._parse_results(web_detection, Query(text="q", image=object()))
+    result = google_vision._parse_results(web_detection, Query(text="q", media=object()))
 
     assert result.entities == {"Lake": 0.8}
     assert result.best_guess_labels == ["Landscape"]

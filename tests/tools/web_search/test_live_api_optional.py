@@ -49,7 +49,7 @@ def test_google_vision_live_api_small_call() -> None:
         pytest.skip("Google Vision client could not be initialized from available credentials.")
 
     image_path = Path(__file__).resolve().parents[2] / "assets" / "Paris.avif"
-    query = Query(text="landmark", image=cast(Image, Image(file_path=image_path)))
+    query = Query(text="landmark", media=cast(Image, Image(file_path=image_path)))
 
     out = _call_or_skip(lambda: api.search(query))
 

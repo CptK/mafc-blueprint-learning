@@ -20,7 +20,7 @@ class GoogleSearchPlatform(RemoteSearchPlatform):
         super().__init__(**kwargs)
 
     def _call_api(self, query: Query) -> SearchResults | None:
-        if self.enable_ris and query.has_image():
+        if self.enable_ris and query.has_media():
             return google_vision_api.search(query)
         else:
             return serper_api.search(query)

@@ -71,7 +71,7 @@ class SerperAPI:
         else:
             tbs = self.tbs
 
-        search_type = "image" if query.has_image() else "search"
+        search_type = "image" if query.has_media() else "search"
 
         output = self._call_serper_api(
             query.text,
@@ -148,7 +148,7 @@ class SerperAPI:
     def _parse_sources(self, response: dict, query: Query) -> list[WebSource]:
         # TODO: Process sitelinks
         sources = []
-        result_key = "images" if query.has_image() else "organic"
+        result_key = "images" if query.has_media() else "organic"
         result_bucket = response.get(result_key)
         if not result_bucket:
             return sources
