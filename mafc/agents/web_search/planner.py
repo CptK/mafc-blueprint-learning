@@ -9,11 +9,16 @@ from mafc.agents.web_search.models import SearchPlanStep
 from mafc.agents.web_search.parsing import extract_json_object, is_failed_model_text
 
 
-def plan_step(agent, instruction: str, memory: list[str], errors: list[str]) -> SearchPlanStep | None:
+def plan_step(
+    agent,
+    instruction: str,
+    prior_context: str,
+    errors: list[str],
+) -> SearchPlanStep | None:
     """Generate and parse the next search plan step from model output."""
     planner_prompt = (
         "You are a web-search planner.\n"
-        "Given the task and previous syntheses, propose next search queries.\n"
+        "Given the task and prior session context, propose next search queries.\n"
         "Return strict JSON with keys:\n"
         '- "queries": array of strings\n'
         '- "done": boolean\n\n'
@@ -21,9 +26,10 @@ def plan_step(agent, instruction: str, memory: list[str], errors: list[str]) -> 
         "- Keep queries specific and evidence-seeking.\n"
         "- If enough evidence is already gathered, set done=true and queries=[].\n"
         f"- If you want to gather more information, set done=false and propose up to {agent.max_queries_per_step} new queries.\n"
-        "- You have multiple iterations to gather information, so you can search for facts building on previous findings.\n\n"
+        "- You have multiple iterations to gather information, so you can search for facts building on previous findings.\n"
+        "- Use prior session context to answer follow-up questions efficiently and avoid repeating work.\n\n"
         f"Task:\n{instruction}\n\n"
-        f"Previous syntheses:\n{chr(10).join(memory) if memory else 'None'}\n"
+        f"Prior session context:\n{prior_context if prior_context else 'None'}\n\n"
     )
     try:
         response = agent.model.generate(Prompt(text=planner_prompt)).text

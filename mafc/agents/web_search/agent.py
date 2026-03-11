@@ -1,30 +1,27 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Protocol, cast
+from typing import cast
 
 from ezmm import MultimodalSequence
 
+from mafc.common.modeling.prompt import Prompt
 from mafc.agents.agent import Agent, AgentResult
-from mafc.agents.common import AgentMessage, AgentMessageType, AgentSession
+from mafc.agents.common import AgentSession
 from mafc.tools.tool import Tool
-from mafc.tools.web_search.common import Query, SearchResults
 from mafc.tools.web_search.google_search import GoogleSearchPlatform
 from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
 from mafc.common.modeling.model import Model
 
-from mafc.agents.web_search.models import SearchPlanStep, StepQueryPlan
+from mafc.agents.web_search.models import IterationOutcome, SearchPlanStep, StepQueryPlan, SearchTool
+from mafc.agents.web_search.parsing import is_failed_model_text
 from mafc.agents.web_search.planner import plan_step
-from mafc.agents.web_search.retrieval import collect_observations_for_queries
-from mafc.agents.web_search.synthesis import synthesize_step
-
-
-class SearchTool(Protocol):
-    """Minimal search interface required by the web-search agent."""
-
-    def search(self, query: Query) -> SearchResults | None:
-        pass
+from mafc.agents.web_search.retrieval import (
+    execute_search_queries,
+    retrieve_query_results,
+    select_sources_for_retrieval,
+)
 
 
 class WebSearchAgent(Agent):
@@ -55,81 +52,189 @@ class WebSearchAgent(Agent):
         self.latest_allowed_date = latest_allowed_date
 
     def run(self, session: AgentSession) -> AgentResult:
+        instruction, prior_context, errors, seen_queries, early_result = self._initialize_run(session)
+        if early_result:
+            return early_result
+
+        for step in range(1, self.max_iterations + 1):
+            iteration_outcome = self._execute_iteration(
+                session=session,
+                step=step,
+                instruction=instruction,
+                prior_context=prior_context,
+                seen_queries=seen_queries,
+                errors=errors,
+            )
+            if iteration_outcome.should_stop:
+                break
+
+        return self._finalize_run(
+            session=session,
+            instruction=instruction,
+            errors=errors,
+        )
+
+    def synthesize_from_evidences(self, instruction: str, evidences):
+        """Synthesize an answer directly from already accepted evidence."""
+        evidence_blocks = []
+        for evidence in evidences:
+            summary = (
+                str(evidence.takeaways).strip()
+                if evidence.takeaways is not None
+                else str(evidence.raw).strip()
+            )
+            if not summary:
+                continue
+            evidence_blocks.append(f"Source: {evidence.source}\nSummary: {summary}")
+
+        if not evidence_blocks:
+            return ""
+
+        synthesis_prompt = (
+            "You are a factual evidence synthesizer.\n"
+            "Answer the task using only the accepted evidence provided below.\n"
+            "State agreements and disagreements between sources when present.\n"
+            "Include concrete facts and source references where possible.\n"
+            "Call out important uncertainties or missing evidence.\n\n"
+            f"Task:\n{instruction}\n\n"
+            f"Accepted evidence:\n{chr(10).join(evidence_blocks)}"
+        )
+        try:
+            synthesis = self.summarization_model.generate(Prompt(text=synthesis_prompt)).text.strip()
+            if not synthesis or is_failed_model_text(synthesis):
+                return "\n\n".join(evidence_blocks)
+            return synthesis
+        except Exception:
+            return "\n\n".join(evidence_blocks)
+
+    def _initialize_run(
+        self,
+        session: AgentSession,
+    ) -> tuple[str, str, list[str], set[str], AgentResult | None]:
+        """Prepare one run and return early result on invalid preconditions."""
         self._mark_running(session)
         instruction = str(session.goal).strip()
+        prior_context = self.build_prior_context(session)
         if self._should_stop:
             self._mark_failed(session)
-            return AgentResult(
-                session=session,
-                result=None,
-                errors=["Agent was stopped before execution started."],
-                status=session.status,
+            return (
+                instruction,
+                prior_context,
+                [],
+                set(),
+                AgentResult(
+                    session=session,
+                    result=None,
+                    errors=["Agent was stopped before execution started."],
+                    status=session.status,
+                ),
             )
         if not instruction:
             self._mark_failed(session)
+            return (
+                instruction,
+                prior_context,
+                [],
+                set(),
+                AgentResult(
+                    session=session,
+                    result=None,
+                    errors=["Task prompt is empty."],
+                    status=session.status,
+                ),
+            )
+        return instruction, prior_context, [], set(), None
+
+    def _execute_iteration(
+        self,
+        session: AgentSession,
+        step: int,
+        instruction: str,
+        prior_context: str,
+        seen_queries: set[str],
+        errors: list[str],
+    ) -> IterationOutcome:
+        """Execute one planning and retrieval iteration."""
+        if self._should_stop:
+            errors.append("Agent execution stopped early by stop signal.")
+            return IterationOutcome(should_stop=True)
+
+        step_plan = self._resolve_step_query_plan(
+            step=step,
+            instruction=instruction,
+            prior_context=prior_context,
+            seen_queries=seen_queries,
+            errors=errors,
+        )
+        if step_plan.should_terminate:
+            return IterationOutcome(should_stop=True)
+
+        candidate_sources = execute_search_queries(
+            queries=step_plan.queries,
+            seen_queries=seen_queries,
+            errors=errors,
+            search_tool=self.search_tool,
+            n_workers=self.n_workers,
+            max_results_per_query=self.max_results_per_query,
+            latest_allowed_date=self.latest_allowed_date,
+        )
+        selected_sources = select_sources_for_retrieval(
+            candidate_sources,
+            model=self.model,
+            max_results_per_query=self.max_results_per_query,
+        )
+        query_results = retrieve_query_results(
+            selected_sources,
+            errors=errors,
+            model=self.summarization_model,
+            retriever=self.retriever,
+        )
+        if not candidate_sources or not query_results:
+            errors.append(f"No observations produced in iteration {step}.")
+            return IterationOutcome(should_stop=True)
+
+        new_evidences = [evidence for query_result in query_results for evidence in query_result.evidences]
+        if new_evidences:
+            session.evidences.extend(new_evidences)
+        return IterationOutcome(should_stop=step_plan.done)
+
+    def _finalize_run(
+        self,
+        session: AgentSession,
+        instruction: str,
+        errors: list[str],
+    ) -> AgentResult:
+        """Produce the final run result from the accumulated session evidence."""
+        if not session.evidences:
+            self._mark_failed(session)
             return AgentResult(
                 session=session,
                 result=None,
-                errors=["Task prompt is empty."],
+                evidences=list(session.evidences),
+                errors=errors,
                 status=session.status,
             )
 
-        errors: list[str] = []
-        memory: list[str] = []
-        seen_queries: set[str] = set()
-
-        for step in range(1, self.max_iterations + 1):
-            if self._should_stop:
-                errors.append("Agent execution stopped early by stop signal.")
-                break
-
-            step_plan = self._resolve_step_query_plan(
-                step=step,
-                instruction=instruction,
-                memory=memory,
-                seen_queries=seen_queries,
-                errors=errors,
-            )
-            if step_plan.should_terminate:
-                break
-
-            observations = collect_observations_for_queries(
-                agent=self,
-                queries=step_plan.queries,
-                seen_queries=seen_queries,
-                errors=errors,
-            )
-            if not observations:
-                errors.append(f"No observations produced in iteration {step}.")
-                break
-
-            synthesis = synthesize_step(self, instruction, observations)
-            memory.append(f"Iteration {step} synthesis:\n{synthesis}")
-
-            if step_plan.done:
-                break
-
-        if not memory:
+        synthesis = self.synthesize_from_evidences(instruction, session.evidences)
+        if not synthesis.strip():
             self._mark_failed(session)
-            return AgentResult(session=session, result=None, errors=errors, status=session.status)
+            return AgentResult(
+                session=session,
+                result=None,
+                evidences=list(session.evidences),
+                errors=errors,
+                status=session.status,
+            )
 
-        final_text = "\n\n".join(memory)
-        result_text = MultimodalSequence(final_text)
-        result_message = AgentMessage(
-            id=f"{session.id}:result",
-            session_id=session.id,
-            sender=self.name,
-            receiver=session.parent_session_id or session.id,
-            message_type=AgentMessageType.RESULT,
-            content=result_text,
-        )
+        result_text = MultimodalSequence(synthesis)
+        result_message = self.make_result_message(session, result_text, list(session.evidences))
         session.messages.append(result_message)
         self._mark_completed(session)
         return AgentResult(
             session=session,
             result=result_text,
             messages=[result_message],
-            evidences=[],
+            evidences=list(session.evidences),
             errors=errors,
             status=session.status,
         )
@@ -138,11 +243,11 @@ class WebSearchAgent(Agent):
         self,
         step: int,
         instruction: str,
-        memory: list[str],
+        prior_context: str,
         seen_queries: set[str],
         errors: list[str],
     ) -> StepQueryPlan:
-        plan = plan_step(self, instruction, memory, errors)
+        plan = plan_step(self, instruction, prior_context, errors)
         if plan is None:
             if step == 1:
                 errors.append(

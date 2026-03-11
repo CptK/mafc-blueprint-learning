@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 
 from mafc.agents.web_search.parsing import is_failed_model_text
 
 
-def synthesize_step(agent, instruction: str, observations: list[str]) -> str:
+def synthesize_step(model: Model, instruction: str, observations: list[str]) -> str:
     """Synthesize current observations across sources for the current step."""
     synthesis_prompt = (
         "You are a factual evidence synthesizer.\n"
@@ -17,7 +18,7 @@ def synthesize_step(agent, instruction: str, observations: list[str]) -> str:
         f"Observations:\n{chr(10).join(observations)}"
     )
     try:
-        synthesis = agent.summarization_model.generate(Prompt(text=synthesis_prompt)).text.strip()
+        synthesis = model.generate(Prompt(text=synthesis_prompt)).text.strip()
         if not synthesis or is_failed_model_text(synthesis):
             return "\n\n".join(observations)
         return synthesis
@@ -25,7 +26,7 @@ def synthesize_step(agent, instruction: str, observations: list[str]) -> str:
         return "\n\n".join(observations)
 
 
-def summarize_observation(agent, instruction: str, observation: str) -> str:
+def summarize_observation(model: Model, instruction: str, observation: str) -> str:
     """Summarize a single observation block with the summarization model."""
     summary_prompt = (
         "You are a factual evidence summarizer.\n"
@@ -35,7 +36,7 @@ def summarize_observation(agent, instruction: str, observation: str) -> str:
         f"Observation:\n{observation}"
     )
     try:
-        summary = agent.summarization_model.generate(Prompt(text=summary_prompt)).text.strip()
+        summary = model.generate(Prompt(text=summary_prompt)).text.strip()
         if not summary or is_failed_model_text(summary):
             return observation
         return summary

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
+from mafc.common.evidence import Evidence
 from mafc.tools.web_search.common import Source, WebSource
+from mafc.tools.web_search.common import Query, SearchResults
 
 
 @dataclass
@@ -38,3 +41,26 @@ class GlobalSourceCandidate:
 
     query_text: str
     source: WebSource
+
+
+@dataclass
+class QueryInvestigationResult:
+    """Structured retrieval output for one handled query."""
+
+    query_text: str
+    observation_text: str
+    evidences: list[Evidence]
+
+
+@dataclass
+class IterationOutcome:
+    """Run-loop outcome for one iteration."""
+
+    should_stop: bool
+
+
+class SearchTool(Protocol):
+    """Minimal search interface required by the web-search agent."""
+
+    def search(self, query: Query) -> SearchResults | None:
+        pass

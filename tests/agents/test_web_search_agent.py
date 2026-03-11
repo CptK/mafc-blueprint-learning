@@ -1,6 +1,6 @@
 from datetime import date
 
-from mafc.agents.common import AgentSession, AgentStatus
+from mafc.agents.common import AgentMessageType, AgentSession, AgentStatus
 from mafc.agents.web_search.agent import WebSearchAgent
 from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
@@ -63,7 +63,7 @@ def test_web_search_agent_iterative_loop() -> None:
             '{"queries":[],"done":true}',
         ]
     )
-    summarizer = SequencedModel(outputs=["Summary step 1"])
+    summarizer = SequencedModel(outputs=["Summary step 1", "Final synthesis"])
     retriever = FakeRetriever({"https://a.example.com": "Retrieved page content A"})
     search_tool = FakeSearchTool(
         {
@@ -86,11 +86,60 @@ def test_web_search_agent_iterative_loop() -> None:
     assert out.result is not None
     assert out.session.status == AgentStatus.COMPLETED
     assert len(out.messages) == 1
-    assert "Iteration 1 synthesis:" in str(out.result)
-    assert "Summary step 1" in str(out.result)
+    assert len(out.evidences) == 1
+    assert out.evidences[0].source == "https://a.example.com"
+    assert out.messages[0].evidences == out.evidences
+    assert "Final synthesis" in str(out.result)
     assert out.errors == []
     assert search_tool.queries == ["Samrat Choudhary helicopter fall election campaign"]
     assert retriever.calls == ["https://a.example.com"]
+
+
+def test_web_search_agent_uses_prior_session_context_for_follow_up() -> None:
+    planner = SequencedModel(
+        outputs=[
+            '{"queries":["winner baden-wuerttemberg landtagswahl"],"done":true}',
+            '{"queries":[],"done":true}',
+        ]
+    )
+    summarizer = SequencedModel(outputs=["Win summary", "Election synthesis", "Seat distribution summary"])
+    retriever = FakeRetriever({"https://a.example.com": "Parliament result article"})
+    search_tool = FakeSearchTool(
+        {
+            "winner baden-wuerttemberg landtagswahl": _make_search_result(
+                "winner baden-wuerttemberg landtagswahl",
+                ["https://a.example.com"],
+            )
+        }
+    )
+    agent = WebSearchAgent(
+        main_model=planner,
+        summarization_model=summarizer,
+        search_tool=search_tool,
+        retriever=retriever,
+    )
+    session = _make_session("Wer hat die letzte Landtagswahl in Baden-Wuerttemberg gewonnen?")
+
+    first = agent.run(session)
+    assert first.result is not None
+    assert len(session.evidences) == 1
+
+    session.goal = Prompt(text="Wie ist die Sitzverteilung im neuen Parlament?")
+    second = agent.run(session)
+
+    assert second.result is not None
+    assert second.session.status == AgentStatus.COMPLETED
+    assert second.errors == []
+    assert "Accepted evidence:" in planner.calls[1]
+    assert "https://a.example.com" in planner.calls[1]
+    assert "Election synthesis" in planner.calls[1]
+    assert "Seat distribution summary" in str(second.result) or "Source: https://a.example.com" in str(
+        second.result
+    )
+    assert len(second.evidences) == 1
+    assert (
+        len([message for message in session.messages if message.message_type == AgentMessageType.RESULT]) == 2
+    )
 
 
 def test_web_search_agent_handles_invalid_planner_output() -> None:
@@ -100,7 +149,8 @@ def test_web_search_agent_handles_invalid_planner_output() -> None:
     agent = WebSearchAgent(main_model=planner, search_tool=search_tool, retriever=retriever)
 
     out = agent.run(_make_session("Any task"))
-    assert out.result is not None
+    assert out.result is None
+    assert out.session.status == AgentStatus.FAILED
     assert "Falling back to the original task text" in out.errors[0]
     assert search_tool.queries == ["Any task"]
 
@@ -139,6 +189,8 @@ def test_web_search_agent_collects_retrieval_errors() -> None:
     out = agent.run(_make_session("Any task"))
     assert out.result is not None
     assert out.errors == ["Failed to retrieve content from https://a.example.com"]
+    assert len(out.evidences) == 1
+    assert out.evidences[0].source == "https://a.example.com"
 
 
 def test_web_search_agent_parses_json_embedded_in_text() -> None:
@@ -184,7 +236,7 @@ def test_web_search_agent_repairs_non_json_planner_output() -> None:
 
 def test_web_search_agent_falls_back_when_summary_is_failure_text() -> None:
     planner = SequencedModel(outputs=['{"queries":["q1"],"done":true}'])
-    summarizer = SequencedModel(outputs=["Failed to generate a response."])
+    summarizer = SequencedModel(outputs=["Failed to generate a response.", "Failed to generate a response."])
     search_tool = FakeSearchTool({"q1": _make_search_result("q1", ["https://a.example.com"])})
     retriever = FakeRetriever({"https://a.example.com": "retrieved content"})
     agent = WebSearchAgent(
@@ -196,7 +248,9 @@ def test_web_search_agent_falls_back_when_summary_is_failure_text() -> None:
 
     out = agent.run(_make_session("Any task"))
     assert out.result is not None
-    assert "retrieved content" in str(out.result)
+    assert "Source: https://a.example.com" in str(out.result)
+    assert len(out.evidences) == 1
+    assert out.evidences[0].is_useful() is True
 
 
 def test_web_search_agent_passes_end_date_to_query() -> None:

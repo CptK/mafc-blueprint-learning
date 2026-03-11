@@ -3,81 +3,108 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Sequence
+from datetime import date
 
+from ezmm import MultimodalSequence
+
+from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
 from mafc.common.modeling.prompt import Prompt
+from mafc.common.modeling.model import Model
 from mafc.tools.web_search.common import Query, Source, WebSource
+from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 
-from mafc.agents.web_search.models import GlobalSourceCandidate, QuerySearchResult
+from mafc.agents.web_search.actions import InspectWebSource
+from mafc.agents.web_search.models import (
+    GlobalSourceCandidate,
+    QueryInvestigationResult,
+    QuerySearchResult,
+    SearchTool,
+)
 from mafc.agents.web_search.parsing import extract_json_object
 from mafc.agents.web_search.synthesis import summarize_observation
 
 
-def collect_observations_for_queries(
-    agent,
+def execute_search_queries(
     queries: list[str],
     seen_queries: set[str],
     errors: list[str],
-) -> list[str]:
-    """Search all queries first, then retrieve and format observations."""
-    if agent._should_stop:
-        errors.append("Agent execution stopped early by stop signal.")
-        return []
-
-    if agent.n_workers <= 1:
-        results = [execute_search_query(agent, query_text) for query_text in queries]
+    search_tool: SearchTool,
+    n_workers: int = 1,
+    max_results_per_query: int = 5,
+    latest_allowed_date: date | None = None,
+) -> list[tuple[str, Sequence[Source] | None]]:
+    """Execute all search queries and return source candidates per query."""
+    if n_workers <= 1:
+        results = [
+            execute_search_query(query_text, search_tool, max_results_per_query, latest_allowed_date)
+            for query_text in queries
+        ]
     else:
-        max_workers = min(agent.n_workers, len(queries))
+        max_workers = min(n_workers, len(queries))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            results = list(pool.map(lambda query_text: execute_search_query(agent, query_text), queries))
+            results = list(
+                pool.map(
+                    lambda query_text: execute_search_query(
+                        query_text,
+                        search_tool,
+                        max_results_per_query,
+                        latest_allowed_date,
+                    ),
+                    queries,
+                )
+            )
 
-    observations: list[str] = []
     candidate_sources: list[tuple[str, Sequence[Source] | None]] = []
-    stop_recorded = False
     for result in results:
         if result.errors:
             errors.extend(result.errors)
-        if result.stopped and not stop_recorded:
-            errors.append("Agent execution stopped early by stop signal.")
-            stop_recorded = True
         if result.mark_seen:
             seen_queries.add(result.query_text)
             candidate_sources.append((result.query_text, result.sources))
+    return candidate_sources
 
-    selected_sources = select_sources_for_retrieval(agent, candidate_sources)
+
+def retrieve_query_results(
+    selected_sources: list[tuple[str, Sequence[Source] | None]],
+    errors: list[str],
+    model: Model,
+    retriever: RetrievalIntegration,
+) -> list[QueryInvestigationResult]:
+    """Retrieve selected sources and extract structured per-query results."""
+    query_results: list[QueryInvestigationResult] = []
     for query_text, sources in selected_sources:
         if sources is None:
-            observations.append(f"Query: {query_text}\nNo results.")
+            query_results.append(
+                QueryInvestigationResult(
+                    query_text=query_text,
+                    observation_text=f"Query: {query_text}\nNo results.",
+                    evidences=[],
+                )
+            )
             continue
-        observations.append(
-            retrieve_and_format_observation(
-                agent=agent,
-                query_text=query_text,
-                sources=sources,
-                errors=errors,
+        query_results.append(
+            retrieve_and_extract_evidence(
+                query_text=query_text, sources=sources, errors=errors, model=model, retriever=retriever
             )
         )
-    return observations
+    return query_results
 
 
-def execute_search_query(agent, query_text: str) -> QuerySearchResult:
+def execute_search_query(
+    query_text: str,
+    search_tool: SearchTool,
+    max_results_per_query: int = 5,
+    latest_allowed_date: date | None = None,
+) -> QuerySearchResult:
     """Execute search for one query and return source candidates."""
-    if agent._should_stop:
-        return QuerySearchResult(
-            query_text=query_text,
-            sources=None,
-            errors=[],
-            mark_seen=False,
-            stopped=True,
-        )
-
     query = Query(
         text=query_text,
-        limit=agent.max_results_per_query,
-        end_date=agent.latest_allowed_date,
+        limit=max_results_per_query,
+        end_date=latest_allowed_date,
     )
     try:
-        result = agent.search_tool.search(query)
+        result = search_tool.search(query)
     except Exception as exc:
         return QuerySearchResult(
             query_text=query_text,
@@ -94,8 +121,9 @@ def execute_search_query(agent, query_text: str) -> QuerySearchResult:
 
 
 def select_sources_for_retrieval(
-    agent,
     candidates: list[tuple[str, Sequence[Source] | None]],
+    model: Model,
+    max_results_per_query: int = 5,
 ) -> list[tuple[str, Sequence[Source] | None]]:
     """Select relevant sources for retrieval from per-query candidates."""
     per_query_sources: dict[str, list[WebSource] | None] = {}
@@ -114,11 +142,11 @@ def select_sources_for_retrieval(
         f"All candidate URLs before filtering:\n{'\n    '.join([c.source.url for c in global_candidates])}"
     )
     if len(global_candidates) > 5:
-        max_selected_total = agent.max_results_per_query * max(1, len(per_query_sources))
+        max_selected_total = max_results_per_query * max(1, len(per_query_sources))
         selected_urls = filter_sources_with_model(
-            agent=agent,
             candidates=global_candidates,
             max_selected=max_selected_total,
+            model=model,
         )
 
     selected_by_query: dict[str, list[WebSource]] = {query_text: [] for query_text, _ in candidates}
@@ -143,12 +171,16 @@ def select_sources_for_retrieval(
         if sources is None:
             selected.append((query_text, None))
             continue
-        picked = selected_by_query.get(query_text, [])[: agent.max_results_per_query]
+        picked = selected_by_query.get(query_text, [])[:max_results_per_query]
         selected.append((query_text, picked))
     return selected
 
 
-def filter_sources_with_model(agent, candidates: list[GlobalSourceCandidate], max_selected: int) -> list[str]:
+def filter_sources_with_model(
+    candidates: list[GlobalSourceCandidate],
+    max_selected: int,
+    model: Model,
+) -> list[str]:
     """Select the most relevant source URLs for a query via model reasoning."""
     candidates_payload = []
     for idx, candidate in enumerate(candidates, start=1):
@@ -173,19 +205,20 @@ def filter_sources_with_model(agent, candidates: list[GlobalSourceCandidate], ma
         "You are a source relevance filter for fact-checking.\n"
         "Select the most relevant URLs across all query results from the given candidates.\n"
         "Favor specific, evidence-rich, and directly on-topic sources.\n"
+        f"You can select up to {max_selected} URLs in total. If there are no good sources, you can select none.\n"
         "Return strict JSON only with schema:\n"
         '{"selected_urls": ["https://..."]}\n\n'
         f"Input JSON:\n{json.dumps(prompt_payload, ensure_ascii=True)}"
     )
     try:
-        response_text = agent.model.generate(Prompt(text=selection_prompt)).text
+        response_text = model.generate(Prompt(text=selection_prompt)).text
     except Exception as exc:
-        logger.error(f"[{agent.name}] Global source filtering call failed: {exc}")
+        logger.error(f"[WebSearch-Agent] Global source filtering call failed: {exc}")
         return []
-    return parse_selected_urls(agent, response_text=response_text, max_selected=max_selected)
+    return parse_selected_urls(response_text=response_text, max_selected=max_selected)
 
 
-def parse_selected_urls(agent, response_text: str, max_selected: int) -> list[str]:
+def parse_selected_urls(response_text: str, max_selected: int) -> list[str]:
     """Parse selected URL list from model output."""
     text = response_text.strip()
     if text.startswith("```"):
@@ -195,46 +228,87 @@ def parse_selected_urls(agent, response_text: str, max_selected: int) -> list[st
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        logger.error(f"[{agent.name}] Failed to parse source filter output as JSON: {exc}")
+        logger.error(f"[WebSearch-Agent] Failed to parse source filter output as JSON: {exc}")
         return []
 
     selected_urls = payload.get("selected_urls")
     if not isinstance(selected_urls, list) or not all(isinstance(url, str) for url in selected_urls):
-        logger.error(f"[{agent.name}] Invalid source filter output: selected_urls must be list[str].")
+        logger.error("[WebSearch-Agent] Invalid source filter output: selected_urls must be list[str].")
         return []
     selected_urls = [url.strip() for url in selected_urls if url.strip()]
     logger.info("Model selected URLs:\n" + "\n  ".join(selected_urls))
     return selected_urls[:max_selected]
 
 
-def retrieve_and_format_observation(
-    agent,
+def retrieve_and_extract_evidence(
     query_text: str,
     sources: Sequence[Source],
     errors: list[str],
-) -> str:
-    """Retrieve source content in batch and format it into an observation block."""
+    model: Model,
+    retriever: RetrievalIntegration,
+) -> QueryInvestigationResult:
+    """Retrieve source content in batch and turn it into observations and evidence."""
     lines = [f"Query: {query_text}"]
     selected_sources = [source for source in sources if isinstance(source, WebSource)]
+    evidences: list[Evidence] = []
 
     try:
-        contents = agent.retriever.retrieve_batch([source.url for source in selected_sources])
+        contents = retriever.retrieve_batch([source.url for source in selected_sources])
     except Exception as exc:
         errors.append(f"Batch retrieval failed for query '{query_text}': {exc}")
-        logger.error(f"[{agent.name}] Batch retrieval failed for query '{query_text}': {exc}")
+        logger.error(f"[WebSearch-Agent] Batch retrieval failed for query '{query_text}': {exc}")
         contents = [None] * len(selected_sources)
 
     for source, content in zip(selected_sources, contents):
         if content is None:
             errors.append(f"Failed to retrieve content from {source.url}")
-            logger.debug(f"[{agent.name}] Failed to retrieve content from {source.url}")
+            logger.debug(f"[WebSearch-Agent] Failed to retrieve content from {source.url}")
             snippet = source.preview or "No retrieved content."
+            raw_text = source.preview or ""
         else:
-            if str(content).strip():
-                snippet = summarize_observation(agent, instruction=query_text, observation=str(content))
+            content_text = str(content).strip()
+            if content_text:
+                snippet = summarize_observation(model=model, instruction=query_text, observation=content_text)
+                raw_text = content_text
             else:
                 snippet = "Retrieved content was empty."
+                raw_text = ""
         title = source.title or "Untitled"
         lines.append(f"- {title} | {source.url}\n  Content snippet: {snippet}")
+        evidence = build_evidence_from_source(
+            query_text=query_text,
+            source=source,
+            raw_text=raw_text,
+            snippet=snippet,
+        )
+        if evidence is not None:
+            evidences.append(evidence)
 
-    return "\n".join(lines)
+    return QueryInvestigationResult(
+        query_text=query_text,
+        observation_text="\n".join(lines),
+        evidences=evidences,
+    )
+
+
+def build_evidence_from_source(
+    query_text: str,
+    source: WebSource,
+    raw_text: str,
+    snippet: str,
+) -> Evidence | None:
+    """Build one source-backed evidence item from a retrieved web source."""
+    raw_payload = raw_text.strip()
+    takeaway_text = snippet.strip()
+    if not raw_payload and not takeaway_text:
+        return None
+    return Evidence(
+        raw=MultimodalSequence(raw_payload or takeaway_text),
+        action=InspectWebSource(
+            query_text=query_text,
+            source_url=source.url,
+            source_title=source.title,
+        ),
+        source=source.url,
+        takeaways=MultimodalSequence(takeaway_text) if takeaway_text else None,
+    )
