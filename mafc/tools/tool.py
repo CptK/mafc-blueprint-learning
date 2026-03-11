@@ -31,14 +31,14 @@ class Tool(ABC, Generic[ActionType, ResultType]):
         # Execute the action
         try:
             result = self._perform(action)
-        except Exception as e:
+        except Exception:
             raise
 
         # Summarize the result
         if summarize:
             try:
                 summary = self._summarize(result, **kwargs)
-            except Exception as e:
+            except Exception:
                 raise
         else:
             summary = None
