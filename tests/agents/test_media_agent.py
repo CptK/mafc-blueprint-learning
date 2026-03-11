@@ -68,7 +68,12 @@ def _registered_video() -> Video:
 
 def test_media_agent_runs_geolocate_for_location_question() -> None:
     image = _registered_image()
-    model = SequencedModel(outputs=["The image was likely taken in Greece."])
+    model = SequencedModel(
+        outputs=[
+            '{"tools":["geolocate"]}',
+            "The image was likely taken in Greece.",
+        ]
+    )
     ris_result = ToolResult(
         raw=GoogleRisResults(sources=[], query=Query(text="seed"), entities={}, best_guess_labels=[]),
         action=ReverseImageSearch(image.reference),
@@ -101,7 +106,12 @@ def test_media_agent_runs_geolocate_for_location_question() -> None:
 
 def test_media_agent_runs_ris_for_publication_question() -> None:
     image = _registered_image()
-    model = SequencedModel(outputs=["The image appeared on example.com."])
+    model = SequencedModel(
+        outputs=[
+            '{"tools":["reverse_image_search"]}',
+            "The image appeared on example.com.",
+        ]
+    )
     ris_result = ToolResult(
         raw=GoogleRisResults(
             sources=[WebSource(reference="https://example.com/a", title="A")],
@@ -133,7 +143,10 @@ def test_media_agent_runs_ris_for_publication_question() -> None:
 def test_media_agent_runs_geolocate_for_video_questions() -> None:
     video = _registered_video()
     model = SequencedModel(
-        outputs=["The video was likely taken in Greece, but no publication match was found."]
+        outputs=[
+            '{"tools":["reverse_image_search","geolocate"]}',
+            "The video was likely taken in Greece, but no publication match was found.",
+        ]
     )
     ris_result = ToolResult(
         raw=GoogleRisResults(sources=[], query=Query(text="seed"), entities={}, best_guess_labels=[]),
@@ -178,7 +191,12 @@ def test_media_agent_synthesis_handles_models_that_require_prompt_objects() -> N
             assert isinstance(prompt, Prompt)
             return super().generate(prompt)
 
-    model = PromptOnlyModel(outputs=["The image was likely taken in Greece."])
+    model = PromptOnlyModel(
+        outputs=[
+            '{"tools":["geolocate"]}',
+            "The image was likely taken in Greece.",
+        ]
+    )
     geo_result = ToolResult(
         raw=GeolocationResults(
             text="Most likely location: Greece",
@@ -213,7 +231,9 @@ def test_media_agent_returns_only_model_selected_evidences_for_follow_up() -> No
     image = _registered_image()
     model = SequencedModel(
         outputs=[
+            '{"tools":["geolocate","reverse_image_search"]}',
             '{"answer":"The image was likely taken in Greece.","relevant_evidence_ids":["ev_1"]}',
+            '{"tools":["reverse_image_search"]}',
             '{"answer":"The image appears on example.com.","relevant_evidence_ids":["ev_2"]}',
         ]
     )
@@ -262,7 +282,12 @@ def test_media_agent_returns_only_model_selected_evidences_for_follow_up() -> No
 
 def test_media_agent_falls_back_to_all_evidences_when_synthesis_json_parsing_fails() -> None:
     image = _registered_image()
-    model = SequencedModel(outputs=["The image was likely taken in Greece."])
+    model = SequencedModel(
+        outputs=[
+            '{"tools":["geolocate"]}',
+            "The image was likely taken in Greece.",
+        ]
+    )
     geo_result = ToolResult(
         raw=GeolocationResults(
             text="Most likely location: Greece",
@@ -292,3 +317,117 @@ def test_media_agent_falls_back_to_all_evidences_when_synthesis_json_parsing_fai
     assert str(out.result) == "The image was likely taken in Greece."
     assert len(out.evidences) == 1
     assert out.evidences[0].source == image.reference
+
+
+def test_media_agent_parses_tool_plan_embedded_in_text() -> None:
+    image = _registered_image()
+    model = SequencedModel(
+        outputs=[
+            'Plan:\n{"tools":["geolocate"]}\nThanks',
+            "The image was likely taken in Greece.",
+        ]
+    )
+    geo_result = ToolResult(
+        raw=GeolocationResults(
+            text="Most likely location: Greece",
+            most_likely_location="Greece",
+            top_k_locations=["Greece", "Italy"],
+            model_output={"ok": True},
+        ),
+        action=Geolocate(image.reference),
+        takeaways=MultimodalSequence("Most likely location: Greece"),
+    )
+    ris_tool = FakeRisTool(
+        ToolResult(
+            raw=GoogleRisResults(sources=[], query=Query(text="seed"), entities={}, best_guess_labels=[]),
+            action=ReverseImageSearch(image.reference),
+            takeaways=None,
+        )
+    )
+    geolocator = FakeGeolocator(geo_result)
+    agent = MediaAgent(model=model, summarization_model=model, ris_tool=ris_tool, geolocator=geolocator)
+
+    out = agent.run(_make_session(MultimodalSequence("Where was this image taken?", image)))
+
+    assert out.result is not None
+    assert len(ris_tool.actions) == 0
+    assert len(geolocator.actions) == 1
+    assert out.errors == []
+
+
+def test_media_agent_repairs_non_json_tool_plan() -> None:
+    image = _registered_image()
+    model = SequencedModel(
+        outputs=[
+            "I should geolocate this image first.",
+            '{"tools":["geolocate"]}',
+            "The image was likely taken in Greece.",
+        ]
+    )
+    geo_result = ToolResult(
+        raw=GeolocationResults(
+            text="Most likely location: Greece",
+            most_likely_location="Greece",
+            top_k_locations=["Greece", "Italy"],
+            model_output={"ok": True},
+        ),
+        action=Geolocate(image.reference),
+        takeaways=MultimodalSequence("Most likely location: Greece"),
+    )
+    ris_tool = FakeRisTool(
+        ToolResult(
+            raw=GoogleRisResults(sources=[], query=Query(text="seed"), entities={}, best_guess_labels=[]),
+            action=ReverseImageSearch(image.reference),
+            takeaways=None,
+        )
+    )
+    geolocator = FakeGeolocator(geo_result)
+    agent = MediaAgent(model=model, summarization_model=model, ris_tool=ris_tool, geolocator=geolocator)
+
+    out = agent.run(_make_session(MultimodalSequence("Where was this image taken?", image)))
+
+    assert out.result is not None
+    assert len(ris_tool.actions) == 0
+    assert len(geolocator.actions) == 1
+    assert out.errors == []
+
+
+def test_media_agent_falls_back_to_both_tools_when_tool_plan_parsing_fails() -> None:
+    image = _registered_image()
+    model = SequencedModel(
+        outputs=[
+            "not-json",
+            "also not-json",
+            '{"answer":"The image was likely taken in Greece and appears on example.com.","relevant_evidence_ids":["ev_1","ev_2"]}',
+        ]
+    )
+    ris_result = ToolResult(
+        raw=GoogleRisResults(
+            sources=[WebSource(reference="https://example.com/a", title="A")],
+            query=Query(text="seed"),
+            entities={"Mountain": 0.8},
+            best_guess_labels=["Alps"],
+        ),
+        action=ReverseImageSearch(image.reference),
+        takeaways=MultimodalSequence("Reverse image search found a match on example.com."),
+    )
+    geo_result = ToolResult(
+        raw=GeolocationResults(
+            text="Most likely location: Greece",
+            most_likely_location="Greece",
+            top_k_locations=["Greece", "Italy"],
+            model_output={"ok": True},
+        ),
+        action=Geolocate(image.reference),
+        takeaways=MultimodalSequence("Most likely location: Greece"),
+    )
+    ris_tool = FakeRisTool(ris_result)
+    geolocator = FakeGeolocator(geo_result)
+    agent = MediaAgent(model=model, summarization_model=model, ris_tool=ris_tool, geolocator=geolocator)
+
+    out = agent.run(_make_session(MultimodalSequence("Investigate this image.", image)))
+
+    assert out.result is not None
+    assert len(ris_tool.actions) == 1
+    assert len(geolocator.actions) == 1
+    assert any("Media planner output could not be parsed" in error for error in out.errors)

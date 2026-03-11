@@ -8,6 +8,7 @@ from ezmm.common.items import Image, Video
 
 from mafc.agents.agent import Agent, AgentResult
 from mafc.agents.common import AgentSession
+from mafc.agents.media.planner import plan_media_tools
 from mafc.agents.web_search.parsing import extract_json_object
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
@@ -44,6 +45,7 @@ class MediaAgent(Agent):
     def run(self, session: AgentSession) -> AgentResult:
         self._mark_running(session)
         instruction = str(session.goal).strip()
+        prior_context = self.build_prior_context(session)
         if self._should_stop:
             self._mark_failed(session)
             return AgentResult(
@@ -75,7 +77,7 @@ class MediaAgent(Agent):
             errors.append("Task contains multiple media items. Only the first item is processed for now.")
 
         media_item = media_items[0]
-        for tool_result in self._run_selected_tools(instruction, media_item, errors):
+        for tool_result in self._run_selected_tools(instruction, prior_context, media_item, errors):
             for evidence in self._build_evidences_from_tool_result(tool_result, media_item.reference):
                 if evidence not in session.evidences:
                     session.evidences.append(evidence)
@@ -90,7 +92,9 @@ class MediaAgent(Agent):
                 status=session.status,
             )
 
-        synthesis, relevant_evidences = self._synthesize_with_relevant_evidences(instruction, session.evidences)
+        synthesis, relevant_evidences = self._synthesize_with_relevant_evidences(
+            instruction, session.evidences
+        )
         if not synthesis.strip():
             self._mark_failed(session)
             return AgentResult(
@@ -133,7 +137,9 @@ class MediaAgent(Agent):
                 continue
             evidence_id = f"ev_{idx}"
             evidence_id_to_item[evidence_id] = evidence
-            evidence_blocks.append(f"Evidence ID: {evidence_id}\nSource: {evidence.source}\nSummary: {summary}")
+            evidence_blocks.append(
+                f"Evidence ID: {evidence_id}\nSource: {evidence.source}\nSummary: {summary}"
+            )
         if not evidence_blocks:
             return "", []
 
@@ -187,7 +193,9 @@ class MediaAgent(Agent):
         for evidence_id in relevant_ids:
             evidence = evidence_id_to_item.get(evidence_id)
             if evidence is None:
-                logger.warning(f"[{self.name}] Ignoring unknown evidence ID from synthesis response: {evidence_id}")
+                logger.warning(
+                    f"[{self.name}] Ignoring unknown evidence ID from synthesis response: {evidence_id}"
+                )
                 continue
             if evidence not in relevant_evidences:
                 relevant_evidences.append(evidence)
@@ -202,20 +210,27 @@ class MediaAgent(Agent):
         return items
 
     def _run_selected_tools(
-        self, instruction: str, media_item: Image | Video, errors: list[str]
+        self,
+        instruction: str,
+        prior_context: str,
+        media_item: Image | Video,
+        errors: list[str],
     ) -> list[ToolResult]:
-        lower_instruction = instruction.lower()
-        should_run_ris = self._should_run_reverse_image_search(lower_instruction)
-        should_run_geolocate = self._should_run_geolocate(lower_instruction)
-        if not should_run_ris and not should_run_geolocate:
-            should_run_ris = True
-            should_run_geolocate = True
+        plan = plan_media_tools(self, instruction, prior_context, errors)
+        if plan is None:
+            errors.append(
+                "Media planner output could not be parsed. Falling back to running reverse image search and geolocation."
+            )
+            selected_tools = ["reverse_image_search", "geolocate"]
+        else:
+            selected_tools = plan.tools
 
         results: list[ToolResult] = []
-        if should_run_ris:
-            results.append(self.ris_tool.perform(ReverseImageSearch(media_item.reference)))
-        if should_run_geolocate:
-            results.append(self.geolocator.perform(Geolocate(media_item.reference)))
+        for tool_name in selected_tools:
+            if tool_name == "reverse_image_search":
+                results.append(self.ris_tool.perform(ReverseImageSearch(media_item.reference)))
+            elif tool_name == "geolocate":
+                results.append(self.geolocator.perform(Geolocate(media_item.reference)))
         return results
 
     def _build_evidences_from_tool_result(
@@ -255,57 +270,3 @@ class MediaAgent(Agent):
                 takeaways=takeaways,
             )
         ]
-
-    def _should_run_reverse_image_search(self, lower_instruction: str) -> bool:
-        return any(
-            phrase in lower_instruction
-            for phrase in (
-                "published",
-                "publication",
-                "where seen",
-                "first appeared",
-                "reverse image",
-                "source",
-                "online",
-                "veroeffentlicht",
-            )
-        )
-
-    def _should_run_geolocate(self, lower_instruction: str) -> bool:
-        if any(
-            phrase in lower_instruction
-            for phrase in (
-                "published",
-                "publication",
-                "where seen",
-                "first appeared",
-                "reverse image",
-                "source",
-                "online",
-                "veroeffentlicht",
-            )
-        ):
-            return any(
-                phrase in lower_instruction
-                for phrase in (
-                    "where taken",
-                    "taken",
-                    "geolocate",
-                    "location",
-                    "country",
-                    "wo aufgenommen",
-                )
-            )
-        return any(
-            phrase in lower_instruction
-            for phrase in (
-                "where was",
-                "where taken",
-                "taken",
-                "geolocate",
-                "location",
-                "country",
-                "wo wurde",
-                "wo aufgenommen",
-            )
-        )
