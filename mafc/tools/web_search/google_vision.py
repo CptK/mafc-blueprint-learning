@@ -29,9 +29,7 @@ class GoogleRisResults(SearchResults):
 
         if self.entities:
             text += "\n\nPossible identified entities:\n"
-            text += "\n".join(
-                f"- {name}" for name, _ in self.entities.items()
-            )
+            text += "\n".join(f"- {name}" for name, _ in self.entities.items())
 
         if self.best_guess_labels:
             text += f"\n\nBest guess about the topic of the image: {', '.join(self.best_guess_labels)}."
