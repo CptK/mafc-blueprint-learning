@@ -1,5 +1,13 @@
 from abc import ABC
+from enum import Enum
 import inspect
+
+
+class MediaRequirement(Enum):
+    NONE = "none"
+    IMAGE = "image"
+    VIDEO = "video"
+    IMAGE_OR_VIDEO = "image_or_video"
 
 
 class Action(ABC):
@@ -11,7 +19,7 @@ class Action(ABC):
     See existing subclasses for examples."""
 
     name: str
-    requires_image: bool = False
+    media_requirement: MediaRequirement = MediaRequirement.NONE
     additional_info: str | None = None
     _init_parameters: dict | None = None
 

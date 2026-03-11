@@ -9,7 +9,7 @@ import requests
 from typing import Any, cast
 
 from config.globals import geolocator_default_countries, geolocator_url
-from mafc.common.action import Action
+from mafc.common.action import Action, MediaRequirement
 from mafc.common.logger import logger
 from mafc.common.results import Results
 from mafc.tools.tool import Tool
@@ -19,7 +19,7 @@ class Geolocate(Action):
     """Performs geolocation to determine the country where an image was taken."""
 
     name = "geolocate"
-    requires_image = True
+    media_requirement = MediaRequirement.IMAGE
 
     def __init__(self, image: str, top_k: int = 5):
         """Args:
