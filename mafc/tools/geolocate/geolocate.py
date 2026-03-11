@@ -1,9 +1,10 @@
 import base64
 from dataclasses import dataclass
 from ezmm import MultimodalSequence
-from ezmm.common.items import Image
+from ezmm.common.items import Image, Video
 from ezmm.common.registry import item_registry
 import io
+from PIL import Image as PIL
 from PIL.Image import Image as PILImage
 import requests
 from typing import Any, cast
@@ -16,35 +17,36 @@ from mafc.tools.tool import Tool
 
 
 class Geolocate(Action):
-    """Performs geolocation to determine the country where an image was taken."""
+    """Performs geolocation to determine the country where an image or video was taken."""
 
     name = "geolocate"
-    media_requirement = MediaRequirement.IMAGE
+    media_requirement = MediaRequirement.IMAGE_OR_VIDEO
 
-    def __init__(self, image: str, top_k: int = 5):
+    def __init__(self, media: str, top_k: int = 5):
         """Args:
-        image: reference to the image to geolocate (must be in the item registry)
+        media: reference to the image or video to geolocate (must be in the item registry)
         top_k: number of top locations to return (default: 5)
         """
         self._save_parameters(locals())
-        img = item_registry.get(reference=image)
-        if img is None:
-            logger.error(f"[Action:{self.name}] Image not found in registry for reference: {image}")
-            self.image = None
-        elif not isinstance(img, Image):
+        item = item_registry.get(reference=media)
+        if item is None:
+            logger.error(f"[Action:{self.name}] Media not found in registry for reference: {media}")
+            self.media = None
+        elif not isinstance(item, Image | Video):
             logger.error(
-                f"[Action:{self.name}] Item found for reference {image} is not an Image: {type(img).__name__}"
+                f"[Action:{self.name}] Item found for reference {media} is not an Image/Video: "
+                f"{type(item).__name__}"
             )
-            self.image = None
+            self.media = None
         else:
-            self.image = cast(Image, img)
+            self.media = cast(Image | Video, item)
         self.top_k = top_k
 
     def __eq__(self, other):
-        return isinstance(other, Geolocate) and self.image == other.image
+        return isinstance(other, Geolocate) and self.media == other.media
 
     def __hash__(self):
-        return hash((self.name, self.image))
+        return hash((self.name, self.media))
 
 
 @dataclass
@@ -83,11 +85,18 @@ class Geolocator(Tool[Geolocate, GeolocationResults]):
         if not isinstance(action, Geolocate):
             logger.error(f"[Tool:{self.name}] Invalid action type: {type(action).__name__}")
             return GeolocationResults(text="Invalid action type", most_likely_location="", top_k_locations=[])
-        if not action.image:
-            logger.error(f"[Tool:{self.name}] Image not found for reference: {action.image}")
-            return GeolocationResults(text="Image not found", most_likely_location="", top_k_locations=[])
+        if not action.media:
+            logger.error(f"[Tool:{self.name}] Media not found for reference: {action.media}")
+            return GeolocationResults(text="Media not found", most_likely_location="", top_k_locations=[])
 
-        return self.locate(action.image.image)
+        if isinstance(action.media, Video):
+            logger.warning(
+                f"[Tool:{self.name}] Received video input {action.media.reference}; sampling one frame for geolocation."
+            )
+            frame = action.media.sample_frames(1, format="jpeg")[0]
+            return self.locate(PIL.open(io.BytesIO(frame)))
+
+        return self.locate(action.media.image)
 
     def locate(self, image: PILImage, choices: list[str] | None = None) -> GeolocationResults:
         """

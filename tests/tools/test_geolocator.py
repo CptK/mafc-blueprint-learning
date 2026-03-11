@@ -55,11 +55,11 @@ def test_perform_returns_error_for_invalid_action(monkeypatch) -> None:
 def test_perform_returns_error_for_missing_image(monkeypatch) -> None:
     tool = _make_geolocator(monkeypatch)
     action = object.__new__(Geolocate)
-    action.image = None
+    action.media = None
 
     result = tool._perform(action)
 
-    assert result.text == "Image not found"
+    assert result.text == "Media not found"
     assert result.top_k_locations == []
 
 
@@ -67,7 +67,7 @@ def test_perform_delegates_to_locate(monkeypatch) -> None:
     tool = _make_geolocator(monkeypatch)
     action = object.__new__(Geolocate)
     pil_image = PILImage.new("RGB", (2, 2), color="white")
-    action.image = cast(Any, _ImageWrapper(pil_image))
+    action.media = cast(Any, _ImageWrapper(pil_image))
 
     captured = {}
 
@@ -83,6 +83,45 @@ def test_perform_delegates_to_locate(monkeypatch) -> None:
     assert captured["image"] is pil_image
     assert captured["choices"] is None
     assert result.most_likely_location == "Germany"
+
+
+def test_perform_samples_video_frame_and_logs_warning(monkeypatch) -> None:
+    tool = _make_geolocator(monkeypatch)
+
+    class FakeVideo:
+        reference = "<video:1>"
+
+        def sample_frames(self, n_frames: int, format: str = "jpeg"):
+            assert n_frames == 1
+            assert format == "jpeg"
+            frame = io.BytesIO()
+            PILImage.new("RGB", (2, 2), color="green").save(frame, format="JPEG")
+            return [frame.getvalue()]
+
+    action = object.__new__(Geolocate)
+    action.media = FakeVideo()
+
+    warnings: list[str] = []
+    captured = {}
+
+    def fake_warning(message):
+        warnings.append(message)
+
+    def fake_locate(image, choices=None):
+        captured["image_size"] = image.size
+        captured["choices"] = choices
+        return GeolocationResults(text="ok", most_likely_location="France", top_k_locations=["France"])
+
+    monkeypatch.setattr(geolocate_module, "Video", FakeVideo)
+    monkeypatch.setattr(geolocate_module.logger, "warning", fake_warning)
+    monkeypatch.setattr(tool, "locate", fake_locate)
+
+    result = tool._perform(action)
+
+    assert captured["image_size"] == (2, 2)
+    assert captured["choices"] is None
+    assert any("sampling one frame" in warning for warning in warnings)
+    assert result.most_likely_location == "France"
 
 
 def test_locate_posts_payload_and_parses_response(monkeypatch) -> None:
