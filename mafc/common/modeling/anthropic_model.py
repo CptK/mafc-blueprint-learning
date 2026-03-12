@@ -4,8 +4,11 @@ import tiktoken
 import numpy as np
 import os
 
+from ezmm import MultimodalSequence
 from mafc.common.modeling.model import API, APIResponse, Model, Response
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
+from mafc.common.modeling.utils import messages_with_videos_as_frames
 from mafc.common.logger import logger
 
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -25,8 +28,8 @@ def count_image_tokens_estimate(image: Image) -> int:
     return int(85 + 170 * n_tiles)
 
 
-def format_input(prompt: Prompt, context_window: int) -> list[dict]:
-    """Format prompt to Anthropic Messages API content list.
+def format_input(content: MultimodalSequence, context_window: int) -> list[dict]:
+    """Format one message content payload for the Anthropic Messages API.
 
     - Truncates text to the remaining budget (approx via cl100k).
     - Includes images fully when they fit the estimated budget.
@@ -35,7 +38,7 @@ def format_input(prompt: Prompt, context_window: int) -> list[dict]:
     content_formatted: list[dict] = []
     remaining = int(context_window)
 
-    for block in prompt.to_list():
+    for block in content.to_list():
         if remaining <= 0:
             break
 
@@ -84,13 +87,17 @@ class AnthropicAPI(API):
             )
         self.client = anthropic.Anthropic(api_key=api_key, timeout=300)
 
-    def __call__(self, prompt: Prompt, system_prompt: str | None = None, **kwargs) -> APIResponse:
-        content = format_input(prompt, context_window=self.context_window)
-        messages = [
+    def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
+        system_parts = [
+            str(message.content).strip() for message in messages if message.role == MessageRole.SYSTEM
+        ]
+        anthropic_messages = [
             {
-                "role": "user",
-                "content": content,
+                "role": message.role.value,
+                "content": format_input(message.content, context_window=self.context_window),
             }
+            for message in messages
+            if message.role != MessageRole.SYSTEM
         ]
 
         try:
@@ -101,7 +108,7 @@ class AnthropicAPI(API):
 
             create_kwargs = {
                 "model": self.model,
-                "messages": messages,
+                "messages": anthropic_messages,
                 "max_tokens": kwargs.get("max_response_length", 2048),
             }
             if temp is not None and topp is not None:
@@ -111,8 +118,8 @@ class AnthropicAPI(API):
                 create_kwargs["temperature"] = temp
             elif topp is not None:
                 create_kwargs["top_p"] = topp
-            if system_prompt is not None:
-                create_kwargs["system"] = system_prompt
+            if system_parts:
+                create_kwargs["system"] = "\n\n".join(part for part in system_parts if part)
 
             response = self.client.messages.create(**create_kwargs)
         except anthropic.RateLimitError as e:
@@ -172,10 +179,10 @@ class AnthropicModel(Model):
         )
         self.api = AnthropicAPI(model=self.model, context_window=self.context_window)
 
-    def generate(self, prompt: Prompt) -> Response:
+    def generate(self, messages: list[Message]) -> Response:
         try:
             api_response = self.api(
-                prompt.with_videos_as_frames(self.video_frames_to_sample),
+                messages_with_videos_as_frames(messages, self.video_frames_to_sample),
                 temperature=self.temperature,
                 top_p=self.top_p,
                 max_response_length=self.max_response_length,
@@ -194,7 +201,10 @@ class AnthropicModel(Model):
 
 
 if __name__ == "__main__":
+    from mafc.common.modeling.message import MessageRole
+
     model = AnthropicModel(specifier="ANTHROPIC:claude-haiku-4-5-20251001", temperature=1.0)
-    prompt = Prompt(text="What is the capital of France?")
-    response = model.generate(prompt)
+    response = model.generate(
+        [Message(role=MessageRole.USER, content=Prompt(text="What is the capital of France?"))]
+    )
     print(response)

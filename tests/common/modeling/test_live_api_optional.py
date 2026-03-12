@@ -5,6 +5,7 @@ import pytest
 import config.globals  # noqa: F401  # Triggers .env loading like normal app startup.
 from mafc.common.modeling.anthropic_model import AnthropicAPI
 from mafc.common.modeling.gemini_model import GeminiAPI
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.openai_model import OpenAIAPI
 from mafc.common.modeling.prompt import Prompt
 
@@ -21,20 +22,38 @@ def _call_or_skip(fn):
         pytest.skip(f"Live API call skipped due to runtime/provider issue: {exc}")
 
 
+def _multi_role_messages() -> list[Message]:
+    return [
+        Message(
+            role=MessageRole.SYSTEM,
+            content=Prompt(text="Reply with exactly one word: OK"),
+        ),
+        Message(
+            role=MessageRole.ASSISTANT,
+            content=Prompt(text="Understood."),
+        ),
+        Message(
+            role=MessageRole.USER,
+            content=Prompt(text="Answer now."),
+        ),
+    ]
+
+
 @pytest.mark.integration
 def test_openai_live_api_small_call() -> None:
     _skip_if_missing_key("OPENAI_API_KEY", "openai_api_key")
     api = OpenAIAPI(model="gpt-5-mini-2025-08-07", context_window=1024)
     out = _call_or_skip(
         lambda: api(
-            prompt=Prompt(text="Reply with exactly one word: OK"),
-            max_response_length=16,
-            temperature=1.0,
+            messages=_multi_role_messages(),
+            max_response_length=500,
+            temperature=1.0,  # only 1.0 supported for this model.
             top_p=1.0,
+            reasoning={"effort": "minimal", "summary": None},
         )
     )
     assert isinstance(out.text, str)
-    assert out.text.strip()
+    assert out.text.strip().upper() == "OK"
 
 
 @pytest.mark.integration
@@ -43,14 +62,14 @@ def test_anthropic_live_api_small_call() -> None:
     api = AnthropicAPI(model="claude-haiku-4-5-20251001", context_window=1024)
     out = _call_or_skip(
         lambda: api(
-            prompt=Prompt(text="Reply with exactly one word: OK"),
-            max_response_length=16,
+            messages=_multi_role_messages(),
+            max_response_length=128,
             temperature=0.0,
             top_p=1.0,
         )
     )
     assert isinstance(out.text, str)
-    assert out.text.strip()
+    assert "OK" in out.text.strip().upper()
 
 
 @pytest.mark.integration
@@ -59,11 +78,11 @@ def test_gemini_live_api_small_call() -> None:
     api = GeminiAPI(model="gemini-3.1-flash-lite-preview", context_window=1024)
     out = _call_or_skip(
         lambda: api(
-            prompt=Prompt(text="Reply with exactly one word: OK"),
+            messages=_multi_role_messages(),
             max_response_length=16,
             temperature=0.0,
             top_p=1.0,
         )
     )
     assert isinstance(out.text, str)
-    assert out.text.strip()
+    assert out.text.strip().upper() == "OK"

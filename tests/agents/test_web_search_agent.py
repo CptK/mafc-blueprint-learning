@@ -2,6 +2,7 @@ from datetime import date
 
 from mafc.agents.common import AgentMessageType, AgentSession, AgentStatus
 from mafc.agents.web_search.agent import WebSearchAgent
+from mafc.common.modeling.message import Message
 from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
 from mafc.tools.web_search.common import Query, SearchResults, WebSource
@@ -14,8 +15,8 @@ class SequencedModel(Model):
         self.outputs = outputs
         self.calls: list[str] = []
 
-    def generate(self, prompt: Prompt) -> Response:
-        self.calls.append(str(prompt))
+    def generate(self, messages: list[Message]) -> Response:
+        self.calls.append("\n".join(f"[{message.role.value}] {message.content}" for message in messages))
         text = self.outputs.pop(0) if self.outputs else ""
         return Response(text=text, total_cost=0.0)
 

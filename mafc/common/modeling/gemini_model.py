@@ -2,13 +2,16 @@ import os
 import base64
 import numpy as np
 import tiktoken
+from typing import cast
 
-from ezmm import Image, Video
+from ezmm import Image, MultimodalSequence, Video
 from google import genai
-from google.genai.types import Content, Part, GenerateContentConfig, Blob
+from google.genai.types import Blob, Content, ContentListUnionDict, GenerateContentConfig, Part
 
 from mafc.common.modeling.model import API, APIResponse, Model, Response
+from mafc.common.modeling.message import Message
 from mafc.common.modeling.prompt import Prompt
+from mafc.common.modeling.utils import messages_with_videos_as_frames
 from mafc.common.logger import logger
 
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -31,8 +34,8 @@ def _image_bytes(block: Image) -> bytes:
         raise ValueError("Unable to obtain image bytes for Gemini input.")
 
 
-def format_input(prompt: Prompt, context_window: int) -> list[Part]:
-    """Format prompt to Google GenAI content parts.
+def format_input(content: MultimodalSequence, context_window: int) -> list[Part]:
+    """Format one message content payload to Google GenAI parts.
 
     - Truncate text by token budget (approx cl100k).
     - Include images only if they fit the remaining budget.
@@ -41,7 +44,7 @@ def format_input(prompt: Prompt, context_window: int) -> list[Part]:
     parts: list[Part] = []
     remaining = int(context_window)
 
-    for block in prompt.to_list():
+    for block in content.to_list():
         if remaining <= 0:
             break
 
@@ -80,20 +83,30 @@ class GeminiAPI(API):
             )
         self.client = genai.Client(api_key=api_key)
 
-    def __call__(self, prompt: Prompt, system_prompt: str | None = None, **kwargs) -> APIResponse:
-        parts = format_input(prompt, context_window=self.context_window)
+    def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
+        system_parts = [
+            str(message.content).strip() for message in messages if message.role.value == "system"
+        ]
+        contents = [
+            Content(
+                role=message.role.value,
+                parts=format_input(message.content, context_window=self.context_window),
+            )
+            for message in messages
+            if message.role.value != "system"
+        ]
 
         config = GenerateContentConfig(
             temperature=kwargs.get("temperature", 1.0),
             top_p=kwargs.get("top_p", 1.0),
             max_output_tokens=kwargs.get("max_response_length", 2048),
-            system_instruction=system_prompt if system_prompt else None,
+            system_instruction="\n\n".join(part for part in system_parts if part) if system_parts else None,
         )
 
         try:
             response = self.client.models.generate_content(
                 model=self.model,
-                contents=Content(role="user", parts=parts),
+                contents=cast(ContentListUnionDict, contents),
                 config=config,
             )
         except Exception as e:
@@ -150,9 +163,9 @@ class GeminiModel(Model):
         )
         self.api = GeminiAPI(model=self.model, context_window=self.context_window)
 
-    def generate(self, prompt: Prompt) -> Response:
+    def generate(self, messages: list[Message]) -> Response:
         api_response = self.api(
-            prompt.with_videos_as_frames(self.video_frames_to_sample),
+            messages_with_videos_as_frames(messages, self.video_frames_to_sample),
             temperature=self.temperature,
             top_p=self.top_p,
             max_response_length=self.max_response_length,
@@ -168,7 +181,10 @@ class GeminiModel(Model):
 
 
 if __name__ == "__main__":
+    from mafc.common.modeling.message import MessageRole
+
     model = GeminiModel(specifier="GOOGLE:gemini-3.1-flash-lite-preview")
-    prompt = Prompt(text="What is the capital of France?")
-    response = model.generate(prompt)
+    response = model.generate(
+        [Message(role=MessageRole.USER, content=Prompt(text="What is the capital of France?"))]
+    )
     print(response)

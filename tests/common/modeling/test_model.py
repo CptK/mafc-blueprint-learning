@@ -1,11 +1,11 @@
 from typing import cast
 
+from mafc.common.modeling.message import Message
 from mafc.common.modeling.model import API, APIResponse, Model
-from mafc.common.modeling.prompt import Prompt
 
 
 class DummyModel(Model):
-    def generate(self, prompt):
+    def generate(self, messages):
         raise NotImplementedError
 
 
@@ -26,5 +26,5 @@ def test_model_initialization_and_compute_cost() -> None:
 
 def test_abstract_method_bodies_are_covered() -> None:
     # These execute the abstract base method bodies (which are `pass`) directly.
-    assert API.__call__(cast(API, object()), prompt=cast(Prompt, object())) is None
-    assert Model.generate(cast(Model, object()), prompt=cast(Prompt, object())) is None
+    assert API.__call__(cast(API, object()), messages=cast(list[Message], object())) is None
+    assert Model.generate(cast(Model, object()), messages=cast(list[Message], object())) is None

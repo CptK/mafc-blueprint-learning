@@ -6,6 +6,7 @@ from typing import cast
 from ezmm import MultimodalSequence
 
 from mafc.common.modeling.prompt import Prompt
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.agents.agent import Agent, AgentResult
 from mafc.agents.common import AgentSession
 from mafc.tools.tool import Tool
@@ -100,7 +101,9 @@ class WebSearchAgent(Agent):
             f"Accepted evidence:\n{chr(10).join(evidence_blocks)}"
         )
         try:
-            synthesis = self.summarization_model.generate(Prompt(text=synthesis_prompt)).text.strip()
+            synthesis = self.summarization_model.generate(
+                [Message(role=MessageRole.USER, content=Prompt(text=synthesis_prompt))]
+            ).text.strip()
             if not synthesis or is_failed_model_text(synthesis):
                 return "\n\n".join(evidence_blocks)
             return synthesis

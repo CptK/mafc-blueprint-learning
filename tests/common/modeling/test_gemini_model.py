@@ -13,6 +13,7 @@ from mafc.common.modeling.gemini_model import (
     format_input,
 )
 from mafc.common.modeling.model import APIResponse
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 
 
@@ -100,13 +101,18 @@ def test_gemini_api_call_success_and_fallback(monkeypatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.setattr("mafc.common.modeling.gemini_model.genai.Client", lambda api_key: FakeClient())
     monkeypatch.setattr(
-        "mafc.common.modeling.gemini_model.format_input", lambda prompt, context_window: ["p"]
+        "mafc.common.modeling.gemini_model.format_input", lambda content, context_window: ["p"]
     )
     monkeypatch.setattr("mafc.common.modeling.gemini_model.Content", lambda **kwargs: kwargs)
     monkeypatch.setattr("mafc.common.modeling.gemini_model.GenerateContentConfig", lambda **kwargs: kwargs)
 
     api = GeminiAPI(model="gem", context_window=100)
-    out = api(prompt=cast(Prompt, SimpleNamespace()), system_prompt="sys")
+    out = api(
+        messages=[
+            Message(role=MessageRole.SYSTEM, content=Prompt(text="sys")),
+            Message(role=MessageRole.USER, content=Prompt(text="u")),
+        ]
+    )
     assert out.text == "a\nb"
     assert out.total_token_count == 13
 
@@ -121,14 +127,14 @@ def test_gemini_api_error(monkeypatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.setattr("mafc.common.modeling.gemini_model.genai.Client", lambda api_key: BrokenClient())
     monkeypatch.setattr(
-        "mafc.common.modeling.gemini_model.format_input", lambda prompt, context_window: ["p"]
+        "mafc.common.modeling.gemini_model.format_input", lambda content, context_window: ["p"]
     )
     monkeypatch.setattr("mafc.common.modeling.gemini_model.Content", lambda **kwargs: kwargs)
     monkeypatch.setattr("mafc.common.modeling.gemini_model.GenerateContentConfig", lambda **kwargs: kwargs)
 
     api = GeminiAPI(model="gem", context_window=100)
     with pytest.raises(RuntimeError):
-        api(prompt=cast(Prompt, SimpleNamespace()))
+        api(messages=[Message(role=MessageRole.USER, content=Prompt(text="u"))])
 
 
 def test_gemini_model_generate(monkeypatch) -> None:
@@ -139,6 +145,9 @@ def test_gemini_model_generate(monkeypatch) -> None:
     monkeypatch.setattr("mafc.common.modeling.model.get_model_context_window", lambda n: 1000)
     monkeypatch.setattr("mafc.common.modeling.model.get_model_api_pricing", lambda n: (1.0, 2.0))
     monkeypatch.setattr(
+        "mafc.common.modeling.gemini_model.messages_with_videos_as_frames", lambda messages, n: messages
+    )
+    monkeypatch.setattr(
         "mafc.common.modeling.gemini_model.GeminiAPI",
         lambda model, context_window: (
             lambda prompt, **kwargs: APIResponse(text="ok", input_token_count=1000, output_token_count=500)
@@ -146,7 +155,7 @@ def test_gemini_model_generate(monkeypatch) -> None:
     )
 
     model = GeminiModel(specifier="GOOGLE:gemini-3.1-flash-lite-preview")
-    prompt = cast(Prompt, SimpleNamespace(with_videos_as_frames=lambda n: "frames"))
+    prompt = [Message(role=MessageRole.USER, content=Prompt(text="hello"))]
     response = model.generate(prompt)
     assert response.text == "ok"
     assert response.total_cost == 0.002

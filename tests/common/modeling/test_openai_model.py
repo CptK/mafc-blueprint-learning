@@ -5,6 +5,7 @@ import pytest
 from ezmm import Image
 
 from mafc.common.modeling.model import APIResponse
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.openai_model import (
     OpenAIAPI,
     OpenAIModel,
@@ -108,13 +109,15 @@ def test_openai_api_call_success(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     monkeypatch.setattr("mafc.common.modeling.openai_model.OpenAI", lambda api_key, timeout: FakeClient())
     monkeypatch.setattr(
-        "mafc.common.modeling.openai_model.format_input", lambda prompt, context_window: ["u"]
+        "mafc.common.modeling.openai_model.format_input", lambda content, context_window: ["u"]
     )
 
     api = OpenAIAPI(model="gpt", context_window=100)
     out = api(
-        prompt=cast(Prompt, SimpleNamespace()),
-        system_prompt="sys",
+        messages=[
+            Message(role=MessageRole.SYSTEM, content=Prompt(text="sys")),
+            Message(role=MessageRole.USER, content=Prompt(text="u")),
+        ],
         temperature=0.2,
         top_p=0.9,
         max_response_length=77,
@@ -140,11 +143,11 @@ def test_openai_api_call_without_usage(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     monkeypatch.setattr("mafc.common.modeling.openai_model.OpenAI", lambda api_key, timeout: FakeClient())
     monkeypatch.setattr(
-        "mafc.common.modeling.openai_model.format_input", lambda prompt, context_window: ["u"]
+        "mafc.common.modeling.openai_model.format_input", lambda content, context_window: ["u"]
     )
 
     api = OpenAIAPI(model="gpt", context_window=100)
-    out = api(prompt=cast(Prompt, SimpleNamespace()))
+    out = api(messages=[Message(role=MessageRole.USER, content=Prompt(text="u"))])
     assert out.text == "Failed to generate a response."
     assert out.input_token_count is None
 
@@ -156,6 +159,9 @@ def test_openai_model_generate(monkeypatch) -> None:
     monkeypatch.setattr("mafc.common.modeling.model.get_model_context_window", lambda n: 1000)
     monkeypatch.setattr("mafc.common.modeling.model.get_model_api_pricing", lambda n: (1.0, 2.0))
     monkeypatch.setattr(
+        "mafc.common.modeling.openai_model.messages_with_videos_as_frames", lambda messages, n: messages
+    )
+    monkeypatch.setattr(
         "mafc.common.modeling.openai_model.OpenAIAPI",
         lambda model, context_window: (
             lambda prompt, **kwargs: APIResponse(text="ok", input_token_count=1000, output_token_count=500)
@@ -163,7 +169,7 @@ def test_openai_model_generate(monkeypatch) -> None:
     )
 
     model = OpenAIModel(specifier="OPENAI:gpt-5-mini-2025-08-07")
-    prompt = cast(Prompt, SimpleNamespace(with_videos_as_frames=lambda n: "frames"))
+    prompt = [Message(role=MessageRole.USER, content=Prompt(text="hello"))]
     response = model.generate(prompt)
     assert response.text == "ok"
     assert response.total_cost == 0.002
@@ -175,6 +181,9 @@ def test_openai_model_generate_error_paths(monkeypatch) -> None:
     )
     monkeypatch.setattr("mafc.common.modeling.model.get_model_context_window", lambda n: 1000)
     monkeypatch.setattr("mafc.common.modeling.model.get_model_api_pricing", lambda n: (1.0, 2.0))
+    monkeypatch.setattr(
+        "mafc.common.modeling.openai_model.messages_with_videos_as_frames", lambda messages, n: messages
+    )
     monkeypatch.setattr("mafc.common.modeling.openai_model.OpenAIAPI", lambda model, context_window: None)
 
     class DummyRateLimitError(Exception):
@@ -187,7 +196,7 @@ def test_openai_model_generate_error_paths(monkeypatch) -> None:
     monkeypatch.setattr("mafc.common.modeling.openai_model.openai.AuthenticationError", DummyAuthError)
 
     model = OpenAIModel(specifier="OPENAI:gpt-5-mini-2025-08-07")
-    prompt = cast(Prompt, SimpleNamespace(with_videos_as_frames=lambda n: "frames"))
+    prompt = [Message(role=MessageRole.USER, content=Prompt(text="hello"))]
 
     monkeypatch.setattr(
         model, "api", lambda *_args, **_kwargs: (_ for _ in ()).throw(DummyRateLimitError("rate"))

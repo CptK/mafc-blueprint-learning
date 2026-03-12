@@ -1,3 +1,4 @@
+from .message import Message, MessageRole
 from .anthropic_model import AnthropicAPI, AnthropicModel
 from .gemini_model import GeminiAPI, GeminiModel
 from .model import APIResponse, Model, Response
@@ -38,6 +39,8 @@ __all__ = [
     "Model",
     "Response",
     "APIResponse",
+    "Message",
+    "MessageRole",
     "Prompt",
     "make_model",
     "model_specifier_to_shorthand",

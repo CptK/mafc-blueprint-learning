@@ -12,6 +12,7 @@ from mafc.agents.media.planner import plan_media_tools
 from mafc.agents.web_search.parsing import extract_json_object
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.tools.geolocate.geolocate import Geolocate, Geolocator
@@ -156,7 +157,9 @@ class MediaAgent(Agent):
             f"Accepted evidence:\n{chr(10).join(evidence_blocks)}"
         )
         try:
-            response_text = self.summarization_model.generate(Prompt(text=synthesis_prompt)).text.strip()
+            response_text = self.summarization_model.generate(
+                [Message(role=MessageRole.USER, content=Prompt(text=synthesis_prompt))]
+            ).text.strip()
         except Exception:
             return "\n\n".join(evidence_blocks), list(evidences)
         parsed = self._parse_synthesis_response(response_text, evidence_id_to_item)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from mafc.common.modeling.model import Model
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 
 from mafc.agents.web_search.parsing import is_failed_model_text
@@ -18,7 +19,9 @@ def synthesize_step(model: Model, instruction: str, observations: list[str]) -> 
         f"Observations:\n{chr(10).join(observations)}"
     )
     try:
-        synthesis = model.generate(Prompt(text=synthesis_prompt)).text.strip()
+        synthesis = model.generate(
+            [Message(role=MessageRole.USER, content=Prompt(text=synthesis_prompt))]
+        ).text.strip()
         if not synthesis or is_failed_model_text(synthesis):
             return "\n\n".join(observations)
         return synthesis
@@ -36,7 +39,9 @@ def summarize_observation(model: Model, instruction: str, observation: str) -> s
         f"Observation:\n{observation}"
     )
     try:
-        summary = model.generate(Prompt(text=summary_prompt)).text.strip()
+        summary = model.generate(
+            [Message(role=MessageRole.USER, content=Prompt(text=summary_prompt))]
+        ).text.strip()
         if not summary or is_failed_model_text(summary):
             return observation
         return summary

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from mafc.common.logger import logger
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 
 from mafc.agents.web_search.models import SearchPlanStep
@@ -32,7 +33,9 @@ def plan_step(
         f"Prior session context:\n{prior_context if prior_context else 'None'}\n\n"
     )
     try:
-        response = agent.model.generate(Prompt(text=planner_prompt)).text
+        response = agent.model.generate(
+            [Message(role=MessageRole.USER, content=Prompt(text=planner_prompt))]
+        ).text
         logger.info(f"Planner response:\n{response}")
         if is_failed_model_text(response):
             return None
@@ -46,7 +49,9 @@ def plan_step(
             "Only return JSON.\n\n"
             f"Response:\n{response}"
         )
-        repaired = agent.model.generate(Prompt(text=repair_prompt)).text
+        repaired = agent.model.generate(
+            [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
+        ).text
         if is_failed_model_text(repaired):
             return None
         return parse_plan(agent, repaired)

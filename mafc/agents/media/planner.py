@@ -6,6 +6,7 @@ from typing import cast
 from mafc.agents.media.models import MediaToolName, MediaToolPlan
 from mafc.agents.web_search.parsing import extract_json_object, is_failed_model_text
 from mafc.common.logger import logger
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 
 VALID_MEDIA_TOOLS = {"reverse_image_search", "geolocate"}
@@ -35,7 +36,9 @@ def plan_media_tools(
         f"Prior session context:\n{prior_context if prior_context else 'None'}\n"
     )
     try:
-        response = agent.model.generate(Prompt(text=planner_prompt)).text
+        response = agent.model.generate(
+            [Message(role=MessageRole.USER, content=Prompt(text=planner_prompt))]
+        ).text
         logger.info(f"Media planner response:\n{response}")
         if is_failed_model_text(response):
             return None
@@ -49,7 +52,9 @@ def plan_media_tools(
             "Only return JSON.\n\n"
             f"Response:\n{response}"
         )
-        repaired = agent.model.generate(Prompt(text=repair_prompt)).text
+        repaired = agent.model.generate(
+            [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
+        ).text
         if is_failed_model_text(repaired):
             return None
         return parse_media_tool_plan(agent, repaired)

@@ -11,6 +11,7 @@ from mafc.blueprints.features import evaluate_entry_conditions, extract_claim_fe
 from mafc.blueprints.models import Blueprint, ClaimFeatures
 from mafc.blueprints.registry import BlueprintRegistry
 from mafc.common.claim import Claim
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.agents.web_search.parsing import extract_json_object
@@ -133,7 +134,7 @@ class BlueprintSelector:
         prompt = Prompt(text=self._build_tiebreak_prompt(claim, claim_features, survivors))
 
         try:
-            response = self.model.generate(prompt).text.strip()
+            response = self.model.generate([Message(role=MessageRole.USER, content=prompt)]).text.strip()
             parsed = self._parse_tiebreak_response(response)
         except (json.JSONDecodeError, ValueError):
             parsed = None

@@ -1,5 +1,9 @@
 import numpy as np
 import pandas as pd
+from ezmm import MultimodalSequence
+from ezmm.common.items import Image, Video
+
+from mafc.common.modeling.message import Message
 
 AVAILABLE_MODELS = pd.read_csv("config/available_models.csv", skipinitialspace=True)
 
@@ -48,3 +52,29 @@ def get_model_api_pricing(name: str) -> tuple[float, float]:
         AVAILABLE_MODELS["Cost per 1M output tokens"][AVAILABLE_MODELS["Shorthand"] == name].iloc[0]
     )
     return input_cost, output_cost
+
+
+def with_videos_as_frames(content: MultimodalSequence, n_frames: int = 5) -> MultimodalSequence:
+    """Return content with videos replaced by sampled image frames."""
+    from mafc.common.modeling.prompt import Prompt
+
+    if isinstance(content, Prompt):
+        return content.with_videos_as_frames(n_frames)
+
+    new_data = []
+    for item in content.data:
+        if isinstance(item, Video):
+            frames = item.sample_frames(n_frames, format="jpeg")
+            for frame_bytes in frames:
+                new_data.append(Image(binary_data=frame_bytes))
+        else:
+            new_data.append(item)
+    return MultimodalSequence(*new_data)
+
+
+def messages_with_videos_as_frames(messages: list[Message], n_frames: int = 5) -> list[Message]:
+    """Return messages with all video content normalized into sampled frames."""
+    return [
+        Message(role=message.role, content=with_videos_as_frames(message.content, n_frames))
+        for message in messages
+    ]

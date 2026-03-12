@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from ezmm import Image, MultimodalSequence
 from ezmm.common.registry import item_registry
 
 from mafc.blueprints import BlueprintRegistry, BlueprintSelector, extract_claim_features
 from mafc.blueprints.selector import BlueprintSelectionMode
+from mafc.common.modeling.message import Message
 from mafc.common.modeling.model import Model, Response
-from mafc.common.modeling.prompt import Prompt
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 
@@ -19,8 +20,8 @@ class SequencedModel(Model):
         self.outputs = outputs
         self.calls: list[str] = []
 
-    def generate(self, prompt: Prompt) -> Response:
-        self.calls.append(str(prompt))
+    def generate(self, messages: list[Message]) -> Response:
+        self.calls.append("\n".join(f"[{message.role.value}] {message.content}" for message in messages))
         text = self.outputs.pop(0) if self.outputs else ""
         return Response(text=text, total_cost=0.0)
 
@@ -117,7 +118,7 @@ verification_graph:
 def _registered_image() -> Image:
     image = Image(file_path=ASSETS_DIR / "Greece.jpeg")
     item_registry.add_item(image)
-    return image
+    return cast(Image, image)
 
 
 def test_extract_claim_features_for_multimodal_claim() -> None:

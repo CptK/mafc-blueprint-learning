@@ -7,6 +7,7 @@ from ezmm.common.registry import item_registry
 
 from mafc.agents.common import AgentSession, AgentStatus
 from mafc.agents.media.agent import MediaAgent
+from mafc.common.modeling.message import Message
 from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
 from mafc.tools.geolocate.geolocate import Geolocate, GeolocationResults
@@ -24,8 +25,8 @@ class SequencedModel(Model):
         self.outputs = outputs
         self.calls: list[str] = []
 
-    def generate(self, prompt) -> Response:
-        self.calls.append(str(prompt))
+    def generate(self, messages: list[Message]) -> Response:
+        self.calls.append("\n".join(f"[{message.role.value}] {message.content}" for message in messages))
         text = self.outputs.pop(0) if self.outputs else ""
         return Response(text=text, total_cost=0.0)
 
@@ -187,9 +188,10 @@ def test_media_agent_synthesis_handles_models_that_require_prompt_objects() -> N
     image = _registered_image()
 
     class PromptOnlyModel(SequencedModel):
-        def generate(self, prompt) -> Response:
-            assert isinstance(prompt, Prompt)
-            return super().generate(prompt)
+        def generate(self, messages: list[Message]) -> Response:
+            assert len(messages) == 1
+            assert isinstance(messages[0].content, Prompt)
+            return super().generate(messages)
 
     model = PromptOnlyModel(
         outputs=[

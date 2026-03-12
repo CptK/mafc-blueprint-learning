@@ -10,6 +10,7 @@ from mafc.common.modeling.anthropic_model import (
     format_input,
 )
 from mafc.common.modeling.model import APIResponse
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 
 
@@ -99,13 +100,15 @@ def test_anthropic_api_call_success_and_fallback(monkeypatch) -> None:
         "mafc.common.modeling.anthropic_model.anthropic.Anthropic", lambda api_key, timeout: FakeClient()
     )
     monkeypatch.setattr(
-        "mafc.common.modeling.anthropic_model.format_input", lambda prompt, context_window: ["x"]
+        "mafc.common.modeling.anthropic_model.format_input", lambda content, context_window: ["x"]
     )
 
     api = AnthropicAPI(model="claude", context_window=100)
     out = api(
-        prompt=cast(Prompt, SimpleNamespace()),
-        system_prompt="sys",
+        messages=[
+            Message(role=MessageRole.SYSTEM, content=Prompt(text="sys")),
+            Message(role=MessageRole.USER, content=Prompt(text="u")),
+        ],
         temperature=0.1,
         top_p=0.2,
         max_response_length=10,
@@ -133,7 +136,7 @@ def test_anthropic_api_call_success_and_fallback(monkeypatch) -> None:
         "mafc.common.modeling.anthropic_model.anthropic.Anthropic", lambda api_key, timeout: BadClient()
     )
     api2 = AnthropicAPI(model="claude", context_window=100)
-    out2 = api2(prompt=cast(Prompt, SimpleNamespace()))
+    out2 = api2(messages=[Message(role=MessageRole.USER, content=Prompt(text="u"))])
     assert out2.text
 
 
@@ -148,7 +151,7 @@ def test_anthropic_api_errors(monkeypatch) -> None:
     monkeypatch.setattr("mafc.common.modeling.anthropic_model.anthropic.AuthenticationError", DummyAuth)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
     monkeypatch.setattr(
-        "mafc.common.modeling.anthropic_model.format_input", lambda prompt, context_window: ["x"]
+        "mafc.common.modeling.anthropic_model.format_input", lambda content, context_window: ["x"]
     )
 
     class RateClient:
@@ -162,7 +165,7 @@ def test_anthropic_api_errors(monkeypatch) -> None:
     )
     api = AnthropicAPI(model="claude", context_window=100)
     with pytest.raises(DummyRateLimit):
-        api(prompt=cast(Prompt, SimpleNamespace()))
+        api(messages=[Message(role=MessageRole.USER, content=Prompt(text="u"))])
 
     class AuthClient:
         class messages:
@@ -175,7 +178,7 @@ def test_anthropic_api_errors(monkeypatch) -> None:
     )
     api = AnthropicAPI(model="claude", context_window=100)
     with pytest.raises(DummyAuth):
-        api(prompt=cast(Prompt, SimpleNamespace()))
+        api(messages=[Message(role=MessageRole.USER, content=Prompt(text="u"))])
 
     class OtherClient:
         class messages:
@@ -188,7 +191,7 @@ def test_anthropic_api_errors(monkeypatch) -> None:
     )
     api = AnthropicAPI(model="claude", context_window=100)
     with pytest.raises(RuntimeError):
-        api(prompt=cast(Prompt, SimpleNamespace()))
+        api(messages=[Message(role=MessageRole.USER, content=Prompt(text="u"))])
 
 
 def test_anthropic_model_generate(monkeypatch) -> None:
@@ -198,6 +201,9 @@ def test_anthropic_model_generate(monkeypatch) -> None:
     monkeypatch.setattr("mafc.common.modeling.model.get_model_context_window", lambda n: 1000)
     monkeypatch.setattr("mafc.common.modeling.model.get_model_api_pricing", lambda n: (1.0, 2.0))
     monkeypatch.setattr(
+        "mafc.common.modeling.anthropic_model.messages_with_videos_as_frames", lambda messages, n: messages
+    )
+    monkeypatch.setattr(
         "mafc.common.modeling.anthropic_model.AnthropicAPI",
         lambda model, context_window: (
             lambda prompt, **kwargs: APIResponse(text="ok", input_token_count=1000, output_token_count=500)
@@ -205,7 +211,7 @@ def test_anthropic_model_generate(monkeypatch) -> None:
     )
 
     model = AnthropicModel(specifier="ANTHROPIC:claude-haiku-4-5-20251001")
-    prompt = cast(Prompt, SimpleNamespace(with_videos_as_frames=lambda n: "frames"))
+    prompt = [Message(role=MessageRole.USER, content=Prompt(text="hello"))]
     response = model.generate(prompt)
     assert response.text == "ok"
     assert response.total_cost == 0.002
@@ -218,11 +224,14 @@ def test_anthropic_model_generate_reraises(monkeypatch) -> None:
     monkeypatch.setattr("mafc.common.modeling.model.get_model_context_window", lambda n: 1000)
     monkeypatch.setattr("mafc.common.modeling.model.get_model_api_pricing", lambda n: (1.0, 2.0))
     monkeypatch.setattr(
+        "mafc.common.modeling.anthropic_model.messages_with_videos_as_frames", lambda messages, n: messages
+    )
+    monkeypatch.setattr(
         "mafc.common.modeling.anthropic_model.AnthropicAPI", lambda model, context_window: None
     )
 
     model = AnthropicModel(specifier="ANTHROPIC:claude-haiku-4-5-20251001")
     monkeypatch.setattr(model, "api", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
-    prompt = cast(Prompt, SimpleNamespace(with_videos_as_frames=lambda n: "frames"))
+    prompt = [Message(role=MessageRole.USER, content=Prompt(text="hello"))]
     with pytest.raises(RuntimeError):
         model.generate(prompt)

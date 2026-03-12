@@ -9,6 +9,7 @@ from ezmm import MultimodalSequence
 
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
+from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 from mafc.common.modeling.model import Model
 from mafc.tools.web_search.common import Query, Source, WebSource
@@ -211,7 +212,9 @@ def filter_sources_with_model(
         f"Input JSON:\n{json.dumps(prompt_payload, ensure_ascii=True)}"
     )
     try:
-        response_text = model.generate(Prompt(text=selection_prompt)).text
+        response_text = model.generate(
+            [Message(role=MessageRole.USER, content=Prompt(text=selection_prompt))]
+        ).text
     except Exception as exc:
         logger.error(f"[WebSearch-Agent] Global source filtering call failed: {exc}")
         return []

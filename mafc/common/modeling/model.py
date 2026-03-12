@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
-from mafc.common.modeling.prompt import Prompt
+from mafc.common.modeling.message import Message
 from mafc.common.modeling.utils import (
     model_specifier_to_shorthand,
     get_model_context_window,
@@ -26,8 +26,8 @@ class APIResponse(BaseModel):
 
 class API(ABC):
     @abstractmethod
-    def __call__(self, prompt: Prompt, system_prompt: str | None = None, **kwargs) -> APIResponse:
-        """Sends the prompt to the model and returns the response."""
+    def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
+        """Send a role-annotated message list to the model and return the response."""
         pass
 
 
@@ -53,8 +53,8 @@ class Model(ABC):
         self.input_token_cost, self.output_token_cost = get_model_api_pricing(self.name)
 
     @abstractmethod
-    def generate(self, prompt: Prompt) -> Response:
-        """Sends the prompt to the model and returns the response."""
+    def generate(self, messages: list[Message]) -> Response:
+        """Send a role-annotated message list to the model and return the response."""
         pass
 
     def compute_cost(self, api_response: APIResponse) -> float:

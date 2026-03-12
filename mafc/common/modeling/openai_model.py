@@ -4,9 +4,14 @@ import openai
 import tiktoken
 import numpy as np
 import os
+from typing import cast
 
+from ezmm import MultimodalSequence
+from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMessageParam
 from mafc.common.modeling.model import API, APIResponse, Model, Response
+from mafc.common.modeling.message import Message
 from mafc.common.modeling.prompt import Prompt
+from mafc.common.modeling.utils import messages_with_videos_as_frames
 from mafc.common.logger import logger
 
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -24,16 +29,24 @@ class OpenAIAPI(API):
             )
         self.client = OpenAI(api_key=api_key, timeout=300)
 
-    def __call__(self, prompt: Prompt, system_prompt: str | None = None, **kwargs) -> APIResponse:
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        content = format_input(prompt, context_window=self.context_window)
-        messages.append({"role": "user", "content": content})
+    def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
+        provider_messages = cast(
+            list[ChatCompletionMessageParam],
+            [
+                {
+                    "role": message.role.value,
+                    "content": cast(
+                        list[ChatCompletionContentPartParam],
+                        format_input(message.content, context_window=self.context_window),
+                    ),
+                }
+                for message in messages
+            ],
+        )
 
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=messages,
+            messages=provider_messages,
             temperature=kwargs.get("temperature", 1.0),
             top_p=kwargs.get("top_p", 1.0),
             max_completion_tokens=kwargs.get("max_response_length", 2048),
@@ -68,10 +81,10 @@ class OpenAIModel(Model):
         )
         self.api = OpenAIAPI(model=self.model, context_window=self.context_window)
 
-    def generate(self, prompt: Prompt) -> Response:
+    def generate(self, messages: list[Message]) -> Response:
         try:
             api_response = self.api(
-                prompt.with_videos_as_frames(self.video_frames_to_sample),
+                messages_with_videos_as_frames(messages, self.video_frames_to_sample),
                 temperature=self.temperature,
                 top_p=self.top_p,
                 max_response_length=self.max_response_length,
@@ -97,10 +110,10 @@ class OpenAIModel(Model):
         )
 
 
-def count_tokens(prompt: Prompt | str) -> int:
+def count_tokens(prompt: MultimodalSequence | str) -> int:
     n_text_tokens = len(encoding.encode(str(prompt), disallowed_special=()))
     n_image_tokens = 0
-    if isinstance(prompt, Prompt) and prompt.has_images():
+    if isinstance(prompt, MultimodalSequence) and prompt.has_images():
         for image in prompt.images:
             n_image_tokens += count_image_tokens(image)
     return n_text_tokens + n_image_tokens
@@ -116,8 +129,8 @@ def count_image_tokens(image: Image) -> int:
     return int(85 + 170 * n_tiles)
 
 
-def format_input(prompt: Prompt, context_window: int) -> list[dict]:
-    """Formats the prompt into a string that can be sent to the model.
+def format_input(content: MultimodalSequence, context_window: int) -> list[dict]:
+    """Format one multimodal message content payload for the OpenAI chat API.
 
     - Truncates text to fit in the remaining token budget.
     - Includes whole images only when enough tokens remain.
@@ -126,7 +139,7 @@ def format_input(prompt: Prompt, context_window: int) -> list[dict]:
     content_formatted: list[dict] = []
     remaining = int(context_window)
 
-    for block in prompt.to_list():
+    for block in content.to_list():
         # Stop immediately if no tokens remain
         if remaining <= 0:
             break
@@ -161,7 +174,10 @@ def format_input(prompt: Prompt, context_window: int) -> list[dict]:
 
 
 if __name__ == "__main__":
+    from mafc.common.modeling.message import MessageRole
+
     model = OpenAIModel(specifier="OPENAI:gpt-5-mini-2025-08-07", temperature=1.0)
-    prompt = Prompt(text="What is the capital of France?")
-    response = model.generate(prompt)
+    response = model.generate(
+        [Message(role=MessageRole.USER, content=Prompt(text="What is the capital of France?"))]
+    )
     print(response)
