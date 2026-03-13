@@ -164,6 +164,7 @@ class SerperAPI:
                 continue
 
             title = result.get("title")
+            preview = result.get("snippet")
 
             try:
                 result_date = datetime.strptime(result["date"], "%b %d, %Y").date()
@@ -174,7 +175,14 @@ class SerperAPI:
             if query.end_date is not None and (result_date is None or result_date > query.end_date):
                 continue
 
-            sources.append(WebSource(reference=url, release_date=result_date, title=title))
+            sources.append(
+                WebSource(
+                    reference=url,
+                    release_date=result_date,
+                    title=title,
+                    preview=preview,
+                )
+            )
         return sources
 
 
