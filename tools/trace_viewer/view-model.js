@@ -273,7 +273,9 @@ export function buildViewModel(trace) {
           `retrieval ${retrievalIndex + 1}`;
         const retrievalSubtitle = [
           retrieval.source && retrieval.source.url ? summarizeText(retrieval.source.url, 60) : null,
-          retrieval.snippet ? summarizeText(retrieval.snippet, 80) : null,
+          retrieval.evidence && retrieval.evidence.takeaways && retrieval.evidence.takeaways.text
+            ? summarizeText(retrieval.evidence.takeaways.text, 80)
+            : null,
         ]
           .filter(Boolean)
           .join(" | ");
