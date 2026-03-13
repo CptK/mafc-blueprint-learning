@@ -4,7 +4,7 @@ import json
 from typing import cast
 
 from mafc.agents.media.models import MediaToolName, MediaToolPlan
-from mafc.agents.web_search.parsing import extract_json_object, is_failed_model_text
+from mafc.utils.parsing import extract_json_object, is_failed_model_text
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt

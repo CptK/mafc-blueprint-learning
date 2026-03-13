@@ -22,7 +22,7 @@ from mafc.agents.web_search.models import (
     QuerySearchResult,
     SearchTool,
 )
-from mafc.agents.web_search.parsing import extract_json_object
+from mafc.utils.parsing import extract_json_object
 from mafc.agents.web_search.synthesis import summarize_observation
 
 
