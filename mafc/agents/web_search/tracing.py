@@ -32,7 +32,9 @@ def get_web_search_trace_path(trace_dir: str | Path, session_id: str) -> Path:
 _RAW_TRUNCATE_CHARS = 20000
 
 
-def _serialize_multimodal(content: MultimodalSequence | None, truncate: int | None = None) -> dict[str, Any] | None:
+def _serialize_multimodal(
+    content: MultimodalSequence | None, truncate: int | None = None
+) -> dict[str, Any] | None:
     if content is None:
         return None
     text = str(content)
@@ -261,8 +263,12 @@ class WebSearchTraceRecorder:
         payload = {
             "query_text": query_text,
             "source": _serialize_source(source),
-            "retrieved_content": retrieved_content[:_RAW_TRUNCATE_CHARS] + f"… [{len(retrieved_content) - _RAW_TRUNCATE_CHARS} chars truncated]"
-                if retrieved_content and len(retrieved_content) > _RAW_TRUNCATE_CHARS else retrieved_content,
+            "retrieved_content": (
+                retrieved_content[:_RAW_TRUNCATE_CHARS]
+                + f"… [{len(retrieved_content) - _RAW_TRUNCATE_CHARS} chars truncated]"
+                if retrieved_content and len(retrieved_content) > _RAW_TRUNCATE_CHARS
+                else retrieved_content
+            ),
             "evidence": _serialize_evidence(evidence) if evidence is not None else None,
             "irrelevant": irrelevant,
         }

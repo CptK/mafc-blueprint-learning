@@ -32,7 +32,9 @@ def get_judge_trace_path(trace_dir: str | Path, session_id: str) -> Path:
 _RAW_TRUNCATE_CHARS = 2000
 
 
-def _serialize_multimodal(content: MultimodalSequence | None, truncate: int | None = None) -> dict[str, Any] | None:
+def _serialize_multimodal(
+    content: MultimodalSequence | None, truncate: int | None = None
+) -> dict[str, Any] | None:
     if content is None:
         return None
     text = str(content)

@@ -30,7 +30,9 @@ def _sanitize_filename(value: str) -> str:
 _RAW_TRUNCATE_CHARS = 20000
 
 
-def _serialize_multimodal(content: MultimodalSequence | None, truncate: int | None = None) -> dict[str, Any] | None:
+def _serialize_multimodal(
+    content: MultimodalSequence | None, truncate: int | None = None
+) -> dict[str, Any] | None:
     if content is None:
         return None
     text = str(content)

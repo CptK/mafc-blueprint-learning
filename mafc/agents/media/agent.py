@@ -112,7 +112,9 @@ class MediaAgent(Agent):
             errors.append("Task contains multiple media items. Only the first item is processed for now.")
 
         media_item = media_items[0]
-        for tool_name, tool_result in self._run_selected_tools(instruction, prior_context, media_item, errors, trace):
+        for tool_name, tool_result in self._run_selected_tools(
+            instruction, prior_context, media_item, errors, trace
+        ):
             trace.record_tool_result(tool_name, tool_result)
             for evidence in self._build_evidences_from_tool_result(tool_result, media_item.reference):
                 if evidence not in session.evidences:

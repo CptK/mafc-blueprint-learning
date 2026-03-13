@@ -253,7 +253,11 @@ def filter_sources_with_model(
     except Exception as exc:
         logger.error(f"[WebSearch-Agent] Global source filtering call failed: {exc}")
         return [], selection_prompt, ""
-    return parse_selected_urls(response_text=response_text, max_selected=max_selected), selection_prompt, response_text
+    return (
+        parse_selected_urls(response_text=response_text, max_selected=max_selected),
+        selection_prompt,
+        response_text,
+    )
 
 
 def parse_selected_urls(response_text: str, max_selected: int) -> list[str]:
@@ -332,12 +336,16 @@ def retrieve_and_extract_evidence(
                 irrelevant = True
         title = source.title or "Untitled"
         lines.append(f"- {title} | {source.url}\n  Content snippet: {snippet}")
-        evidence = None if irrelevant else build_evidence_from_source(
-            query_text=query_text,
-            source=source,
-            raw_text=raw_text,
-            snippet=snippet,
-            preview=source.preview,
+        evidence = (
+            None
+            if irrelevant
+            else build_evidence_from_source(
+                query_text=query_text,
+                source=source,
+                raw_text=raw_text,
+                snippet=snippet,
+                preview=source.preview,
+            )
         )
         if trace is not None and step is not None:
             trace.record_retrieval(
