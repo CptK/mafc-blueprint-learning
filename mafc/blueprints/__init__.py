@@ -25,6 +25,7 @@ from mafc.blueprints.selector import (
     BlueprintSelectionResult,
     BlueprintSelector,
 )
+from mafc.blueprints.topology import BlueprintTopology, analyze_blueprint_topology
 
 __all__ = [
     "Blueprint",
@@ -47,7 +48,9 @@ __all__ = [
     "BlueprintTerminationRule",
     "BlueprintTransition",
     "BlueprintVerificationGraph",
+    "BlueprintTopology",
     "GateRules",
+    "analyze_blueprint_topology",
     "extract_claim_features",
     "load_blueprint",
     "load_blueprints",

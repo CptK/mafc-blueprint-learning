@@ -11,10 +11,10 @@ from mafc.blueprints.features import evaluate_entry_conditions, extract_claim_fe
 from mafc.blueprints.models import Blueprint, ClaimFeatures
 from mafc.blueprints.registry import BlueprintRegistry
 from mafc.common.claim import Claim
+from mafc.utils.parsing import extract_json_object
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
-from mafc.agents.web_search.parsing import extract_json_object
 
 
 class BlueprintSelectionMode(Enum):
