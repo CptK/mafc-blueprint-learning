@@ -514,7 +514,7 @@
           subtreeIndent: 60,
           queryGap: 320,
           stageGap: 170,
-          urlGap: 95,
+          urlGap: 110,
         };
         let currentMainY = 80;
 
@@ -784,6 +784,7 @@
             const queryNodeIds = [];
             const candidateBlockIds = [];
             const searchResults = childIteration.search_results || [];
+            let deepestCandidateBottomY = iterationY + layout.stageGap * 2;
             searchResults.forEach((queryResult, queryIndex) => {
               const queryX = baseX + queryIndex * layout.queryGap;
               const queryY = iterationY + layout.stageGap;
@@ -823,6 +824,10 @@
                 )
               );
               edges.push(makeEdge(queryId, candidateNodeId, "results", EDGE_STYLES.default, 2, 8));
+              deepestCandidateBottomY = Math.max(
+                deepestCandidateBottomY,
+                candidateBlockBottomY(queryY + layout.stageGap, queryResult.sources || [])
+              );
 
               (queryResult.sources || []).forEach((source, sourceIndex) => {
                 const sourceId = `${candidateNodeId}-url-${sourceIndex + 1}`;
@@ -850,7 +855,7 @@
 
             const selectionId = `${childIterationId}-selection`;
             const selectedSources = flattenSelectedSources(childIteration.selected_sources || []);
-            const selectionY = iterationY + layout.stageGap * 2 + 80 + (maxSourceCount(searchResults) - 1) * layout.urlGap;
+            const selectionY = deepestCandidateBottomY + 90;
             pushNode(
               makeNode(
                 selectionId,
@@ -932,7 +937,7 @@
 
             if (childIteration.synthesis && childIteration.synthesis.answer) {
               const synthesisId = `${childIterationId}-synthesis`;
-              const synthesisY = retrievalStageY + 100 + Math.max(retrievals.length - 1, 0) * layout.urlGap + 60;
+              const synthesisY = retrievalBlockBottomY(retrievalStageY, retrievals) + 80;
               pushNode(
                 makeNode(
                   synthesisId,
@@ -953,20 +958,20 @@
               lastNodeId = synthesisId;
               bottomY = Math.max(bottomY, synthesisY);
             } else {
-              bottomY = Math.max(
-                bottomY,
-                retrievalStageY + 100 + Math.max(retrievals.length - 1, 0) * layout.urlGap
-              );
+              bottomY = Math.max(bottomY, retrievalBlockBottomY(retrievalStageY, retrievals));
             }
           });
           return { lastNodeId, bottomY };
         }
 
-        function maxSourceCount(searchResults) {
-          return Math.max(
-            1,
-            ...searchResults.map((queryResult) => (Array.isArray(queryResult.sources) ? queryResult.sources.length : 0))
-          );
+        function candidateBlockBottomY(containerY, sources) {
+          const count = Array.isArray(sources) ? sources.length : 0;
+          return containerY + 110 + Math.max(0, count - 1) * layout.urlGap;
+        }
+
+        function retrievalBlockBottomY(containerY, retrievals) {
+          const count = Array.isArray(retrievals) ? retrievals.length : 0;
+          return containerY + 110 + Math.max(0, count - 1) * layout.urlGap;
         }
       }
 
@@ -1110,7 +1115,9 @@
                 "line-color": "#927f62",
                 "target-arrow-color": "#927f62",
                 "target-arrow-shape": "triangle",
-                "curve-style": "bezier",
+                "curve-style": "taxi",
+                "taxi-direction": "downward",
+                "taxi-turn": 28,
                 label: "data(label)",
                 color: "#6c675d",
                 "font-size": 9,
