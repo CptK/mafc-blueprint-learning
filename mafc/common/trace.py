@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mafc.common.logger import logger
-
 
 @dataclass
 class _TraceState:
@@ -71,13 +69,6 @@ class TraceScope:
         }
         self._state.next_seq += 1
         self._node["events"].append(event)
-        if self._state.trace_dir is not None:
-            logger.append_json_event(
-                trace_id=self._state.trace_id,
-                event_type=event_type,
-                payload=event,
-                trace_dir=self._state.trace_dir,
-            )
 
     def set_summary(self, summary: dict[str, Any]) -> None:
         self._node["summary"] = summary

@@ -8,6 +8,7 @@ from ezmm.common.registry import item_registry
 
 from mafc.agents import AgentResult, AgentSession, AgentStatus
 from mafc.agents.fact_check.agent import FactCheckAgent
+from mafc.agents.web_search.agent import WebSearchAgent
 from mafc.blueprints import BlueprintRegistry, BlueprintSelector
 from mafc.common.action import Action
 from mafc.common.claim import Claim
@@ -15,6 +16,8 @@ from mafc.common.evidence import Evidence
 from mafc.common.modeling.message import Message
 from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
+from mafc.tools.web_search.common import Query, SearchResults, WebSource
+from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 
@@ -67,6 +70,32 @@ class FakeWorkerAgent:
 
     def synthesize_from_evidences(self, instruction: str, evidences: list[Evidence]) -> str:
         return self.result_text
+
+
+class FakeSearchTool:
+    def __init__(self, result_map: dict[str, SearchResults | None]):
+        self.result_map = result_map
+
+    def search(self, query: Query):
+        return self.result_map.get(query.text or "", SearchResults(sources=[], query=query))
+
+
+class FakeRetriever(RetrievalIntegration):
+    domains = ["*"]
+
+    def __init__(self, payload_by_url: dict[str, str | None]):
+        super().__init__()
+        self.payload_by_url = payload_by_url
+
+    def _retrieve(self, url: str):
+        payload = self.payload_by_url.get(url)
+        return None if payload is None else Prompt(text=payload)
+
+
+def _make_search_result(query_text: str, urls: list[str]) -> SearchResults:
+    query = Query(text=query_text)
+    sources = [WebSource(reference=url, title=f"T:{url}") for url in urls]
+    return SearchResults(sources=sources, query=query)
 
 
 def _registered_image() -> Image:
@@ -309,9 +338,14 @@ def test_fact_check_agent_writes_structured_execution_trace(tmp_path) -> None:
 
     assert result.result is not None
     trace_path = trace_dir / "fact-check_trace.fact_check_trace.json"
+    events_path = trace_dir / "fact-check_trace.trace.jsonl"
     assert trace_path.exists()
+    assert events_path.exists()
 
     payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    event_lines = [
+        json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
     assert payload["agent"] == "FactCheckAgent"
     assert payload["status"] == AgentStatus.COMPLETED.value
@@ -327,7 +361,11 @@ def test_fact_check_agent_writes_structured_execution_trace(tmp_path) -> None:
     )
     assert payload["iterations"][1]["decision"]["decision_type"] == "finalize"
     assert payload["summary"]["result"]["text"] == "The image is consistent with Athens."
+    assert payload["summary"]["events_path"] == str(events_path)
     assert any(event["event_type"] == "planner_prompt" for event in payload["events"])
+    assert event_lines[0]["event_type"] == "run_started"
+    assert event_lines[-1]["event_type"] == "run_finished"
+    assert all(event["trace_id"] == "fact-check:trace" for event in event_lines)
     assert {"source": "run", "target": "iteration:1", "type": "next"} in payload["flow"]["edges"]
     assert {
         "source": "iteration:1",
@@ -336,6 +374,78 @@ def test_fact_check_agent_writes_structured_execution_trace(tmp_path) -> None:
     } in payload[
         "flow"
     ]["edges"]
+
+
+def test_fact_check_agent_embeds_web_search_child_trace(tmp_path) -> None:
+    registry = _make_registry(tmp_path, include_media=False)
+    selector = BlueprintSelector(
+        model=SequencedModel(outputs=[]),
+        registry=registry,
+        default_blueprint_name="default",
+    )
+    planner = SequencedModel(
+        outputs=[
+            """
+{
+  "decision_type": "delegate",
+  "rationale": "Need web evidence for this text claim.",
+  "tasks": [
+    {
+      "task_id": "web_counterevidence",
+      "agent_type": "web_search",
+      "instruction": "Search for corroborating sources about the claim."
+    }
+  ],
+  "target_node_id": "synth",
+  "check_updates": []
+}
+""".strip(),
+            """
+{
+  "decision_type": "finalize",
+  "rationale": "Sufficient evidence gathered.",
+  "final_answer": "Multiple sources were consulted.",
+  "check_updates": []
+}
+""".strip(),
+        ]
+    )
+    child_planner = SequencedModel(outputs=['{"queries":["q1"],"done":true}'])
+    child_summarizer = SequencedModel(
+        outputs=["Summary step 1", "Web evidence suggests the claim is unverified."]
+    )
+    trace_dir = tmp_path / "traces"
+    web_search_agent = WebSearchAgent(
+        main_model=child_planner,
+        summarization_model=child_summarizer,
+        search_tool=FakeSearchTool({"q1": _make_search_result("q1", ["https://example.com/source"])}),
+        retriever=FakeRetriever({"https://example.com/source": "Retrieved content"}),
+    )
+    agent = FactCheckAgent(
+        model=planner,
+        blueprint_selector=selector,
+        delegation_agents={"web_search": [web_search_agent]},
+        trace_dir=trace_dir,
+    )
+    session = AgentSession(
+        id="fact-check:web-trace",
+        goal=Prompt(text="Fact-check claim"),
+        claim=Claim("A politician said X happened in 2024."),
+    )
+
+    result = agent.run(session)
+
+    assert result.result is not None
+    trace_path = trace_dir / "fact-check_web-trace.fact_check_trace.json"
+    payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    delegated_task = payload["iterations"][0]["delegated_tasks"][0]
+    assert delegated_task["task_id"] == "web_counterevidence"
+    assert delegated_task["child_trace"]["agent"] == "WebSearchAgent"
+    assert delegated_task["child_trace"]["iterations"][0]["resolved_plan"]["queries"] == ["q1"]
+    assert (
+        delegated_task["child_trace"]["iterations"][0]["retrievals"][0]["source"]["url"]
+        == "https://example.com/source"
+    )
 
 
 def test_fact_check_agent_can_dispatch_to_multiple_workers_for_one_decision(tmp_path) -> None:

@@ -27,11 +27,17 @@ def _sanitize_filename(value: str) -> str:
     return sanitized or "fact_check_trace"
 
 
-def _serialize_multimodal(content: MultimodalSequence | None) -> dict[str, Any] | None:
+_RAW_TRUNCATE_CHARS = 2000
+
+
+def _serialize_multimodal(content: MultimodalSequence | None, truncate: int | None = None) -> dict[str, Any] | None:
     if content is None:
         return None
+    text = str(content)
+    if truncate is not None and len(text) > truncate:
+        text = text[:truncate] + f"… [{len(str(content)) - truncate} chars truncated]"
     return {
-        "text": str(content),
+        "text": text,
         "images": [image.reference for image in content.images],
         "videos": [video.reference for video in content.videos],
     }
@@ -65,7 +71,7 @@ def _serialize_evidence(evidence: Evidence) -> dict[str, Any]:
         "source": evidence.source,
         "action": evidence.action.name,
         "action_repr": str(evidence.action),
-        "raw": _serialize_multimodal(evidence.raw),
+        "raw": _serialize_multimodal(evidence.raw, truncate=_RAW_TRUNCATE_CHARS),
         "takeaways": _serialize_multimodal(evidence.takeaways),
     }
 

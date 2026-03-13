@@ -29,11 +29,17 @@ def get_web_search_trace_path(trace_dir: str | Path, session_id: str) -> Path:
     return Path(trace_dir) / f"{_sanitize_filename(session_id)}.web_search_trace.json"
 
 
-def _serialize_multimodal(content: MultimodalSequence | None) -> dict[str, Any] | None:
+_RAW_TRUNCATE_CHARS = 2000
+
+
+def _serialize_multimodal(content: MultimodalSequence | None, truncate: int | None = None) -> dict[str, Any] | None:
     if content is None:
         return None
+    text = str(content)
+    if truncate is not None and len(text) > truncate:
+        text = text[:truncate] + f"… [{len(str(content)) - truncate} chars truncated]"
     return {
-        "text": str(content),
+        "text": text,
         "images": [image.reference for image in content.images],
         "videos": [video.reference for video in content.videos],
     }
@@ -70,7 +76,7 @@ def _serialize_evidence(evidence: Evidence) -> dict[str, Any]:
         "action": evidence.action.name,
         "action_repr": str(evidence.action),
         "preview": evidence.preview,
-        "raw": _serialize_multimodal(evidence.raw),
+        "raw": _serialize_multimodal(evidence.raw, truncate=_RAW_TRUNCATE_CHARS),
         "takeaways": _serialize_multimodal(evidence.takeaways),
     }
 
@@ -97,6 +103,7 @@ class WebSearchTraceRecorder:
     ):
         self.enabled = trace_dir is not None
         self.trace_dir = Path(trace_dir) if trace_dir is not None else None
+        self.write_file = trace_dir is not None and session.parent_session_id is None
         self.path: Path | None = None
         self.scope = trace_scope
         self._event_seq = 0
@@ -244,7 +251,8 @@ class WebSearchTraceRecorder:
         payload = {
             "query_text": query_text,
             "source": _serialize_source(source),
-            "retrieved_content": retrieved_content,
+            "retrieved_content": retrieved_content[:_RAW_TRUNCATE_CHARS] + f"… [{len(retrieved_content) - _RAW_TRUNCATE_CHARS} chars truncated]"
+                if retrieved_content and len(retrieved_content) > _RAW_TRUNCATE_CHARS else retrieved_content,
             "evidence": _serialize_evidence(evidence) if evidence is not None else None,
         }
         self._current_iteration()["retrievals"].append(payload)
@@ -327,7 +335,7 @@ class WebSearchTraceRecorder:
         )
         if self.scope is not None:
             self.scope.set_summary(self.trace)
-        if self.enabled and self.path is not None:
+        if self.write_file and self.path is not None:
             self.path.write_text(json.dumps(self.trace, indent=2, ensure_ascii=True), encoding="utf-8")
 
     def record_event(self, event_type: str, payload: dict[str, Any], *, step: int | None = None) -> None:
