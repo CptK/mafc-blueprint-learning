@@ -28,6 +28,7 @@ export const WEB_LAYOUT = {
   mainX: 100,
   taskX: 420,
   childX: 760,
+  taskColumnGap: 80,
   rowGap: 150,
   queryGap: 320,
   stageGap: 170,

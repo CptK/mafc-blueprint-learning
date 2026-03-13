@@ -115,16 +115,20 @@ export function buildViewModel(trace) {
 
     const tasks = iteration.delegated_tasks || [];
     let localBottomY = currentMainY;
+    const childXBase = WEB_LAYOUT.childX - WEB_LAYOUT.taskX;
+    let nextTaskX = WEB_LAYOUT.taskX;
     tasks.forEach((task, index) => {
       const taskId = `task-${iteration.iteration}-${task.task_id}`;
-      const taskY = currentMainY + index * 110;
+      const taskX = nextTaskX;
+      const taskY = currentMainY;
       const taskSubtitle = [
         task.agent_type,
         summarizeText(task.instruction, 90),
         `evidence: ${task.result && Array.isArray(task.result.evidences) ? task.result.evidences.length : 0}`,
         `errors: ${task.result && Array.isArray(task.result.errors) ? task.result.errors.length : 0}`,
       ].join(" | ");
-      pushNode(makeNode(taskId, "task", task.task_id, taskSubtitle, task, null, false, WEB_LAYOUT.taskX, taskY));
+      const nodesBeforeColumn = nodes.length;
+      pushNode(makeNode(taskId, "task", task.task_id, taskSubtitle, task, null, false, taskX, taskY));
       edges.push(makeEdge(iterationId, taskId, "delegates"));
       if (index > 0) {
         edges.push(
@@ -132,7 +136,8 @@ export function buildViewModel(trace) {
         );
       }
       if (task.child_trace) {
-        const childLayout = addChildTraceNodes(taskId, task.child_trace, WEB_LAYOUT.childX, taskY);
+        const childX = taskX + childXBase;
+        const childLayout = addChildTraceNodes(taskId, task.child_trace, childX, taskY);
         localBottomY = Math.max(localBottomY, childLayout.bottomY);
         if (childLayout.lastNodeId) {
           pendingReturnEdges.push(childLayout.lastNodeId);
@@ -140,6 +145,8 @@ export function buildViewModel(trace) {
       } else {
         localBottomY = Math.max(localBottomY, taskY);
       }
+      const columnRightX = nodes.slice(nodesBeforeColumn).reduce((max, n) => Math.max(max, n.x), taskX);
+      nextTaskX = columnRightX + WEB_LAYOUT.taskColumnGap;
     });
     currentMainY = Math.max(currentMainY + WEB_LAYOUT.rowGap, localBottomY + 220);
   }
