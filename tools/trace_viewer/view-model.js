@@ -155,8 +155,9 @@ export function buildViewModel(trace) {
     let bottomY = baseY;
     const childIterations = webTrace.iterations || [];
 
+    let nextIterationY = baseY;
     childIterations.forEach((childIteration, childIndex) => {
-      const iterationY = baseY + childIndex * 520;
+      const iterationY = nextIterationY;
       const childIterationId = `${keyPrefix}-${runId}-step-${childIteration.step || childIteration.iteration || "x"}`;
       const querySummary =
         childIteration.resolved_plan && Array.isArray(childIteration.resolved_plan.queries)
@@ -185,7 +186,6 @@ export function buildViewModel(trace) {
         )
       );
       edges.push(makeEdge(previousChildNodeId, childIterationId, "next"));
-      previousChildNodeId = childIterationId;
       lastNodeId = childIterationId;
 
       const queryNodeIds = [];
@@ -336,6 +336,7 @@ export function buildViewModel(trace) {
         }
       });
 
+      let thisIterationBottomY;
       if (childIteration.synthesis && childIteration.synthesis.answer) {
         const synthesisId = `${childIterationId}-synthesis`;
         const synthesisY = retrievalBlockBottomY(retrievalStageY, retrievals) + 80;
@@ -354,10 +355,13 @@ export function buildViewModel(trace) {
         );
         edges.push(makeEdge(retrievalStageId, synthesisId, "synthesize"));
         lastNodeId = synthesisId;
-        bottomY = Math.max(bottomY, synthesisY);
+        thisIterationBottomY = synthesisY;
       } else {
-        bottomY = Math.max(bottomY, retrievalBlockBottomY(retrievalStageY, retrievals));
+        thisIterationBottomY = retrievalBlockBottomY(retrievalStageY, retrievals);
       }
+      bottomY = Math.max(bottomY, thisIterationBottomY);
+      nextIterationY = thisIterationBottomY + 120;
+      previousChildNodeId = retrievalStageId;
     });
 
     return { lastNodeId, bottomY };
