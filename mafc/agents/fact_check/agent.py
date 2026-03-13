@@ -624,11 +624,17 @@ class FactCheckAgent(Agent):
         session.evidences = list(state.evidences)
 
         if self.judge_agent is not None and session.evidences:
+            seen_sources: set[str] = set()
+            deduped_evidences: list[Evidence] = []
+            for ev in session.evidences:
+                if ev.source not in seen_sources:
+                    seen_sources.add(ev.source)
+                    deduped_evidences.append(ev)
             judge_session = AgentSession(
                 id=f"{session.id}:judge",
                 goal=Prompt(text="Judge the claim using accepted evidence."),
                 claim=session.claim,
-                evidences=list(session.evidences),
+                evidences=deduped_evidences,
                 parent_session_id=session.id,
             )
             judge_scope = (

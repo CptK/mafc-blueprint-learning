@@ -250,11 +250,13 @@ class WebSearchAgent(Agent):
             step=step,
             trace=trace,
         )
+        seen_urls = {ev.source for ev in session.evidences}
         query_results = retrieve_query_results(
             selected_sources,
             errors=errors,
             model=self.summarization_model,
             retriever=self.retriever,
+            seen_urls=seen_urls,
             step=step,
             trace=trace,
         )

@@ -81,6 +81,7 @@ def retrieve_query_results(
     errors: list[str],
     model: Model,
     retriever: RetrievalIntegration,
+    seen_urls: set[str] | None = None,
     step: int | None = None,
     trace=None,
 ) -> list[QueryInvestigationResult]:
@@ -103,6 +104,7 @@ def retrieve_query_results(
                 errors=errors,
                 model=model,
                 retriever=retriever,
+                seen_urls=seen_urls,
                 step=step,
                 trace=trace,
             )
@@ -288,12 +290,23 @@ def retrieve_and_extract_evidence(
     errors: list[str],
     model: Model,
     retriever: RetrievalIntegration,
+    seen_urls: set[str] | None = None,
     step: int | None = None,
     trace=None,
 ) -> QueryInvestigationResult:
     """Retrieve source content in batch and turn it into observations and evidence."""
     lines = [f"Query: {query_text}"]
-    selected_sources = [source for source in sources if isinstance(source, WebSource)]
+    all_web_sources = [source for source in sources if isinstance(source, WebSource)]
+    if seen_urls is not None:
+        skipped = [s for s in all_web_sources if s.url in seen_urls]
+        selected_sources = [s for s in all_web_sources if s.url not in seen_urls]
+        if skipped:
+            logger.debug(
+                f"[WebSearch-Agent] Skipping {len(skipped)} already-retrieved URL(s) for query '{query_text}': "
+                + ", ".join(s.url for s in skipped)
+            )
+    else:
+        selected_sources = all_web_sources
     evidences: list[Evidence] = []
 
     try:
@@ -356,6 +369,8 @@ def retrieve_and_extract_evidence(
                 evidence=evidence,
                 irrelevant=irrelevant,
             )
+        if seen_urls is not None:
+            seen_urls.add(source.url)
         if evidence is not None:
             evidences.append(evidence)
 
