@@ -29,7 +29,7 @@ def get_web_search_trace_path(trace_dir: str | Path, session_id: str) -> Path:
     return Path(trace_dir) / f"{_sanitize_filename(session_id)}.web_search_trace.json"
 
 
-_RAW_TRUNCATE_CHARS = 2000
+_RAW_TRUNCATE_CHARS = 20000
 
 
 def _serialize_multimodal(content: MultimodalSequence | None, truncate: int | None = None) -> dict[str, Any] | None:

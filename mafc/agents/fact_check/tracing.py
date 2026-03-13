@@ -27,7 +27,7 @@ def _sanitize_filename(value: str) -> str:
     return sanitized or "fact_check_trace"
 
 
-_RAW_TRUNCATE_CHARS = 2000
+_RAW_TRUNCATE_CHARS = 20000
 
 
 def _serialize_multimodal(content: MultimodalSequence | None, truncate: int | None = None) -> dict[str, Any] | None:
