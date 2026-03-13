@@ -26,11 +26,12 @@ export function renderDetail(node) {
   if (detailType === "retrieval_url") {
     return `
       <h3>${escapeHtml((payload.source && (payload.source.title || payload.source.url)) || "Retrieved URL")}</h3>
+      ${payload.irrelevant ? `<p><em>No relevant content found — excluded from evidence.</em></p>` : ""}
       ${payload.query_text ? `<p><strong>Query:</strong> ${escapeHtml(payload.query_text)}</p>` : ""}
       <p><strong>URL:</strong> ${escapeHtml((payload.source && (payload.source.url || payload.source.reference)) || "")}</p>
-      ${renderCollapsibleText("Preview", payload.evidence && payload.evidence.preview)}
-      ${renderCollapsibleMultimodal("Takeaways", payload.evidence && payload.evidence.takeaways)}
-      ${renderCollapsibleMultimodal("Raw", payload.evidence && payload.evidence.raw)}
+      ${!payload.irrelevant ? renderCollapsibleText("Preview", payload.evidence && payload.evidence.preview) : ""}
+      ${!payload.irrelevant ? renderCollapsibleMultimodal("Takeaways", payload.evidence && payload.evidence.takeaways) : ""}
+      ${!payload.irrelevant ? renderCollapsibleMultimodal("Raw", payload.evidence && payload.evidence.raw) : ""}
     `;
   }
 

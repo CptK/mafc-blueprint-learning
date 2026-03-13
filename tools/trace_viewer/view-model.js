@@ -363,14 +363,18 @@ export function buildViewModel(trace) {
       lastNodeId = selectionId;
 
       const retrievals = childIteration.retrievals || [];
+      const irrelevantCount = retrievals.filter((r) => r.irrelevant).length;
       const retrievalStageId = `${childIterationId}-retrieval-stage`;
       const retrievalStageY = selectionY + WEB_LAYOUT.stageGap;
+      const retrievalStageSubtitle = irrelevantCount > 0
+        ? `${retrievals.length} url${retrievals.length === 1 ? "" : "s"} · ${irrelevantCount} irrelevant`
+        : `${retrievals.length} url${retrievals.length === 1 ? "" : "s"}`;
       pushNode(
         makeContainerNode(
           retrievalStageId,
           "select",
           "Retrieved URLs",
-          `${retrievals.length} url${retrievals.length === 1 ? "" : "s"}`,
+          retrievalStageSubtitle,
           { detailType: "retrieval_stage", retrievals },
           selectionX,
           retrievalStageY
@@ -385,8 +389,9 @@ export function buildViewModel(trace) {
           (retrieval.source && (retrieval.source.title || retrieval.source.url || retrieval.source.reference)) ||
           `retrieval ${retrievalIndex + 1}`;
         const retrievalSubtitle = [
+          retrieval.irrelevant ? "no relevant content" : null,
           retrieval.source && retrieval.source.url ? summarizeText(retrieval.source.url, 60) : null,
-          retrieval.evidence && retrieval.evidence.takeaways && retrieval.evidence.takeaways.text
+          !retrieval.irrelevant && retrieval.evidence && retrieval.evidence.takeaways && retrieval.evidence.takeaways.text
             ? summarizeText(retrieval.evidence.takeaways.text, 80)
             : null,
         ]
@@ -395,7 +400,7 @@ export function buildViewModel(trace) {
         pushNode(
           makeChildNode(
             retrievalId,
-            "retrieval",
+            retrieval.irrelevant ? "retrieval_irrelevant" : "retrieval",
             retrievalTitle,
             retrievalSubtitle,
             { detailType: "retrieval_url", ...retrieval },

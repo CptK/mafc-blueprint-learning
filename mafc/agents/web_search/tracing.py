@@ -256,6 +256,7 @@ class WebSearchTraceRecorder:
         source: WebSource,
         retrieved_content: str | None,
         evidence: Evidence | None,
+        irrelevant: bool = False,
     ) -> None:
         payload = {
             "query_text": query_text,
@@ -263,6 +264,7 @@ class WebSearchTraceRecorder:
             "retrieved_content": retrieved_content[:_RAW_TRUNCATE_CHARS] + f"… [{len(retrieved_content) - _RAW_TRUNCATE_CHARS} chars truncated]"
                 if retrieved_content and len(retrieved_content) > _RAW_TRUNCATE_CHARS else retrieved_content,
             "evidence": _serialize_evidence(evidence) if evidence is not None else None,
+            "irrelevant": irrelevant,
         }
         self._current_iteration()["retrievals"].append(payload)
         self.record_event("retrieval_result", payload, step=step)

@@ -306,6 +306,7 @@ def retrieve_and_extract_evidence(
         contents = [None] * len(selected_sources)
 
     for source, content in zip(selected_sources, contents):
+        irrelevant = False
         if content is None:
             errors.append(f"Failed to retrieve content from {source.url}")
             logger.debug(f"[WebSearch-Agent] Failed to retrieve content from {source.url}")
@@ -322,12 +323,16 @@ def retrieve_and_extract_evidence(
             if content_text:
                 snippet = summarize_observation(model=model, instruction=query_text, observation=content_text)
                 raw_text = content_text
+                if not snippet:
+                    irrelevant = True
+                    logger.debug(f"[WebSearch-Agent] No relevant content found at {source.url}")
             else:
-                snippet = "Retrieved content was empty."
+                snippet = ""
                 raw_text = ""
+                irrelevant = True
         title = source.title or "Untitled"
         lines.append(f"- {title} | {source.url}\n  Content snippet: {snippet}")
-        evidence = build_evidence_from_source(
+        evidence = None if irrelevant else build_evidence_from_source(
             query_text=query_text,
             source=source,
             raw_text=raw_text,
@@ -339,8 +344,9 @@ def retrieve_and_extract_evidence(
                 step=step,
                 query_text=query_text,
                 source=source,
-                retrieved_content=raw_text if raw_text else None,
+                retrieved_content=raw_text if raw_text and not irrelevant else None,
                 evidence=evidence,
+                irrelevant=irrelevant,
             )
         if evidence is not None:
             evidences.append(evidence)

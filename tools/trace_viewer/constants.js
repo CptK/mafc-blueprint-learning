@@ -21,6 +21,7 @@ export function getColors() {
     query: getCssVar("--query"),
     select: getCssVar("--select"),
     retrieval: getCssVar("--retrieval"),
+    retrieval_irrelevant: getCssVar("--retrieval_irrelevant"),
   };
 }
 
