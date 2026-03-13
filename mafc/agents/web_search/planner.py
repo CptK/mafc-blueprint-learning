@@ -15,6 +15,8 @@ def plan_step(
     instruction: str,
     prior_context: str,
     errors: list[str],
+    step: int | None = None,
+    trace=None,
 ) -> SearchPlanStep | None:
     """Generate and parse the next search plan step from model output."""
     planner_prompt = (
@@ -32,10 +34,13 @@ def plan_step(
         f"Task:\n{instruction}\n\n"
         f"Prior session context:\n{prior_context if prior_context else 'None'}\n\n"
     )
+    planner_messages = [Message(role=MessageRole.USER, content=Prompt(text=planner_prompt))]
+    if trace is not None and step is not None:
+        trace.record_planner_messages(planner_messages, step=step)
     try:
-        response = agent.model.generate(
-            [Message(role=MessageRole.USER, content=Prompt(text=planner_prompt))]
-        ).text
+        response = agent.model.generate(planner_messages).text
+        if trace is not None and step is not None:
+            trace.record_planner_response(response, step=step)
         logger.info(f"Planner response:\n{response}")
         if is_failed_model_text(response):
             return None
@@ -49,15 +54,18 @@ def plan_step(
             "Only return JSON.\n\n"
             f"Response:\n{response}"
         )
-        repaired = agent.model.generate(
-            [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
-        ).text
+        repair_messages = [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
+        repaired = agent.model.generate(repair_messages).text
+        if trace is not None and step is not None:
+            trace.record_planner_repair(prompt=repair_prompt, response_text=repaired, step=step)
         if is_failed_model_text(repaired):
             return None
         return parse_plan(agent, repaired)
     except Exception as exc:
         logger.error(f"Planner call failed: {exc}")
         errors.append(f"Planner call failed: {exc}")
+        if trace is not None:
+            trace.record_error(step=step, phase="planner_call", message=f"Planner call failed: {exc}")
         return None
 
 

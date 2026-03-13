@@ -34,6 +34,8 @@ def execute_search_queries(
     n_workers: int = 1,
     max_results_per_query: int = 5,
     latest_allowed_date: date | None = None,
+    step: int | None = None,
+    trace=None,
 ) -> list[tuple[str, Sequence[Source] | None]]:
     """Execute all search queries and return source candidates per query."""
     if n_workers <= 1:
@@ -63,6 +65,14 @@ def execute_search_queries(
         if result.mark_seen:
             seen_queries.add(result.query_text)
             candidate_sources.append((result.query_text, result.sources))
+        if trace is not None and step is not None:
+            trace.record_search_result(
+                step=step,
+                query_text=result.query_text,
+                sources=list(result.sources) if result.sources is not None else None,
+                errors=result.errors,
+                marked_seen=result.mark_seen,
+            )
     return candidate_sources
 
 
@@ -71,6 +81,8 @@ def retrieve_query_results(
     errors: list[str],
     model: Model,
     retriever: RetrievalIntegration,
+    step: int | None = None,
+    trace=None,
 ) -> list[QueryInvestigationResult]:
     """Retrieve selected sources and extract structured per-query results."""
     query_results: list[QueryInvestigationResult] = []
@@ -86,7 +98,13 @@ def retrieve_query_results(
             continue
         query_results.append(
             retrieve_and_extract_evidence(
-                query_text=query_text, sources=sources, errors=errors, model=model, retriever=retriever
+                query_text=query_text,
+                sources=sources,
+                errors=errors,
+                model=model,
+                retriever=retriever,
+                step=step,
+                trace=trace,
             )
         )
     return query_results
@@ -125,6 +143,8 @@ def select_sources_for_retrieval(
     candidates: list[tuple[str, Sequence[Source] | None]],
     model: Model,
     max_results_per_query: int = 5,
+    step: int | None = None,
+    trace=None,
 ) -> list[tuple[str, Sequence[Source] | None]]:
     """Select relevant sources for retrieval from per-query candidates."""
     per_query_sources: dict[str, list[WebSource] | None] = {}
@@ -174,6 +194,14 @@ def select_sources_for_retrieval(
             continue
         picked = selected_by_query.get(query_text, [])[:max_results_per_query]
         selected.append((query_text, picked))
+    if trace is not None and step is not None:
+        trace.record_selected_sources(
+            step=step,
+            selected_sources=[
+                (query_text, list(sources) if sources is not None else None)
+                for query_text, sources in selected
+            ],
+        )
     return selected
 
 
@@ -249,6 +277,8 @@ def retrieve_and_extract_evidence(
     errors: list[str],
     model: Model,
     retriever: RetrievalIntegration,
+    step: int | None = None,
+    trace=None,
 ) -> QueryInvestigationResult:
     """Retrieve source content in batch and turn it into observations and evidence."""
     lines = [f"Query: {query_text}"]
@@ -260,6 +290,12 @@ def retrieve_and_extract_evidence(
     except Exception as exc:
         errors.append(f"Batch retrieval failed for query '{query_text}': {exc}")
         logger.error(f"[WebSearch-Agent] Batch retrieval failed for query '{query_text}': {exc}")
+        if trace is not None:
+            trace.record_error(
+                step=step,
+                phase="batch_retrieval",
+                message=f"Batch retrieval failed for query '{query_text}': {exc}",
+            )
         contents = [None] * len(selected_sources)
 
     for source, content in zip(selected_sources, contents):
@@ -268,6 +304,12 @@ def retrieve_and_extract_evidence(
             logger.debug(f"[WebSearch-Agent] Failed to retrieve content from {source.url}")
             snippet = source.preview or "No retrieved content."
             raw_text = source.preview or ""
+            if trace is not None:
+                trace.record_error(
+                    step=step,
+                    phase="source_retrieval",
+                    message=f"Failed to retrieve content from {source.url}",
+                )
         else:
             content_text = str(content).strip()
             if content_text:
@@ -283,7 +325,16 @@ def retrieve_and_extract_evidence(
             source=source,
             raw_text=raw_text,
             snippet=snippet,
+            preview=source.preview,
         )
+        if trace is not None and step is not None:
+            trace.record_retrieval(
+                step=step,
+                query_text=query_text,
+                source=source,
+                retrieved_content=raw_text if raw_text else None,
+                evidence=evidence,
+            )
         if evidence is not None:
             evidences.append(evidence)
 
@@ -299,6 +350,7 @@ def build_evidence_from_source(
     source: WebSource,
     raw_text: str,
     snippet: str,
+    preview: str | None = None,
 ) -> Evidence | None:
     """Build one source-backed evidence item from a retrieved web source."""
     raw_payload = raw_text.strip()
@@ -313,5 +365,6 @@ def build_evidence_from_source(
             source_title=source.title,
         ),
         source=source.url,
+        preview=preview or None,
         takeaways=MultimodalSequence(takeaway_text) if takeaway_text else None,
     )

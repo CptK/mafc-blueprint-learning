@@ -31,19 +31,22 @@ def synthesize_step(model: Model, instruction: str, observations: list[str]) -> 
 def summarize_observation(model: Model, instruction: str, observation: str) -> str:
     """Summarize a single observation block with the summarization model."""
     summary_prompt = (
-        "You are a factual evidence summarizer in a non-conversational setting.\n"
-        "You are not in a conversational setting, so do not include any conversational elements in your summary.\n"
-        "Summarize only information relevant to the task.\n"
-        "Include concrete facts and source references where possible.\n\n"
-        f"Task:\n{instruction}\n\n"
-        f"Observation:\n{observation}"
+        "Extract factual statements from the web page below that are relevant to the search query.\n"
+        "Rules:\n"
+        "- Only report facts explicitly stated in the page. Do not infer or conclude.\n"
+        "- Do not draw verdicts, make recommendations, or offer further help.\n"
+        "- Do not use first-person. Do not address the reader.\n"
+        "- Return a plain bulleted list of factual statements (max 7 bullets).\n"
+        "- If the page contains no relevant information, return: NO_RELEVANT_CONTENT\n\n"
+        f"Search query: {instruction}\n\n"
+        f"Page content:\n{observation}"
     )
     try:
         summary = model.generate(
             [Message(role=MessageRole.USER, content=Prompt(text=summary_prompt))]
         ).text.strip()
-        if not summary or is_failed_model_text(summary):
-            return observation
+        if not summary or is_failed_model_text(summary) or summary == "NO_RELEVANT_CONTENT":
+            return ""
         return summary
     except Exception:
         return observation

@@ -15,6 +15,7 @@ from mafc.agents.fact_check.models import FactCheckSessionState, PlannerDecision
 from mafc.common.claim import Claim
 from mafc.common.evidence import Evidence
 from mafc.common.modeling.message import Message
+from mafc.common.trace import TraceScope
 
 
 def _timestamp() -> str:
@@ -90,9 +91,17 @@ class FactCheckTraceRecorder:
 
     trace_version = 1
 
-    def __init__(self, trace_dir: str | Path | None, session: AgentSession, agent_name: str):
+    def __init__(
+        self,
+        trace_dir: str | Path | None,
+        session: AgentSession,
+        agent_name: str,
+        trace_scope: TraceScope | None = None,
+    ):
         self.enabled = trace_dir is not None
         self.path: Path | None = None
+        self.trace_dir = Path(trace_dir) if trace_dir is not None else None
+        self.scope = trace_scope
         self._event_seq = 0
         self._current_iteration_index: int | None = None
         self._last_iteration_node_id: str | None = None
@@ -127,7 +136,8 @@ class FactCheckTraceRecorder:
             },
         }
         if self.enabled:
-            trace_dir_path = Path(trace_dir)
+            trace_dir_path = self.trace_dir
+            assert trace_dir_path is not None
             trace_dir_path.mkdir(parents=True, exist_ok=True)
             filename = f"{_sanitize_filename(session.id)}.fact_check_trace.json"
             self.path = trace_dir_path / filename
@@ -292,6 +302,28 @@ class FactCheckTraceRecorder:
             flow_node_id=self._task_node_ids.get(task_id),
         )
 
+    def record_delegated_task_trace(
+        self,
+        *,
+        iteration: int,
+        task_id: str,
+        child_trace: dict[str, Any],
+    ) -> None:
+        for task in self._current_iteration()["delegated_tasks"]:
+            if task["task_id"] == task_id:
+                task["child_trace"] = child_trace
+                break
+        self.record_event(
+            "delegation_trace_attached",
+            {
+                "task_id": task_id,
+                "child_agent": child_trace.get("agent"),
+                "child_session_id": child_trace.get("session_id"),
+            },
+            iteration=iteration,
+            flow_node_id=self._task_node_ids.get(task_id),
+        )
+
     def record_synthesis(
         self,
         *,
@@ -358,6 +390,11 @@ class FactCheckTraceRecorder:
             self.trace["summary"]["message_count"] = len(result.messages)
         self.trace["summary"]["errors"] = list(errors)
         self.trace["summary"]["evidence_count"] = len(session.evidences)
+        self.trace["summary"]["events_path"] = (
+            str(self.trace_dir / f"{_sanitize_filename(session.id)}.trace.jsonl")
+            if self.trace_dir is not None
+            else None
+        )
         if state is not None:
             self.trace["summary"]["required_checks"] = {
                 key: value.value for key, value in state.required_check_status.items()
@@ -376,6 +413,8 @@ class FactCheckTraceRecorder:
                 "error_count": len(errors),
             },
         )
+        if self.scope is not None:
+            self.scope.set_summary(self.trace)
         if self.enabled and self.path is not None:
             self.path.write_text(json.dumps(self.trace, indent=2, ensure_ascii=True), encoding="utf-8")
 
@@ -388,16 +427,17 @@ class FactCheckTraceRecorder:
         flow_node_id: str | None = None,
     ) -> None:
         self._event_seq += 1
-        self.trace["events"].append(
-            {
-                "seq": self._event_seq,
-                "ts": _timestamp(),
-                "event_type": event_type,
-                "iteration": iteration,
-                "flow_node_id": flow_node_id,
-                "payload": payload,
-            }
-        )
+        event = {
+            "seq": self._event_seq,
+            "ts": _timestamp(),
+            "event_type": event_type,
+            "iteration": iteration,
+            "flow_node_id": flow_node_id,
+            "payload": payload,
+        }
+        self.trace["events"].append(event)
+        if self.scope is not None:
+            self.scope.append_event(event_type, event)
 
     def _current_iteration(self) -> dict[str, Any]:
         assert self._current_iteration_index is not None, "No iteration is currently active."

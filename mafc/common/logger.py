@@ -3,13 +3,15 @@ import json
 import logging
 import os.path
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from multiprocessing.connection import Connection
 from typing import Any, Literal
 from pathlib import Path
+import re
 import pandas as pd
 import yaml
+from filelock import FileLock
 
 from mafc.common.label import BaseLabel
 from mafc.utils.console import remove_string_formatters, bold, red, yellow, gray, green
@@ -60,6 +62,7 @@ class Logger:
     config_filename = "config.yaml"
     predictions_filename = "predictions.csv"
     instance_stats_filename = "instance_stats.csv"
+    trace_events_filename = "trace.jsonl"
 
     def __init__(self):
         self.experiment_dir = None
@@ -322,6 +325,43 @@ class Logger:
         with open(self.averitec_out, "w") as f:
             json.dump(current_outs, f, indent=4)
 
+    def append_json_event(
+        self,
+        trace_id: str,
+        payload: dict[str, Any],
+        *,
+        event_type: str,
+        trace_dir: str | Path | None = None,
+    ) -> Path:
+        """Append one structured event to the per-trace JSONL stream.
+
+        The trace target is selected explicitly by `trace_id`, which keeps this safe
+        under parallel fact-check execution. `trace_dir` may override the base directory.
+        """
+        trace_path = self.get_trace_events_path(trace_id=trace_id, trace_dir=trace_dir)
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
+        event = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "trace_id": trace_id,
+            "event_type": event_type,
+            "payload": payload,
+        }
+        serialized = json.dumps(event, ensure_ascii=True) + "\n"
+        lock = FileLock(str(trace_path) + ".lock")
+        with lock:
+            with open(trace_path, "a", encoding="utf-8") as f:
+                f.write(serialized)
+        return trace_path
+
+    def get_trace_events_path(
+        self,
+        *,
+        trace_id: str,
+        trace_dir: str | Path | None = None,
+    ) -> Path:
+        base_dir = Path(trace_dir) if trace_dir is not None else self.target_dir
+        return base_dir / f"{_sanitize_path_segment(trace_id)}.{self.trace_events_filename}"
+
     @property
     def target_dir(self) -> Path:
         if self._current_fact_check_id is None:
@@ -410,6 +450,11 @@ def _make_file_handler(path: Path) -> logging.FileHandler:
 def compose_message(*args) -> str:
     msg = " ".join([str(a) for a in args])
     return msg.encode("utf-8", "ignore").decode("utf-8")  # remove invalid chars
+
+
+def _sanitize_path_segment(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
+    return sanitized or "trace"
 
 
 logger = Logger()

@@ -14,7 +14,8 @@ class Evidence(BaseModel):
     raw: MultimodalSequence  # The source contents or relevant excerpt.
     action: Action  # The action that produced or extracted this evidence.
     source: str  # The originating source, usually a URL, file, or tool-specific reference.
-    takeaways: MultimodalSequence | None  # Helpful distilled information extracted from the source.
+    preview: str | None = None  # The original search-engine snippet for the source, if available.
+    takeaways: MultimodalSequence | None = None  # Helpful distilled information extracted from the source.
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def is_useful(self) -> bool:

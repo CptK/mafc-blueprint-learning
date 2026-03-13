@@ -16,6 +16,7 @@ class AgentResult:
     evidences: list[Evidence] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     status: AgentStatus | None = None
+    trace: dict | None = None
 
 
 class Agent(ABC):
@@ -30,7 +31,7 @@ class Agent(ABC):
         self.agent_id = agent_id or f"{self.name}_{id(self)}"
 
     @abstractmethod
-    def run(self, session: AgentSession) -> AgentResult:
+    def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
         """Run the agent on the given investigation session."""
         raise NotImplementedError
 

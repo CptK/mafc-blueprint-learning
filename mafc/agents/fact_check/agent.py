@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import inspect
 from pathlib import Path
 
 from ezmm import MultimodalSequence
@@ -22,6 +23,7 @@ from mafc.agents.fact_check.prompts import (
     render_available_sub_agents,
 )
 from mafc.agents.fact_check.tracing import FactCheckTraceRecorder
+from mafc.common.trace import TraceScope
 from mafc.blueprints.models import Blueprint
 from mafc.blueprints.topology import analyze_blueprint_topology
 from mafc.blueprints.selector import BlueprintSelector
@@ -62,10 +64,17 @@ class FactCheckAgent(Agent):
             "web_search_agent": "web_search",
         }
 
-    def run(self, session: AgentSession) -> AgentResult:
+    def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
         """Run the blueprint-guided orchestration loop for one session."""
         self._mark_running(session)
-        trace = FactCheckTraceRecorder(self.trace_dir, session, self.name)
+        root_scope = trace_scope or TraceScope.root(
+            scope_type="fact_check_run",
+            trace_id=session.id,
+            trace_dir=self.trace_dir,
+            key=session.id,
+            metadata={"agent": self.name},
+        )
+        trace = FactCheckTraceRecorder(self.trace_dir, session, self.name, trace_scope=root_scope)
         claim = self._resolve_claim(session)
         trace.set_claim(claim)
         logger.debug(f"[FactCheckAgent] Starting verification for claim: '{claim}'")
@@ -79,6 +88,7 @@ class FactCheckAgent(Agent):
                 result=None,
                 errors=["Fact-check session requires a claim or non-empty goal."],
                 status=session.status,
+                trace=trace.trace,
             )
             errors.extend(result.errors)
             trace.record_error(phase="resolve_claim", message=result.errors[0])
@@ -411,6 +421,32 @@ class FactCheckAgent(Agent):
 
             worker_index = len(delegated_calls) % len(worker_agents)
             worker_agent = worker_agents[worker_index]
+            if (
+                trace.trace_dir is not None
+                and hasattr(worker_agent, "trace_dir")
+                and getattr(worker_agent, "trace_dir") is None
+            ):
+                worker_agent.trace_dir = trace.trace_dir
+            task_scope = None
+            if trace.scope is not None:
+                task_scope = trace.scope.child_scope(
+                    "delegated_task",
+                    key=task.task_id,
+                    metadata={
+                        "agent_type": normalized_agent_type,
+                        "instruction": task.instruction,
+                        "iteration": state.iteration,
+                    },
+                )
+                task_scope.append_event(
+                    "task_created",
+                    {
+                        "task_id": task.task_id,
+                        "agent_type": normalized_agent_type,
+                        "instruction": task.instruction,
+                        "iteration": state.iteration,
+                    },
+                )
             child_session = self._build_child_session(
                 parent_session=session,
                 claim=claim,
@@ -438,22 +474,25 @@ class FactCheckAgent(Agent):
                 rationale=task.rationale,
                 child_session_id=child_session.id,
             )
-            delegated_calls.append((task.task_id, worker_agent, child_session))
+            delegated_calls.append((task.task_id, worker_agent, child_session, task_scope))
 
         if not delegated_calls:
             return
 
         if len(delegated_calls) == 1 or self.n_workers <= 1:
             results = [
-                (task_id, worker_agent.run(child_session))
-                for task_id, worker_agent, child_session in delegated_calls
+                (task_id, self._run_worker_agent(worker_agent, child_session, task_scope))
+                for task_id, worker_agent, child_session, task_scope in delegated_calls
             ]
         else:
             max_workers = min(len(delegated_calls), self.n_workers)
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = [
-                    (task_id, executor.submit(worker_agent.run, child_session))
-                    for task_id, worker_agent, child_session in delegated_calls
+                    (
+                        task_id,
+                        executor.submit(self._run_worker_agent, worker_agent, child_session, task_scope),
+                    )
+                    for task_id, worker_agent, child_session, task_scope in delegated_calls
                 ]
                 results = [(task_id, future.result()) for task_id, future in futures]
 
@@ -462,6 +501,13 @@ class FactCheckAgent(Agent):
             state.evidences.extend(result.evidences)
             errors.extend(result.errors)
             trace.record_delegated_task_result(iteration=state.iteration, task_id=task_id, result=result)
+            child_trace = result.trace
+            if child_trace is not None:
+                trace.record_delegated_task_trace(
+                    iteration=state.iteration,
+                    task_id=task_id,
+                    child_trace=child_trace,
+                )
             for error in result.errors:
                 trace.record_error(
                     phase="delegated_task",
@@ -510,6 +556,12 @@ class FactCheckAgent(Agent):
             parent_session_id=parent_session.id,
             evidences=list(state.evidences),
         )
+
+    def _run_worker_agent(self, worker_agent, child_session: AgentSession, trace_scope) -> AgentResult:
+        run_signature = inspect.signature(worker_agent.run)
+        if "trace_scope" in run_signature.parameters:
+            return worker_agent.run(child_session, trace_scope=trace_scope)
+        return worker_agent.run(child_session)
 
     def _synthesize_findings(
         self,
@@ -564,6 +616,7 @@ class FactCheckAgent(Agent):
                 evidences=list(state.evidences),
                 errors=errors,
                 status=session.status,
+                trace=trace.trace if trace is not None else None,
             )
 
         session.evidences = list(state.evidences)
@@ -578,4 +631,5 @@ class FactCheckAgent(Agent):
             evidences=list(state.evidences),
             errors=errors,
             status=session.status,
+            trace=trace.trace if trace is not None else None,
         )
