@@ -44,7 +44,11 @@ export function renderDetail(node) {
         .join("");
       return `<div class="detail-section"><h3>${escapeHtml(entry.query_text || "Query")}</h3><ul>${items || "<li>No URLs selected.</li>"}</ul></div>`;
     });
-    return entries.join("") || "<div class=\"empty\">No selected sources recorded.</div>";
+    return (
+      (entries.join("") || "<div class=\"empty\">No selected sources recorded.</div>") +
+      renderCollapsibleText("Selection Prompt", payload.selection_prompt) +
+      renderCollapsibleText("Model Response", payload.selection_response)
+    );
   }
 
   if (detailType === "retrieval_stage") {
@@ -324,6 +328,8 @@ export function renderDetail(node) {
       ).join("")}
 
       ${renderCollapsibleText("Model Response", payload.model_response)}
+      ${renderCollapsibleText("Repair Prompt", payload.repair_prompt)}
+      ${renderCollapsibleText("Repair Response", payload.repair_response)}
     `;
   }
 

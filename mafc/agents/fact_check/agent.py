@@ -47,6 +47,7 @@ class FactCheckAgent(Agent):
         model: Model,
         blueprint_selector: BlueprintSelector,
         delegation_agents: dict[str, list[Agent]] | None = None,
+        judge_agent: Agent | None = None,
         n_workers: int = 1,
         agent_id: str | None = None,
         trace_dir: str | Path | None = None,
@@ -55,6 +56,7 @@ class FactCheckAgent(Agent):
         super().__init__(model, n_workers=n_workers, agent_id=agent_id)
         self.blueprint_selector = blueprint_selector
         self.delegation_agents = delegation_agents or {}
+        self.judge_agent = judge_agent
         self.trace_dir = trace_dir
         self._agent_type_aliases = {
             "media": "media",
@@ -620,6 +622,25 @@ class FactCheckAgent(Agent):
             )
 
         session.evidences = list(state.evidences)
+
+        if self.judge_agent is not None and session.evidences:
+            judge_session = AgentSession(
+                id=f"{session.id}:judge",
+                goal=Prompt(text="Judge the claim using accepted evidence."),
+                claim=session.claim,
+                evidences=list(session.evidences),
+                parent_session_id=session.id,
+            )
+            judge_scope = (
+                trace.scope.child_scope("judge_run", key=judge_session.id, metadata={"agent": "JudgeAgent"})
+                if trace is not None and trace.scope is not None
+                else None
+            )
+            judge_result = self._run_worker_agent(self.judge_agent, judge_session, judge_scope)
+            errors.extend(judge_result.errors)
+            if trace is not None and judge_result.trace is not None:
+                trace.record_judge_run(judge_result.trace)
+
         result_text = MultimodalSequence(state.final_answer)
         result_message = self.make_result_message(session, result_text, list(state.evidences))
         session.messages.append(result_message)

@@ -148,6 +148,8 @@ class WebSearchTraceRecorder:
                 "resolved_plan": None,
                 "search_results": [],
                 "selected_sources": [],
+                "selection_prompt": None,
+                "selection_response": None,
                 "retrievals": [],
                 "synthesis": None,
                 "new_errors": [],
@@ -228,6 +230,8 @@ class WebSearchTraceRecorder:
         *,
         step: int,
         selected_sources: list[tuple[str, list[Source] | None]],
+        selection_prompt: str | None = None,
+        selection_response: str | None = None,
     ) -> None:
         payload = [
             {
@@ -236,7 +240,12 @@ class WebSearchTraceRecorder:
             }
             for query_text, sources in selected_sources
         ]
-        self._current_iteration()["selected_sources"] = payload
+        record = self._current_iteration()
+        record["selected_sources"] = payload
+        if selection_prompt is not None:
+            record["selection_prompt"] = selection_prompt
+        if selection_response is not None:
+            record["selection_response"] = selection_response
         self.record_event("selected_sources", {"selected_sources": payload}, step=step)
 
     def record_retrieval(

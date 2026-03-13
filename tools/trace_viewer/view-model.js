@@ -159,6 +159,15 @@ export function buildViewModel(trace) {
     edges.push(makeEdge(returnNodeId, "result", "returns"));
   }
   edges.push(makeEdge("blueprint", "result", "constrains"));
+
+  if (trace.judge_run) {
+    const judgeRunY = currentMainY + WEB_LAYOUT.rowGap;
+    const judgeRunId = "judge-run";
+    pushNode(makeNode(judgeRunId, "childrun", "JudgeAgent", buildRunSubtitle(trace.judge_run), trace.judge_run, null, false, WEB_LAYOUT.mainX, judgeRunY));
+    edges.push(makeEdge("result", judgeRunId, "judges"));
+    addJudgeTraceGraph(judgeRunId, trace.judge_run, "judge", WEB_LAYOUT.childX, judgeRunY + 120);
+  }
+
   return { nodes, edges, nodeById };
 
   function pushNode(node) {
@@ -333,6 +342,8 @@ export function buildViewModel(trace) {
             detailType: "selection",
             selected_sources: childIteration.selected_sources || [],
             resolved_plan: childIteration.resolved_plan || null,
+            selection_prompt: childIteration.selection_prompt || null,
+            selection_response: childIteration.selection_response || null,
           },
           null,
           false,

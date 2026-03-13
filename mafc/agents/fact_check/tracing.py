@@ -124,6 +124,7 @@ class FactCheckTraceRecorder:
             "claim": _serialize_claim(session.claim),
             "blueprint": None,
             "iterations": [],
+            "judge_run": None,
             "events": [],
             "flow": {
                 "nodes": [],
@@ -423,6 +424,16 @@ class FactCheckTraceRecorder:
             self.scope.set_summary(self.trace)
         if self.enabled and self.path is not None:
             self.path.write_text(json.dumps(self.trace, indent=2, ensure_ascii=True), encoding="utf-8")
+
+    def record_judge_run(self, judge_trace: dict[str, Any]) -> None:
+        self.trace["judge_run"] = judge_trace
+        self.record_event(
+            "judge_run_attached",
+            {
+                "label": (judge_trace.get("decision") or {}).get("label"),
+                "session_id": judge_trace.get("session_id"),
+            },
+        )
 
     def record_event(
         self,

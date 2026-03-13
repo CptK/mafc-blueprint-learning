@@ -159,12 +159,14 @@ def select_sources_for_retrieval(
             global_candidates.append(GlobalSourceCandidate(query_text=query_text, source=source))
 
     selected_urls: list[str] = []
+    selection_prompt: str | None = None
+    selection_response: str | None = None
     logger.info(
         f"All candidate URLs before filtering:\n{'\n    '.join([c.source.url for c in global_candidates])}"
     )
     if len(global_candidates) > 5:
         max_selected_total = max_results_per_query * max(1, len(per_query_sources))
-        selected_urls = filter_sources_with_model(
+        selected_urls, selection_prompt, selection_response = filter_sources_with_model(
             candidates=global_candidates,
             max_selected=max_selected_total,
             model=model,
@@ -201,6 +203,8 @@ def select_sources_for_retrieval(
                 (query_text, list(sources) if sources is not None else None)
                 for query_text, sources in selected
             ],
+            selection_prompt=selection_prompt,
+            selection_response=selection_response,
         )
     return selected
 
@@ -209,8 +213,11 @@ def filter_sources_with_model(
     candidates: list[GlobalSourceCandidate],
     max_selected: int,
     model: Model,
-) -> list[str]:
-    """Select the most relevant source URLs for a query via model reasoning."""
+) -> tuple[list[str], str, str]:
+    """Select the most relevant source URLs for a query via model reasoning.
+
+    Returns (selected_urls, selection_prompt, response_text).
+    """
     candidates_payload = []
     for idx, candidate in enumerate(candidates, start=1):
         source = candidate.source
@@ -245,8 +252,8 @@ def filter_sources_with_model(
         ).text
     except Exception as exc:
         logger.error(f"[WebSearch-Agent] Global source filtering call failed: {exc}")
-        return []
-    return parse_selected_urls(response_text=response_text, max_selected=max_selected)
+        return [], selection_prompt, ""
+    return parse_selected_urls(response_text=response_text, max_selected=max_selected), selection_prompt, response_text
 
 
 def parse_selected_urls(response_text: str, max_selected: int) -> list[str]:

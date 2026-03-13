@@ -114,6 +114,8 @@ class JudgeTraceRecorder:
             "class_definitions": {},
             "prompt_messages": [],
             "model_response": None,
+            "repair_prompt": None,
+            "repair_response": None,
             "decision": None,
             "events": [],
             "summary": {
@@ -144,6 +146,11 @@ class JudgeTraceRecorder:
     def record_model_response(self, response_text: str) -> None:
         self.trace["model_response"] = response_text
         self.record_event("model_response", {"response_text": response_text})
+
+    def record_repair(self, *, prompt: str, response_text: str) -> None:
+        self.trace["repair_prompt"] = prompt
+        self.trace["repair_response"] = response_text
+        self.record_event("repair", {"prompt": prompt, "response_text": response_text})
 
     def record_decision(self, label: str, justification: str) -> None:
         payload = {"label": label, "justification": justification}

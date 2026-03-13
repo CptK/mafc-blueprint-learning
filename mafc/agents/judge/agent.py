@@ -100,6 +100,19 @@ class JudgeAgent(Agent):
 
         parsed = self._parse_response(response_text)
         if parsed is None:
+            repair_prompt = (
+                "Convert the following judge response to strict JSON with schema:\n"
+                '{"label": "one allowed label", "justification": "short grounded justification"}\n'
+                f"Allowed labels: {', '.join(str(k) for k in self.class_definitions)}\n"
+                "Only return JSON.\n\n"
+                f"Response:\n{response_text}"
+            )
+            repair_messages = [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
+            repair_response = self.model.generate(repair_messages).text.strip()
+            trace.record_repair(prompt=repair_prompt, response_text=repair_response)
+            parsed = self._parse_response(repair_response)
+
+        if parsed is None:
             self._mark_failed(session)
             result = AgentResult(
                 session=session,
