@@ -7,6 +7,52 @@ export function buildViewModel(trace) {
   const nodeById = {};
   let currentMainY = 80;
 
+  if (trace.agent === "MediaAgent") {
+    const runId = "media-root";
+    pushNode(makeNode(runId, "childrun", "MediaAgent", buildRunSubtitle(trace), trace, null, false, WEB_LAYOUT.mainX, currentMainY));
+    const mediaLayout = addMediaTraceGraph(runId, trace, "root", WEB_LAYOUT.childX, currentMainY + 120);
+    if (trace.summary && trace.summary.result && trace.summary.result.result) {
+      pushNode(
+        makeNode(
+          "media-result",
+          "result",
+          "Result",
+          summarizeText(trace.summary.result.result.text || "", 120),
+          trace.summary.result,
+          null,
+          false,
+          WEB_LAYOUT.mainX,
+          mediaLayout.bottomY + 180
+        )
+      );
+      edges.push(makeEdge(mediaLayout.lastNodeId || runId, "media-result", "finalizes"));
+    }
+    return { nodes, edges, nodeById };
+  }
+
+  if (trace.agent === "JudgeAgent") {
+    const runId = "judge-root";
+    pushNode(makeNode(runId, "childrun", "JudgeAgent", buildRunSubtitle(trace), trace, null, false, WEB_LAYOUT.mainX, currentMainY));
+    const judgeLayout = addJudgeTraceGraph(runId, trace, "root", WEB_LAYOUT.childX, currentMainY + 120);
+    if (trace.summary && trace.summary.result && trace.summary.result.result) {
+      pushNode(
+        makeNode(
+          "judge-result",
+          "result",
+          "Result",
+          summarizeText(trace.summary.result.result.text || "", 120),
+          trace.summary.result,
+          null,
+          false,
+          WEB_LAYOUT.mainX,
+          judgeLayout.bottomY + 180
+        )
+      );
+      edges.push(makeEdge(judgeLayout.lastNodeId || runId, "judge-result", "finalizes"));
+    }
+    return { nodes, edges, nodeById };
+  }
+
   if (trace.agent === "WebSearchAgent") {
     const runId = "websearch-root";
     pushNode(makeNode(runId, "childrun", "WebSearchAgent", buildRunSubtitle(trace), trace, null, false, WEB_LAYOUT.mainX, currentMainY));
@@ -117,20 +163,29 @@ export function buildViewModel(trace) {
     const runId = `${taskId}-child-run`;
     pushNode(makeNode(runId, "childrun", childTrace.agent || "Child Run", buildRunSubtitle(childTrace), childTrace, null, false, x, y));
     edges.push(makeEdge(taskId, runId, "runs"));
-    const layout = addWebTraceGraph(runId, childTrace, taskId, x, y + 120);
+
+    let layout;
+    if (childTrace.agent === "MediaAgent") {
+      layout = addMediaTraceGraph(runId, childTrace, taskId, x, y + 120);
+    } else if (childTrace.agent === "JudgeAgent") {
+      layout = addJudgeTraceGraph(runId, childTrace, taskId, x, y + 120);
+    } else {
+      layout = addWebTraceGraph(runId, childTrace, taskId, x, y + 120);
+    }
 
     const summary = childTrace.summary || {};
     if (summary.result && summary.result.result && summary.result.result.text) {
       const resultId = `${runId}-result`;
       const resultY = layout.bottomY + 180;
+      const isWebSearch = !childTrace.agent || childTrace.agent === "WebSearchAgent";
       pushNode(
         makeNode(
           resultId,
           "result",
-          "Search Result",
+          isWebSearch ? "Search Result" : "Result",
           summarizeText(summary.result.result.text, 1),
           {
-            detailType: "web_search_result",
+            detailType: isWebSearch ? "web_search_result" : "child_result",
             answer: summary.result.result.text,
             evidences: summary.result.evidences || [],
             errors: summary.errors || [],
@@ -365,6 +420,171 @@ export function buildViewModel(trace) {
     });
 
     return { lastNodeId, bottomY };
+  }
+
+  function addMediaTraceGraph(runId, mediaTrace, keyPrefix, baseX, baseY) {
+    let lastNodeId = runId;
+    let bottomY = baseY;
+
+    const plannedTools = mediaTrace.planned_tools || [];
+    const plannerSubtitle = plannedTools.length > 0 ? `tools: ${plannedTools.join(", ")}` : "no tools planned";
+    const plannerId = `${keyPrefix}-${runId}-planner`;
+    pushNode(
+      makeNode(
+        plannerId,
+        "childstep",
+        "Media Planner",
+        plannerSubtitle,
+        {
+          detailType: "media_planner",
+          planner_messages: mediaTrace.planner_messages || [],
+          planner_response: mediaTrace.planner_response,
+          planned_tools: plannedTools,
+          started_at: mediaTrace.started_at,
+        },
+        null,
+        false,
+        baseX,
+        baseY
+      )
+    );
+    edges.push(makeEdge(runId, plannerId, "plan"));
+    lastNodeId = plannerId;
+
+    const toolResults = mediaTrace.tool_results || [];
+    let deepestToolBottomY = baseY + WEB_LAYOUT.stageGap;
+    const toolNodeIds = [];
+
+    toolResults.forEach((toolResult, index) => {
+      const toolX = baseX + index * WEB_LAYOUT.queryGap;
+      const toolY = baseY + WEB_LAYOUT.stageGap;
+      const toolNodeId = `${keyPrefix}-${runId}-tool-${index + 1}`;
+      toolNodeIds.push(toolNodeId);
+
+      const sources = toolResult.sources || [];
+      const toolLabel =
+        toolResult.tool === "reverse_image_search"
+          ? "Reverse Image Search"
+          : toolResult.tool === "geolocate"
+          ? "Geolocate"
+          : toolResult.tool || "Tool";
+      const toolSubtitle =
+        sources.length > 0 ? `${sources.length} source${sources.length === 1 ? "" : "s"}` : "no sources";
+
+      pushNode(
+        makeContainerNode(
+          toolNodeId,
+          "select",
+          toolLabel,
+          toolSubtitle,
+          { detailType: "media_tool_result", ...toolResult },
+          toolX,
+          toolY
+        )
+      );
+      edges.push(makeEdge(plannerId, toolNodeId, "run", EDGE_STYLES.default, 2, 8));
+
+      sources.forEach((source, sourceIndex) => {
+        const sourceId = `${toolNodeId}-source-${sourceIndex + 1}`;
+        pushNode(
+          makeChildNode(
+            sourceId,
+            "retrieval",
+            source.title || source.url || source.reference || `Source ${sourceIndex + 1}`,
+            summarizeText(source.url || source.reference || "", 80),
+            { detailType: "media_source_url", source },
+            toolNodeId,
+            toolX,
+            toolY + 60 + sourceIndex * WEB_LAYOUT.urlGap
+          )
+        );
+        if (sourceIndex > 0) {
+          edges.push(makeEdge(`${toolNodeId}-source-${sourceIndex}`, sourceId, "", EDGE_STYLES.hidden));
+        }
+      });
+
+      if (sources.length === 0 && toolResult.takeaways && toolResult.takeaways.text) {
+        const resultChildId = `${toolNodeId}-result`;
+        pushNode(
+          makeChildNode(
+            resultChildId,
+            "retrieval",
+            "Result",
+            summarizeText(toolResult.takeaways.text, 80),
+            { detailType: "media_source_url", source: { reference: "", takeaways: toolResult.takeaways } },
+            toolNodeId,
+            toolX,
+            toolY + 60
+          )
+        );
+      }
+
+      const childCount = Math.max(sources.length, sources.length === 0 && toolResult.takeaways ? 1 : 0);
+      const thisToolBottomY = toolY + 60 + Math.max(0, childCount - 1) * WEB_LAYOUT.urlGap;
+      deepestToolBottomY = Math.max(deepestToolBottomY, thisToolBottomY);
+    });
+
+    const synthesisX = baseX + (Math.max(toolResults.length - 1, 0) * WEB_LAYOUT.queryGap) / 2;
+    const synthesisY = deepestToolBottomY + 90;
+    const synthesis = mediaTrace.synthesis;
+
+    if (synthesis && synthesis.answer) {
+      const synthesisId = `${keyPrefix}-${runId}-synthesis`;
+      pushNode(
+        makeNode(
+          synthesisId,
+          "result",
+          "Media Synthesis",
+          summarizeText(synthesis.answer, 100),
+          { detailType: "media_synthesis", ...synthesis },
+          null,
+          false,
+          synthesisX,
+          synthesisY
+        )
+      );
+      if (toolNodeIds.length > 0) {
+        toolNodeIds.forEach((tid) =>
+          edges.push(makeEdge(tid, synthesisId, "synthesize", EDGE_STYLES.default, 2, 8))
+        );
+      } else {
+        edges.push(makeEdge(plannerId, synthesisId, "synthesize"));
+      }
+      lastNodeId = synthesisId;
+      bottomY = synthesisY;
+    } else {
+      bottomY = deepestToolBottomY;
+      if (toolNodeIds.length > 0) {
+        lastNodeId = toolNodeIds[toolNodeIds.length - 1];
+      }
+    }
+
+    return { lastNodeId, bottomY };
+  }
+
+  function addJudgeTraceGraph(runId, judgeTrace, keyPrefix, baseX, baseY) {
+    const decision = judgeTrace.decision || {};
+    const summary = judgeTrace.summary || {};
+    const label = decision.label || summary.label || null;
+    const decisionSubtitle = label ? `label: ${label}` : "no decision";
+    const decisionId = `${keyPrefix}-${runId}-decision`;
+
+    pushNode(
+      makeNode(
+        decisionId,
+        "result",
+        "Judge Decision",
+        decisionSubtitle,
+        { detailType: "judge_decision", ...judgeTrace },
+        null,
+        false,
+        baseX,
+        baseY
+      )
+    );
+    edges.push(makeEdge(runId, decisionId, "verdict"));
+
+    return { lastNodeId: decisionId, bottomY: baseY };
   }
 
   function flattenSelectedSources(selectedSources) {

@@ -17,8 +17,11 @@ def plan_media_tools(
     instruction: str,
     prior_context: str,
     errors: list[str],
-) -> MediaToolPlan | None:
-    """Generate and parse the media tool-selection plan from model output."""
+) -> tuple[MediaToolPlan | None, list[Message], str | None]:
+    """Generate and parse the media tool-selection plan from model output.
+
+    Returns a tuple of (plan, planner_messages, planner_response_text).
+    """
     planner_prompt = (
         "You are a media investigation planner.\n"
         "Choose which media investigation tools should run for the task.\n"
@@ -35,16 +38,15 @@ def plan_media_tools(
         f"Task:\n{instruction}\n\n"
         f"Prior session context:\n{prior_context if prior_context else 'None'}\n"
     )
+    planner_messages = [Message(role=MessageRole.USER, content=Prompt(text=planner_prompt))]
     try:
-        response = agent.model.generate(
-            [Message(role=MessageRole.USER, content=Prompt(text=planner_prompt))]
-        ).text
+        response = agent.model.generate(planner_messages).text
         logger.info(f"Media planner response:\n{response}")
         if is_failed_model_text(response):
-            return None
+            return None, planner_messages, response
         parsed = parse_media_tool_plan(agent, response)
         if parsed is not None:
-            return parsed
+            return parsed, planner_messages, response
 
         repair_prompt = (
             "Convert the following planner response to strict JSON with schema:\n"
@@ -56,12 +58,12 @@ def plan_media_tools(
             [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
         ).text
         if is_failed_model_text(repaired):
-            return None
-        return parse_media_tool_plan(agent, repaired)
+            return None, planner_messages, response
+        return parse_media_tool_plan(agent, repaired), planner_messages, response
     except Exception as exc:
         logger.error(f"Media planner call failed: {exc}")
         errors.append(f"Media planner call failed: {exc}")
-        return None
+        return None, planner_messages, None
 
 
 def parse_media_tool_plan(agent, response_text: str) -> MediaToolPlan | None:

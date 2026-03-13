@@ -240,6 +240,113 @@ export function renderDetail(node) {
     `;
   }
 
+  if (detailType === "media_planner") {
+    return `
+      <h3>Media Planner</h3>
+      <p><strong>Planned tools:</strong> ${escapeHtml((payload.planned_tools || []).join(", ") || "none")}</p>
+
+      ${(payload.planner_messages || []).map((msg, i) =>
+        renderCollapsibleText(
+          `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
+          msg.content && msg.content.text
+        )
+      ).join("")}
+
+      ${renderCollapsibleText("Planner Response", payload.planner_response)}
+    `;
+  }
+
+  if (detailType === "media_tool_result") {
+    const sources = payload.sources || [];
+    const toolLabel =
+      payload.tool === "reverse_image_search"
+        ? "Reverse Image Search"
+        : payload.tool === "geolocate"
+        ? "Geolocate"
+        : escapeHtml(payload.tool || "Tool");
+    return `
+      <h3>${toolLabel}</h3>
+      <p><strong>Sources found:</strong> ${sources.length}</p>
+      ${renderCollapsibleMultimodal("Takeaways", payload.takeaways)}
+      ${renderCollapsibleText("Raw", payload.raw_text)}
+    `;
+  }
+
+  if (detailType === "media_source_url") {
+    const source = payload.source || {};
+    return `
+      <h3>${escapeHtml(source.title || source.url || source.reference || "Source")}</h3>
+      ${source.url ? `<p><strong>URL:</strong> ${escapeHtml(source.url)}</p>` : ""}
+      ${source.reference && source.reference !== source.url ? `<p><strong>Reference:</strong> ${escapeHtml(source.reference)}</p>` : ""}
+      ${renderCollapsibleMultimodal("Takeaways", source.takeaways)}
+    `;
+  }
+
+  if (detailType === "media_synthesis") {
+    return `
+      <h3>Media Synthesis</h3>
+      <p><strong>Evidence used:</strong> ${payload.evidence_count ?? 0}</p>
+      ${renderCollapsibleText("Answer", payload.answer)}
+    `;
+  }
+
+  if (detailType === "judge_decision") {
+    const decision = payload.decision || {};
+    const summary = payload.summary || {};
+    const label = decision.label || summary.label;
+    const justification = decision.justification || summary.justification;
+    const evidenceCount = payload.evidence_count ?? summary.evidence_count ?? 0;
+    const duration = formatDuration(payload.started_at, payload.ended_at);
+    const errors = summary.errors || [];
+
+    return `
+      <h3>Judge Decision</h3>
+      <p>
+        ${duration ? `<strong>Duration:</strong> ${escapeHtml(duration)} &nbsp;|&nbsp; ` : ""}
+        ${label ? `<strong>Label:</strong> ${escapeHtml(label)} &nbsp;|&nbsp; ` : ""}
+        <strong>Evidence:</strong> ${evidenceCount}
+        ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
+      </p>
+
+      ${errors.length ? `
+        <div class="detail-section">
+          <strong>Errors</strong>
+          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
+        </div>` : ""}
+
+      ${justification ? renderCollapsibleText("Justification", justification) : ""}
+
+      ${(payload.prompt_messages || []).map((msg, i) =>
+        renderCollapsibleText(
+          `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
+          msg.content && msg.content.text
+        )
+      ).join("")}
+
+      ${renderCollapsibleText("Model Response", payload.model_response)}
+    `;
+  }
+
+  if (detailType === "child_result") {
+    const errors = payload.errors || [];
+    const evidences = payload.evidences || [];
+    return `
+      <h3>Result</h3>
+      <p>
+        <strong>Evidence:</strong> ${evidences.length}
+        ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
+      </p>
+
+      ${errors.length ? `
+        <div class="detail-section">
+          <strong>Errors</strong>
+          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
+        </div>` : ""}
+
+      ${renderCollapsibleText("Answer", payload.answer)}
+    `;
+  }
+
   if (detailType === "iteration_synthesis") {
     return `
       <h3>Iteration Synthesis</h3>
