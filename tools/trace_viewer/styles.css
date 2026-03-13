@@ -247,6 +247,60 @@ details summary {
   font-weight: 600;
 }
 
+.evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.evidence-card {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--panel);
+  box-shadow: 0 2px 8px rgba(32, 32, 32, 0.06);
+}
+
+.evidence-card .evidence-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.evidence-card .evidence-index {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-family: monospace;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.evidence-card .evidence-source {
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.evidence-card .evidence-preview {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
+.evidence-card details {
+  margin-top: 8px;
+}
+
+.evidence-card details summary {
+  font-size: 13px;
+}
+
 @media (max-width: 1100px) {
   .app {
     grid-template-columns: 1fr;

@@ -49,6 +49,7 @@ export function buildViewModel(trace) {
   currentMainY += WEB_LAYOUT.rowGap;
 
   let previousMainNodeId = "blueprint";
+  let pendingReturnEdges = [];
   for (const iteration of trace.iterations || []) {
     const iterationId = `iteration-${iteration.iteration}`;
     const subtitle = [
@@ -60,6 +61,10 @@ export function buildViewModel(trace) {
       .join(" | ");
     pushNode(makeNode(iterationId, "iteration", `Iteration ${iteration.iteration}`, subtitle, iteration, null, false, WEB_LAYOUT.mainX, currentMainY));
     edges.push(makeEdge(previousMainNodeId, iterationId, "next"));
+    for (const returnNodeId of pendingReturnEdges) {
+      edges.push(makeEdge(returnNodeId, iterationId, "returns"));
+    }
+    pendingReturnEdges = [];
     previousMainNodeId = iterationId;
 
     const tasks = iteration.delegated_tasks || [];
@@ -83,6 +88,9 @@ export function buildViewModel(trace) {
       if (task.child_trace) {
         const childLayout = addChildTraceNodes(taskId, task.child_trace, WEB_LAYOUT.childX, taskY);
         localBottomY = Math.max(localBottomY, childLayout.bottomY);
+        if (childLayout.lastNodeId) {
+          pendingReturnEdges.push(childLayout.lastNodeId);
+        }
       } else {
         localBottomY = Math.max(localBottomY, taskY);
       }
@@ -94,6 +102,9 @@ export function buildViewModel(trace) {
     trace.summary && trace.summary.result && trace.summary.result.text ? trace.summary.result.text : trace.status || "No result";
   pushNode(makeNode("result", "result", "Result", summarizeText(resultText, 180), trace.summary || {}, null, false, WEB_LAYOUT.mainX, currentMainY));
   edges.push(makeEdge(previousMainNodeId, "result", "finalizes"));
+  for (const returnNodeId of pendingReturnEdges) {
+    edges.push(makeEdge(returnNodeId, "result", "returns"));
+  }
   edges.push(makeEdge("blueprint", "result", "constrains"));
   return { nodes, edges, nodeById };
 
@@ -106,7 +117,36 @@ export function buildViewModel(trace) {
     const runId = `${taskId}-child-run`;
     pushNode(makeNode(runId, "childrun", childTrace.agent || "Child Run", buildRunSubtitle(childTrace), childTrace, null, false, x, y));
     edges.push(makeEdge(taskId, runId, "runs"));
-    return addWebTraceGraph(runId, childTrace, taskId, x, y + 120);
+    const layout = addWebTraceGraph(runId, childTrace, taskId, x, y + 120);
+
+    const summary = childTrace.summary || {};
+    if (summary.result && summary.result.result && summary.result.result.text) {
+      const resultId = `${runId}-result`;
+      const resultY = layout.bottomY + 180;
+      pushNode(
+        makeNode(
+          resultId,
+          "result",
+          "Search Result",
+          summarizeText(summary.result.result.text, 1),
+          {
+            detailType: "web_search_result",
+            answer: summary.result.result.text,
+            evidences: summary.result.evidences || [],
+            errors: summary.errors || [],
+          },
+          null,
+          false,
+          x,
+          resultY
+        )
+      );
+      edges.push(makeEdge(layout.lastNodeId || runId, resultId, "finalizes"));
+      layout.lastNodeId = resultId;
+      layout.bottomY = resultY;
+    }
+
+    return layout;
   }
 
   function addWebTraceGraph(runId, webTrace, keyPrefix, baseX, baseY) {

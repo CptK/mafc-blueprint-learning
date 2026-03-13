@@ -207,6 +207,39 @@ export function renderDetail(node) {
     `;
   }
 
+  if (detailType === "web_search_result") {
+    const errors = payload.errors || [];
+    const evidences = payload.evidences || [];
+    return `
+      <h3>Search Result</h3>
+      <p>
+        <strong>Evidence:</strong> ${evidences.length}
+        ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
+      </p>
+
+      ${errors.length ? `
+        <div class="detail-section">
+          <strong>Errors</strong>
+          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
+        </div>` : ""}
+
+      ${renderCollapsibleText("Summary", payload.answer)}
+
+      <div class="evidence-list">
+        ${evidences.map((ev, i) => `
+          <div class="evidence-card">
+            <div class="evidence-header">
+              <span class="evidence-index">#${i + 1}</span>
+              <span class="evidence-source">${escapeHtml(ev.source || "Unknown source")}</span>
+            </div>
+            ${ev.preview ? `<p class="evidence-preview">${escapeHtml(ev.preview)}</p>` : ""}
+            ${renderCollapsibleMultimodal("Takeaways", ev.takeaways)}
+            ${renderCollapsibleMultimodal("Raw", ev.raw)}
+          </div>`).join("")}
+      </div>
+    `;
+  }
+
   if (detailType === "iteration_synthesis") {
     return `
       <h3>Iteration Synthesis</h3>
