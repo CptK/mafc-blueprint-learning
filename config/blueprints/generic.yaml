@@ -1,0 +1,63 @@
+name: generic
+description: General-purpose fact-checking strategy for arbitrary multimodal claims.
+
+entry_conditions:
+  all: []
+  any: []
+
+selector_hints:
+  positive:
+    features: []
+    examples:
+      - "A politician said X happened in 2024."
+      - "This image shows a protest in Athens."
+      - "This video was filmed during the election campaign."
+  negative:
+    features: []
+    examples: []
+
+policy_constraints:
+  allowed_actions: [web_search, media]
+  max_iterations: 4
+  require_counterevidence_search: true
+
+required_checks:
+  - id: core_claim_checked
+    description: The main factual content of the claim was investigated.
+  - id: counterevidence_checked
+    description: Counterevidence or contradiction search was attempted when relevant.
+
+verification_graph:
+  start_node: layer0_scope
+  nodes:
+    - id: layer0_scope
+      type: actions
+      actions:
+        - action: web_search
+          intent: establish the core factual context and locate likely primary sources
+        - action: media
+          intent: investigate any attached media for authenticity, origin, or context
+      transition:
+        - if: continue
+          to: layer1_expand
+    - id: layer1_expand
+      type: synthesis
+      transition:
+        - if: continue
+          to: layer2_gate
+    - id: layer2_gate
+      type: gate
+      rules:
+        support_conditions: [core_claim_checked]
+        refute_conditions: []
+        if_fail: return unknown
+
+termination:
+  - if: budget.exhausted == true
+    return: unknown
+  - if: gate.result == support
+    return: label_from_judge_support
+  - if: gate.result == refute
+    return: label_from_judge_refute
+  - if: gate.result == unknown
+    return: unknown
