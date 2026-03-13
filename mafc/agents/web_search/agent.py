@@ -89,6 +89,7 @@ class WebSearchAgent(Agent):
         result: AgentResult | None = None
         try:
             for step in range(1, self.max_iterations + 1):
+                prior_context = self.build_prior_context(session)
                 iteration_outcome = self._execute_iteration(
                     session=session,
                     step=step,
