@@ -3,14 +3,13 @@ from __future__ import annotations
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
-
-from mafc.agents.web_search.parsing import is_failed_model_text
+from mafc.utils.parsing import is_failed_model_text
 
 
 def synthesize_step(model: Model, instruction: str, observations: list[str]) -> str:
     """Synthesize current observations across sources for the current step."""
     synthesis_prompt = (
-        "You are a factual evidence synthesizer.\n"
+        "You are a factual evidence synthesizer in a non-conversational setting.\n"
         "Synthesize the observations across sources, focusing only on information relevant to the task.\n"
         "State agreements and disagreements between sources when present.\n"
         "Include concrete facts and source references where possible.\n"
@@ -32,7 +31,8 @@ def synthesize_step(model: Model, instruction: str, observations: list[str]) -> 
 def summarize_observation(model: Model, instruction: str, observation: str) -> str:
     """Summarize a single observation block with the summarization model."""
     summary_prompt = (
-        "You are a factual evidence summarizer.\n"
+        "You are a factual evidence summarizer in a non-conversational setting.\n"
+        "You are not in a conversational setting, so do not include any conversational elements in your summary.\n"
         "Summarize only information relevant to the task.\n"
         "Include concrete facts and source references where possible.\n\n"
         f"Task:\n{instruction}\n\n"

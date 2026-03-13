@@ -14,9 +14,9 @@ from mafc.tools.web_search.google_search import GoogleSearchPlatform
 from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
 from mafc.common.modeling.model import Model
+from mafc.utils.parsing import is_failed_model_text
 
 from mafc.agents.web_search.models import IterationOutcome, SearchPlanStep, StepQueryPlan, SearchTool
-from mafc.agents.web_search.parsing import is_failed_model_text
 from mafc.agents.web_search.planner import plan_step
 from mafc.agents.web_search.retrieval import (
     execute_search_queries,
@@ -27,7 +27,11 @@ from mafc.agents.web_search.retrieval import (
 
 class WebSearchAgent(Agent):
     name = "WebSearchAgent"
-    description = "An iterative agent that plans search queries with an LLM and synthesizes findings."
+    description = (
+        "Searches the web for external sources and synthesizes findings. "
+        "Use it to discover articles, official statements, social posts, webpages, and other online evidence, "
+        "including finding where claimed media appears online."
+    )
 
     allowed_tools = cast(list[type[Tool]], [GoogleSearchPlatform])
 

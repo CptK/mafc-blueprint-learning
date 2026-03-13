@@ -9,7 +9,7 @@ from ezmm.common.items import Image, Video
 from mafc.agents.agent import Agent, AgentResult
 from mafc.agents.common import AgentSession
 from mafc.agents.media.planner import plan_media_tools
-from mafc.agents.web_search.parsing import extract_json_object
+from mafc.utils.parsing import extract_json_object
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
@@ -25,7 +25,11 @@ from mafc.tools.web_search.reverse_image_search import ReverseImageSearch, Rever
 
 class MediaAgent(Agent):
     name = "MediaAgent"
-    description = "Investigates image/video questions using reverse image search and geolocation."
+    description = (
+        "Analyzes image or video that is already attached to the claim or task session. "
+        "Use it for reverse image search, geolocation, and other inspection of existing media. "
+        "Do not use it to discover new media on the web when no image or video is provided."
+    )
 
     allowed_tools = cast(list[type[Tool]], [ReverseImageSearchTool, Geolocator, GoogleSearchPlatform])
 
