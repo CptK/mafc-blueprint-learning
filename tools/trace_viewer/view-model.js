@@ -145,7 +145,7 @@ export function buildViewModel(trace) {
       } else {
         localBottomY = Math.max(localBottomY, taskY);
       }
-      const columnRightX = nodes.slice(nodesBeforeColumn).reduce((max, n) => Math.max(max, n.x), taskX);
+      const columnRightX = nodes.slice(nodesBeforeColumn).reduce((max, n) => Math.max(max, n.x + 240), taskX);
       nextTaskX = columnRightX + WEB_LAYOUT.taskColumnGap;
     });
     currentMainY = Math.max(currentMainY + WEB_LAYOUT.rowGap, localBottomY + 220);
@@ -181,7 +181,7 @@ export function buildViewModel(trace) {
     predictedLabel ? `predicted: ${predictedLabel}` : null,
     trueLabel ? `true: ${trueLabel}` : null,
     correct !== null ? (correct ? "correct" : "incorrect") : null,
-    summary.runtime_seconds != null ? `${summary.runtime_seconds}s` : null,
+    summary.runtime_seconds != null ? `${(summary.runtime_seconds / 60).toFixed(1)}min` : null,
     summary.total_cost_usd != null ? `$${summary.total_cost_usd.toFixed(4)}` : null,
     totalTokens > 0 ? `${totalTokens.toLocaleString()} tok` : null,
   ].filter(Boolean).join(" | ");

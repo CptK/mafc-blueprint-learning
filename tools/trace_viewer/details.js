@@ -370,7 +370,7 @@ export function renderDetail(node) {
       </p>
 
       <p>
-        ${payload.runtime_seconds != null ? `<strong>Runtime:</strong> ${payload.runtime_seconds}s &nbsp;|&nbsp; ` : ""}
+        ${payload.runtime_seconds != null ? `<strong>Runtime:</strong> ${(payload.runtime_seconds / 60).toFixed(1)}min &nbsp;|&nbsp; ` : ""}
         ${payload.evidence_count != null ? `<strong>Evidence:</strong> ${payload.evidence_count}` : ""}
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
       </p>
