@@ -15,7 +15,7 @@ from mafc.utils.parsing import extract_json_object
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
-from mafc.common.modeling.model import Model
+from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
 from mafc.tools.geolocate.geolocate import Geolocate, Geolocator
 from mafc.tools.tool import Tool

@@ -19,6 +19,7 @@ from mafc.agents.common import AgentSession
 from mafc.common.claim import Claim
 from mafc.common.evidence import Evidence
 from mafc.common.modeling.message import Message
+from mafc.common.modeling.model import Response
 from mafc.common.trace import TraceScope
 
 # ---------------------------------------------------------------------------
@@ -135,8 +136,7 @@ class BaseTraceRecorder:
     # Usage tracking
     # ------------------------------------------------------------------
 
-    def add_usage(self, response: "Response", model_name: str) -> None:  # type: ignore[name-defined]
-        from mafc.common.modeling.model import Response as _Response  # noqa: F401
+    def add_usage(self, response: Response, model_name: str) -> None:
 
         self._total_cost += response.total_cost
         in_tok = response.input_token_count or 0

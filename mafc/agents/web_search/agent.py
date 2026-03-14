@@ -14,7 +14,7 @@ from mafc.tools.tool import Tool
 from mafc.tools.web_search.google_search import GoogleSearchPlatform
 from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
-from mafc.common.modeling.model import Model
+from mafc.common.modeling.model import Model, Response
 from mafc.utils.parsing import is_failed_model_text
 
 from mafc.agents.web_search.models import IterationOutcome, SearchPlanStep, StepQueryPlan, SearchTool
