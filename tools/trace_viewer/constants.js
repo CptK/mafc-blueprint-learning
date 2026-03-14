@@ -34,4 +34,6 @@ export const WEB_LAYOUT = {
   queryGap: 320,
   stageGap: 170,
   urlGap: 110,
+  urlColumns: 3,
+  urlColumnGap: 280,
 };

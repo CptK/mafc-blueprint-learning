@@ -428,6 +428,7 @@ export function buildViewModel(trace) {
       edges.push(makeEdge(selectionId, retrievalStageId, "retrieve", EDGE_STYLES.default, 2, 8));
       lastNodeId = retrievalStageId;
 
+      const retrievalGridOffsetX = ((Math.min(retrievals.length, WEB_LAYOUT.urlColumns) - 1) * WEB_LAYOUT.urlColumnGap) / 2;
       retrievals.forEach((retrieval, retrievalIndex) => {
         const retrievalId = `${retrievalStageId}-url-${retrievalIndex + 1}`;
         const retrievalTitle =
@@ -442,6 +443,8 @@ export function buildViewModel(trace) {
         ]
           .filter(Boolean)
           .join(" | ");
+        const col = retrievalIndex % WEB_LAYOUT.urlColumns;
+        const row = Math.floor(retrievalIndex / WEB_LAYOUT.urlColumns);
         pushNode(
           makeChildNode(
             retrievalId,
@@ -450,8 +453,8 @@ export function buildViewModel(trace) {
             retrievalSubtitle,
             { detailType: "retrieval_url", ...retrieval },
             retrievalStageId,
-            selectionX,
-            retrievalStageY + 60 + retrievalIndex * WEB_LAYOUT.urlGap
+            selectionX - retrievalGridOffsetX + col * WEB_LAYOUT.urlColumnGap,
+            retrievalStageY + 60 + row * WEB_LAYOUT.urlGap
           )
         );
         if (retrievalIndex > 0) {
@@ -670,7 +673,8 @@ export function buildViewModel(trace) {
 
   function retrievalBlockBottomY(containerY, retrievals) {
     const count = Array.isArray(retrievals) ? retrievals.length : 0;
-    return containerY + 110 + Math.max(0, count - 1) * WEB_LAYOUT.urlGap;
+    const rows = Math.ceil(count / WEB_LAYOUT.urlColumns);
+    return containerY + 110 + Math.max(0, rows - 1) * WEB_LAYOUT.urlGap;
   }
 }
 
