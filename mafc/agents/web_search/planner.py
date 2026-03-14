@@ -7,6 +7,7 @@ from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 
 from mafc.agents.web_search.models import SearchPlanStep
+from mafc.agents.web_search.tracing import WebSearchTraceRecorder
 from mafc.utils.parsing import extract_json_object, is_failed_model_text
 
 
@@ -16,7 +17,7 @@ def plan_step(
     prior_context: str,
     errors: list[str],
     step: int | None = None,
-    trace=None,
+    trace: WebSearchTraceRecorder | None = None,
 ) -> SearchPlanStep | None:
     """Generate and parse the next search plan step from model output."""
     planner_prompt = (
@@ -38,7 +39,10 @@ def plan_step(
     if trace is not None and step is not None:
         trace.record_planner_messages(planner_messages, step=step)
     try:
-        response = agent.model.generate(planner_messages).text
+        _resp = agent.model.generate(planner_messages)
+        response = _resp.text
+        if trace is not None:
+            trace.add_usage(_resp, agent.model.name)
         if trace is not None and step is not None:
             trace.record_planner_response(response, step=step)
         logger.info(f"Planner response:\n{response}")
@@ -55,7 +59,10 @@ def plan_step(
             f"Response:\n{response}"
         )
         repair_messages = [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
-        repaired = agent.model.generate(repair_messages).text
+        _repair_resp = agent.model.generate(repair_messages)
+        repaired = _repair_resp.text
+        if trace is not None:
+            trace.add_usage(_repair_resp, agent.model.name)
         if trace is not None and step is not None:
             trace.record_planner_repair(prompt=repair_prompt, response_text=repaired, step=step)
         if is_failed_model_text(repaired):

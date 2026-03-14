@@ -95,7 +95,9 @@ class JudgeAgent(Agent):
 
         messages = self._build_messages(claim, session.evidences)
         trace.record_prompt_messages(messages)
-        response_text = self.model.generate(messages).text.strip()
+        _judge_resp = self.model.generate(messages)
+        response_text = _judge_resp.text.strip()
+        trace.add_usage(_judge_resp, self.model.name)
         trace.record_model_response(response_text)
 
         parsed = self._parse_response(response_text)
@@ -108,7 +110,9 @@ class JudgeAgent(Agent):
                 f"Response:\n{response_text}"
             )
             repair_messages = [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
-            repair_response = self.model.generate(repair_messages).text.strip()
+            _repair_resp = self.model.generate(repair_messages)
+            repair_response = _repair_resp.text.strip()
+            trace.add_usage(_repair_resp, self.model.name)
             trace.record_repair(prompt=repair_prompt, response_text=repair_response)
             parsed = self._parse_response(repair_response)
 

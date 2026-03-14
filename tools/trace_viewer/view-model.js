@@ -160,13 +160,58 @@ export function buildViewModel(trace) {
   }
   edges.push(makeEdge("blueprint", "result", "constrains"));
 
+  let lastMainNodeId = "result";
+  let lastMainY = currentMainY;
   if (trace.judge_run) {
     const judgeRunY = currentMainY + WEB_LAYOUT.rowGap;
     const judgeRunId = "judge-run";
     pushNode(makeNode(judgeRunId, "childrun", "JudgeAgent", buildRunSubtitle(trace.judge_run), trace.judge_run, null, false, WEB_LAYOUT.mainX, judgeRunY));
     edges.push(makeEdge("result", judgeRunId, "judges"));
     addJudgeTraceGraph(judgeRunId, trace.judge_run, "judge", WEB_LAYOUT.childX, judgeRunY + 120);
+    lastMainNodeId = judgeRunId;
+    lastMainY = judgeRunY;
   }
+
+  const summary = trace.summary || {};
+  const predictedLabel = (trace.judge_run && trace.judge_run.decision && trace.judge_run.decision.label) || null;
+  const trueLabel = summary.true_label || null;
+  const correct = predictedLabel && trueLabel ? predictedLabel === trueLabel : null;
+  const totalTokens = (summary.total_input_tokens ?? 0) + (summary.total_output_tokens ?? 0);
+  const summaryParts = [
+    predictedLabel ? `predicted: ${predictedLabel}` : null,
+    trueLabel ? `true: ${trueLabel}` : null,
+    correct !== null ? (correct ? "correct" : "incorrect") : null,
+    summary.runtime_seconds != null ? `${summary.runtime_seconds}s` : null,
+    summary.total_cost_usd != null ? `$${summary.total_cost_usd.toFixed(4)}` : null,
+    totalTokens > 0 ? `${totalTokens.toLocaleString()} tok` : null,
+  ].filter(Boolean).join(" | ");
+  const summaryY = lastMainY + WEB_LAYOUT.rowGap;
+  pushNode(
+    makeNode(
+      "run-summary",
+      "result",
+      "Run Summary",
+      summaryParts,
+      {
+        detailType: "run_summary",
+        predicted_label: predictedLabel,
+        true_label: trueLabel,
+        correct,
+        runtime_seconds: summary.runtime_seconds ?? null,
+        total_cost_usd: summary.total_cost_usd ?? null,
+        total_input_tokens: summary.total_input_tokens ?? null,
+        total_output_tokens: summary.total_output_tokens ?? null,
+        by_model: summary.by_model ?? {},
+        evidence_count: summary.evidence_count ?? null,
+        errors: summary.errors || [],
+      },
+      null,
+      false,
+      WEB_LAYOUT.mainX,
+      summaryY
+    )
+  );
+  edges.push(makeEdge(lastMainNodeId, "run-summary", "summarizes"));
 
   return { nodes, edges, nodeById };
 

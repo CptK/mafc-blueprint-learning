@@ -11,7 +11,7 @@ from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
-from mafc.common.modeling.model import Model
+from mafc.common.modeling.model import Model, Response
 from mafc.tools.web_search.common import Query, Source, WebSource
 from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 
@@ -24,6 +24,7 @@ from mafc.agents.web_search.models import (
 )
 from mafc.utils.parsing import extract_json_object
 from mafc.agents.web_search.synthesis import summarize_observation
+from mafc.agents.web_search.tracing import WebSearchTraceRecorder
 
 
 def execute_search_queries(
@@ -35,7 +36,7 @@ def execute_search_queries(
     max_results_per_query: int = 5,
     latest_allowed_date: date | None = None,
     step: int | None = None,
-    trace=None,
+    trace: WebSearchTraceRecorder | None = None,
 ) -> list[tuple[str, Sequence[Source] | None]]:
     """Execute all search queries and return source candidates per query."""
     if n_workers <= 1:
@@ -83,7 +84,7 @@ def retrieve_query_results(
     retriever: RetrievalIntegration,
     seen_urls: set[str] | None = None,
     step: int | None = None,
-    trace=None,
+    trace: WebSearchTraceRecorder | None = None,
 ) -> list[QueryInvestigationResult]:
     """Retrieve selected sources and extract structured per-query results."""
     query_results: list[QueryInvestigationResult] = []
@@ -146,7 +147,7 @@ def select_sources_for_retrieval(
     model: Model,
     max_results_per_query: int = 5,
     step: int | None = None,
-    trace=None,
+    trace: WebSearchTraceRecorder | None = None,
 ) -> list[tuple[str, Sequence[Source] | None]]:
     """Select relevant sources for retrieval from per-query candidates."""
     per_query_sources: dict[str, list[WebSource] | None] = {}
@@ -168,11 +169,13 @@ def select_sources_for_retrieval(
     )
     if len(global_candidates) > 5:
         max_selected_total = max_results_per_query * max(1, len(per_query_sources))
-        selected_urls, selection_prompt, selection_response = filter_sources_with_model(
+        selected_urls, selection_prompt, selection_response, filter_resp = filter_sources_with_model(
             candidates=global_candidates,
             max_selected=max_selected_total,
             model=model,
         )
+        if trace is not None and filter_resp is not None:
+            trace.add_usage(filter_resp, model.name)
 
     selected_by_query: dict[str, list[WebSource]] = {query_text: [] for query_text, _ in candidates}
     if selected_urls:
@@ -215,7 +218,7 @@ def filter_sources_with_model(
     candidates: list[GlobalSourceCandidate],
     max_selected: int,
     model: Model,
-) -> tuple[list[str], str, str]:
+) -> tuple[list[str], str, str, Response | None]:
     """Select the most relevant source URLs for a query via model reasoning.
 
     Returns (selected_urls, selection_prompt, response_text).
@@ -249,16 +252,16 @@ def filter_sources_with_model(
         f"Input JSON:\n{json.dumps(prompt_payload, ensure_ascii=True)}"
     )
     try:
-        response_text = model.generate(
-            [Message(role=MessageRole.USER, content=Prompt(text=selection_prompt))]
-        ).text
+        resp = model.generate([Message(role=MessageRole.USER, content=Prompt(text=selection_prompt))])
+        response_text = resp.text
     except Exception as exc:
         logger.error(f"[WebSearch-Agent] Global source filtering call failed: {exc}")
-        return [], selection_prompt, ""
+        return [], selection_prompt, "", None
     return (
         parse_selected_urls(response_text=response_text, max_selected=max_selected),
         selection_prompt,
         response_text,
+        resp,
     )
 
 
@@ -292,7 +295,7 @@ def retrieve_and_extract_evidence(
     retriever: RetrievalIntegration,
     seen_urls: set[str] | None = None,
     step: int | None = None,
-    trace=None,
+    trace: WebSearchTraceRecorder | None = None,
 ) -> QueryInvestigationResult:
     """Retrieve source content in batch and turn it into observations and evidence."""
     lines = [f"Query: {query_text}"]
@@ -338,7 +341,11 @@ def retrieve_and_extract_evidence(
         else:
             content_text = str(content).strip()
             if content_text:
-                snippet = summarize_observation(model=model, instruction=query_text, observation=content_text)
+                snippet, obs_resp = summarize_observation(
+                    model=model, instruction=query_text, observation=content_text
+                )
+                if trace is not None and obs_resp is not None:
+                    trace.add_usage(obs_resp, model.name)
                 raw_text = content_text
                 if not snippet:
                     irrelevant = True

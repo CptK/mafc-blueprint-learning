@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mafc.common.modeling.model import Model
+from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 from mafc.utils.parsing import is_failed_model_text
@@ -28,8 +28,12 @@ def synthesize_step(model: Model, instruction: str, observations: list[str]) -> 
         return "\n\n".join(observations)
 
 
-def summarize_observation(model: Model, instruction: str, observation: str) -> str:
-    """Summarize a single observation block with the summarization model."""
+def summarize_observation(model: Model, instruction: str, observation: str) -> tuple[str, Response | None]:
+    """Summarize a single observation block with the summarization model.
+
+    Returns (summary_text, response). summary_text is empty string if no relevant content.
+    response is None if the call failed entirely.
+    """
     summary_prompt = (
         "Extract factual statements from the web page below that are relevant to the search query.\n"
         "Rules:\n"
@@ -42,11 +46,10 @@ def summarize_observation(model: Model, instruction: str, observation: str) -> s
         f"Page content:\n{observation}"
     )
     try:
-        summary = model.generate(
-            [Message(role=MessageRole.USER, content=Prompt(text=summary_prompt))]
-        ).text.strip()
+        resp = model.generate([Message(role=MessageRole.USER, content=Prompt(text=summary_prompt))])
+        summary = resp.text.strip()
         if not summary or is_failed_model_text(summary) or summary == "NO_RELEVANT_CONTENT":
-            return ""
-        return summary
+            return "", resp
+        return summary, resp
     except Exception:
-        return observation
+        return observation, None

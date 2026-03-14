@@ -1,91 +1,27 @@
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-from ezmm import MultimodalSequence
 
 from mafc.agents.agent import AgentResult
 from mafc.agents.common import AgentSession
 from mafc.agents.fact_check.models import FactCheckSessionState, PlannerDecision
+from mafc.agents.tracing import (
+    BaseTraceRecorder,
+    sanitize_filename,
+    serialize_claim,
+    serialize_message,
+    serialize_multimodal,
+    serialize_result,
+    timestamp,
+)
 from mafc.common.claim import Claim
-from mafc.common.evidence import Evidence
 from mafc.common.modeling.message import Message
 from mafc.common.trace import TraceScope
 
-
-def _timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _sanitize_filename(value: str) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
-    return sanitized or "fact_check_trace"
-
-
 _RAW_TRUNCATE_CHARS = 20000
-
-
-def _serialize_multimodal(
-    content: MultimodalSequence | None, truncate: int | None = None
-) -> dict[str, Any] | None:
-    if content is None:
-        return None
-    text = str(content)
-    if truncate is not None and len(text) > truncate:
-        text = text[:truncate] + f"… [{len(str(content)) - truncate} chars truncated]"
-    return {
-        "text": text,
-        "images": [image.reference for image in content.images],
-        "videos": [video.reference for video in content.videos],
-    }
-
-
-def _serialize_claim(claim: Claim | None) -> dict[str, Any] | None:
-    if claim is None:
-        return None
-    return {
-        "id": claim.id,
-        "dataset": claim.dataset,
-        "text": str(claim),
-        "author": claim.author,
-        "date": claim.date.isoformat() if claim.date else None,
-        "origin": claim.origin,
-        "meta_info": claim.meta_info,
-        "images": [image.reference for image in claim.images],
-        "videos": [video.reference for video in claim.videos],
-    }
-
-
-def _serialize_message(message: Message) -> dict[str, Any]:
-    return {
-        "role": message.role.value,
-        "content": _serialize_multimodal(message.content),
-    }
-
-
-def _serialize_evidence(evidence: Evidence) -> dict[str, Any]:
-    return {
-        "source": evidence.source,
-        "action": evidence.action.name,
-        "action_repr": str(evidence.action),
-        "raw": _serialize_multimodal(evidence.raw, truncate=_RAW_TRUNCATE_CHARS),
-        "takeaways": _serialize_multimodal(evidence.takeaways),
-    }
-
-
-def _serialize_result(result: AgentResult) -> dict[str, Any]:
-    return {
-        "status": result.status.value if result.status is not None else None,
-        "result": _serialize_multimodal(result.result),
-        "errors": list(result.errors),
-        "evidences": [_serialize_evidence(evidence) for evidence in result.evidences],
-        "message_count": len(result.messages),
-    }
 
 
 def _serialize_dataclass(value: Any) -> Any:
@@ -94,7 +30,7 @@ def _serialize_dataclass(value: Any) -> Any:
     return value
 
 
-class FactCheckTraceRecorder:
+class FactCheckTraceRecorder(BaseTraceRecorder):
     """Captures one fact-check run as structured JSON for later graphing."""
 
     trace_version = 1
@@ -105,12 +41,9 @@ class FactCheckTraceRecorder:
         session: AgentSession,
         agent_name: str,
         trace_scope: TraceScope | None = None,
+        true_label: str | None = None,
     ):
-        self.enabled = trace_dir is not None
-        self.path: Path | None = None
-        self.trace_dir = Path(trace_dir) if trace_dir is not None else None
-        self.scope = trace_scope
-        self._event_seq = 0
+        super().__init__(trace_dir, session, trace_scope)
         self._current_iteration_index: int | None = None
         self._last_iteration_node_id: str | None = None
         self._task_node_ids: dict[str, str] = {}
@@ -120,10 +53,10 @@ class FactCheckTraceRecorder:
             "session_id": session.id,
             "parent_session_id": session.parent_session_id,
             "status": None,
-            "started_at": _timestamp(),
+            "started_at": timestamp(),
             "ended_at": None,
-            "goal": _serialize_multimodal(session.goal),
-            "claim": _serialize_claim(session.claim),
+            "goal": serialize_multimodal(session.goal),
+            "claim": serialize_claim(session.claim),
             "blueprint": None,
             "iterations": [],
             "judge_run": None,
@@ -142,20 +75,47 @@ class FactCheckTraceRecorder:
                 "node_history": [],
                 "action_history": [],
                 "delegated_tasks": {},
+                "true_label": true_label,
+                "total_cost_usd": 0.0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "by_model": {},
+                "runtime_seconds": None,
             },
         }
         if self.enabled:
-            trace_dir_path = self.trace_dir
-            assert trace_dir_path is not None
-            trace_dir_path.mkdir(parents=True, exist_ok=True)
-            filename = f"{_sanitize_filename(session.id)}.fact_check_trace.json"
-            self.path = trace_dir_path / filename
+            assert self.trace_dir is not None
+            self.trace_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"{sanitize_filename(session.id, 'fact_check_trace')}.fact_check_trace.json"
+            self.path = self.trace_dir / filename
 
         self._add_flow_node("run", "run", f"Run {session.id}", None)
         self.record_event("run_started", {"session_id": session.id})
 
+    # Override record_event to include ``iteration`` and ``flow_node_id``.
+    def record_event(  # type: ignore[override]
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        *,
+        iteration: int | None = None,
+        flow_node_id: str | None = None,
+    ) -> None:
+        self._event_seq += 1
+        event: dict[str, Any] = {
+            "seq": self._event_seq,
+            "ts": timestamp(),
+            "event_type": event_type,
+            "iteration": iteration,
+            "flow_node_id": flow_node_id,
+            "payload": payload,
+        }
+        self.trace["events"].append(event)
+        if self.scope is not None:
+            self.scope.append_event(event_type, event)
+
     def set_claim(self, claim: Claim | None) -> None:
-        self.trace["claim"] = _serialize_claim(claim)
+        self.trace["claim"] = serialize_claim(claim)
 
     def set_blueprint(self, blueprint_name: str, max_iterations: int, start_node_id: str) -> None:
         self.trace["blueprint"] = {
@@ -176,7 +136,7 @@ class FactCheckTraceRecorder:
         iteration_node_id = f"iteration:{iteration}"
         iteration_record = {
             "iteration": iteration,
-            "started_at": _timestamp(),
+            "started_at": timestamp(),
             "ended_at": None,
             "node_before": node_before,
             "node_after": node_before,
@@ -207,7 +167,7 @@ class FactCheckTraceRecorder:
 
     def record_planner_messages(self, messages: list[Message], iteration: int) -> None:
         record = self._current_iteration()
-        record["planner_messages"] = [_serialize_message(message) for message in messages]
+        record["planner_messages"] = [serialize_message(message) for message in messages]
         self.record_event(
             "planner_prompt",
             {"messages": record["planner_messages"]},
@@ -215,8 +175,7 @@ class FactCheckTraceRecorder:
         )
 
     def record_planner_response(self, response_text: str, iteration: int) -> None:
-        record = self._current_iteration()
-        record["planner_response"] = response_text
+        self._current_iteration()["planner_response"] = response_text
         self.record_event(
             "planner_response",
             {"response_text": response_text},
@@ -228,11 +187,7 @@ class FactCheckTraceRecorder:
         serialized = _serialize_dataclass(decision)
         record["decision"] = serialized
         record["check_updates"] = serialized.get("check_updates", [])
-        self.record_event(
-            "planner_decision",
-            serialized,
-            iteration=iteration,
-        )
+        self.record_event("planner_decision", serialized, iteration=iteration)
 
     def record_node_transition(
         self,
@@ -242,15 +197,10 @@ class FactCheckTraceRecorder:
         to_node: str,
         requested_target: str | None,
     ) -> None:
-        record = self._current_iteration()
-        record["node_after"] = to_node
+        self._current_iteration()["node_after"] = to_node
         self.record_event(
             "node_transition",
-            {
-                "from_node": from_node,
-                "to_node": to_node,
-                "requested_target": requested_target,
-            },
+            {"from_node": from_node, "to_node": to_node, "requested_target": requested_target},
             iteration=iteration,
         )
 
@@ -299,14 +249,11 @@ class FactCheckTraceRecorder:
     def record_delegated_task_result(self, *, iteration: int, task_id: str, result: AgentResult) -> None:
         for task in self._current_iteration()["delegated_tasks"]:
             if task["task_id"] == task_id:
-                task["result"] = _serialize_result(result)
+                task["result"] = serialize_result(result, raw_truncate=_RAW_TRUNCATE_CHARS)
                 break
         self.record_event(
             "delegation_completed",
-            {
-                "task_id": task_id,
-                "result": _serialize_result(result),
-            },
+            {"task_id": task_id, "result": serialize_result(result, raw_truncate=_RAW_TRUNCATE_CHARS)},
             iteration=iteration,
             flow_node_id=self._task_node_ids.get(task_id),
         )
@@ -344,30 +291,18 @@ class FactCheckTraceRecorder:
     ) -> None:
         self.record_event(
             "synthesis",
-            {
-                "stage": stage,
-                "instruction": instruction,
-                "answer": answer,
-                "evidence_count": evidence_count,
-            },
+            {"stage": stage, "instruction": instruction, "answer": answer, "evidence_count": evidence_count},
             iteration=iteration,
         )
 
     def record_error(self, *, phase: str, message: str, iteration: int | None = None) -> None:
         if iteration is not None and self._current_iteration_index is not None:
             self._current_iteration()["new_errors"].append(message)
-        self.record_event(
-            "error",
-            {
-                "phase": phase,
-                "message": message,
-            },
-            iteration=iteration,
-        )
+        self.record_event("error", {"phase": phase, "message": message}, iteration=iteration)
 
     def finish_iteration(self, *, iteration: int, evidence_count_after: int, new_errors: list[str]) -> None:
         record = self._current_iteration()
-        record["ended_at"] = _timestamp()
+        record["ended_at"] = timestamp()
         record["evidence_count_after"] = evidence_count_after
         for error in new_errors:
             if error not in record["new_errors"]:
@@ -384,6 +319,16 @@ class FactCheckTraceRecorder:
         )
         self._current_iteration_index = None
 
+    def record_judge_run(self, judge_trace: dict[str, Any]) -> None:
+        self.trace["judge_run"] = judge_trace
+        self.record_event(
+            "judge_run_attached",
+            {
+                "label": (judge_trace.get("decision") or {}).get("label"),
+                "session_id": judge_trace.get("session_id"),
+            },
+        )
+
     def finalize(
         self,
         *,
@@ -392,18 +337,21 @@ class FactCheckTraceRecorder:
         result: AgentResult | None,
         errors: list[str],
     ) -> None:
-        self.trace["ended_at"] = _timestamp()
+        self.trace["ended_at"] = timestamp()
         self.trace["status"] = session.status.value
         if result is not None:
-            self.trace["summary"]["result"] = _serialize_multimodal(result.result)
+            self.trace["summary"]["result"] = serialize_multimodal(result.result)
             self.trace["summary"]["message_count"] = len(result.messages)
         self.trace["summary"]["errors"] = list(errors)
         self.trace["summary"]["evidence_count"] = len(session.evidences)
-        self.trace["summary"]["events_path"] = (
-            str(self.trace_dir / f"{_sanitize_filename(session.id)}.trace.jsonl")
-            if self.trace_dir is not None
-            else None
-        )
+        try:
+            started = datetime.fromisoformat(self.trace["started_at"])
+            ended = datetime.fromisoformat(self.trace["ended_at"])
+            self.trace["summary"]["runtime_seconds"] = round((ended - started).total_seconds(), 1)
+        except Exception:
+            pass
+        # Aggregate usage from child traces and judge run before writing stats.
+        self._aggregate_child_usage()
         if state is not None:
             self.trace["summary"]["required_checks"] = {
                 key: value.value for key, value in state.required_check_status.items()
@@ -422,41 +370,41 @@ class FactCheckTraceRecorder:
                 "error_count": len(errors),
             },
         )
+        self._write_usage_stats()
+        # fact_check uses self.enabled rather than self.write_file (root session is still written)
         if self.scope is not None:
             self.scope.set_summary(self.trace)
         if self.enabled and self.path is not None:
+            import json
+
             self.path.write_text(json.dumps(self.trace, indent=2, ensure_ascii=True), encoding="utf-8")
 
-    def record_judge_run(self, judge_trace: dict[str, Any]) -> None:
-        self.trace["judge_run"] = judge_trace
-        self.record_event(
-            "judge_run_attached",
-            {
-                "label": (judge_trace.get("decision") or {}).get("label"),
-                "session_id": judge_trace.get("session_id"),
-            },
-        )
-
-    def record_event(
-        self,
-        event_type: str,
-        payload: dict[str, Any],
-        *,
-        iteration: int | None = None,
-        flow_node_id: str | None = None,
-    ) -> None:
-        self._event_seq += 1
-        event = {
-            "seq": self._event_seq,
-            "ts": _timestamp(),
-            "event_type": event_type,
-            "iteration": iteration,
-            "flow_node_id": flow_node_id,
-            "payload": payload,
-        }
-        self.trace["events"].append(event)
-        if self.scope is not None:
-            self.scope.append_event(event_type, event)
+    def _aggregate_child_usage(self) -> None:
+        """Sum usage from all child traces and the judge run into this recorder's accumulators."""
+        for iteration in self.trace.get("iterations", []):
+            for task in iteration.get("delegated_tasks", []):
+                child_summary = (task.get("child_trace") or {}).get("summary") or {}
+                self._total_cost += child_summary.get("total_cost_usd", 0.0)
+                self._total_input_tokens += child_summary.get("total_input_tokens", 0)
+                self._total_output_tokens += child_summary.get("total_output_tokens", 0)
+                for m_name, m_stats in (child_summary.get("by_model") or {}).items():
+                    entry = self._by_model.setdefault(
+                        m_name, {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+                    )
+                    entry["cost_usd"] += m_stats.get("cost_usd", 0.0)
+                    entry["input_tokens"] += m_stats.get("input_tokens", 0)
+                    entry["output_tokens"] += m_stats.get("output_tokens", 0)
+        judge_summary = (self.trace.get("judge_run") or {}).get("summary") or {}
+        self._total_cost += judge_summary.get("total_cost_usd", 0.0)
+        self._total_input_tokens += judge_summary.get("total_input_tokens", 0)
+        self._total_output_tokens += judge_summary.get("total_output_tokens", 0)
+        for m_name, m_stats in (judge_summary.get("by_model") or {}).items():
+            entry = self._by_model.setdefault(
+                m_name, {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+            )
+            entry["cost_usd"] += m_stats.get("cost_usd", 0.0)
+            entry["input_tokens"] += m_stats.get("input_tokens", 0)
+            entry["output_tokens"] += m_stats.get("output_tokens", 0)
 
     def _current_iteration(self) -> dict[str, Any]:
         assert self._current_iteration_index is not None, "No iteration is currently active."
@@ -466,21 +414,10 @@ class FactCheckTraceRecorder:
         nodes: list[dict[str, Any]] = self.trace["flow"]["nodes"]
         if any(node["id"] == node_id for node in nodes):
             return
-        nodes.append(
-            {
-                "id": node_id,
-                "type": node_type,
-                "label": label,
-                "iteration": iteration,
-            }
-        )
+        nodes.append({"id": node_id, "type": node_type, "label": label, "iteration": iteration})
 
     def _add_flow_edge(self, source: str, target: str, edge_type: str) -> None:
         edges: list[dict[str, Any]] = self.trace["flow"]["edges"]
-        edge = {
-            "source": source,
-            "target": target,
-            "type": edge_type,
-        }
+        edge = {"source": source, "target": target, "type": edge_type}
         if edge not in edges:
             edges.append(edge)

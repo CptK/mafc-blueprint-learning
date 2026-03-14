@@ -123,8 +123,13 @@ class WebSearchAgent(Agent):
                 seen_queries=seen_queries,
             )
 
-    def synthesize_from_evidences(self, instruction: str, evidences):
+    def synthesize_from_evidences(self, instruction: str, evidences) -> str:
         """Synthesize an answer directly from already accepted evidence."""
+        synthesis, _resp = self._synthesize_final(instruction, evidences)
+        return synthesis
+
+    def _synthesize_final(self, instruction: str, evidences) -> tuple[str, "Response | None"]:
+        """Synthesize an answer and return (text, response)."""
         evidence_blocks = []
         for evidence in evidences:
             summary = (
@@ -137,7 +142,7 @@ class WebSearchAgent(Agent):
             evidence_blocks.append(f"Source: {evidence.source}\nSummary: {summary}")
 
         if not evidence_blocks:
-            return ""
+            return "", None
 
         synthesis_prompt = (
             "You are a factual evidence synthesizer.\n"
@@ -149,14 +154,15 @@ class WebSearchAgent(Agent):
             f"Accepted evidence:\n{chr(10).join(evidence_blocks)}"
         )
         try:
-            synthesis = self.summarization_model.generate(
+            resp = self.summarization_model.generate(
                 [Message(role=MessageRole.USER, content=Prompt(text=synthesis_prompt))]
-            ).text.strip()
+            )
+            synthesis = resp.text.strip()
             if not synthesis or is_failed_model_text(synthesis):
-                return "\n\n".join(evidence_blocks)
-            return synthesis
+                return "\n\n".join(evidence_blocks), resp
+            return synthesis, resp
         except Exception:
-            return "\n\n".join(evidence_blocks)
+            return "\n\n".join(evidence_blocks), None
 
     def _initialize_run(
         self,
@@ -302,7 +308,9 @@ class WebSearchAgent(Agent):
                 trace=trace.trace if trace is not None else None,
             )
 
-        synthesis = self.synthesize_from_evidences(instruction, session.evidences)
+        synthesis, synthesis_resp = self._synthesize_final(instruction, session.evidences)
+        if trace is not None and synthesis_resp is not None:
+            trace.add_usage(synthesis_resp, self.summarization_model.name)
         if trace is not None:
             trace.record_synthesis(
                 step=None,

@@ -4,6 +4,7 @@ import json
 from typing import cast
 
 from mafc.agents.media.models import MediaToolName, MediaToolPlan
+from mafc.agents.media.tracing import MediaTraceRecorder
 from mafc.utils.parsing import extract_json_object, is_failed_model_text
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
@@ -17,6 +18,7 @@ def plan_media_tools(
     instruction: str,
     prior_context: str,
     errors: list[str],
+    trace: MediaTraceRecorder | None = None,
 ) -> tuple[MediaToolPlan | None, list[Message], str | None]:
     """Generate and parse the media tool-selection plan from model output.
 
@@ -40,7 +42,10 @@ def plan_media_tools(
     )
     planner_messages = [Message(role=MessageRole.USER, content=Prompt(text=planner_prompt))]
     try:
-        response = agent.model.generate(planner_messages).text
+        _resp = agent.model.generate(planner_messages)
+        response = _resp.text
+        if trace is not None:
+            trace.add_usage(_resp, agent.model.name)
         logger.info(f"Media planner response:\n{response}")
         if is_failed_model_text(response):
             return None, planner_messages, response
@@ -54,9 +59,12 @@ def plan_media_tools(
             "Only return JSON.\n\n"
             f"Response:\n{response}"
         )
-        repaired = agent.model.generate(
+        _repair_resp = agent.model.generate(
             [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
-        ).text
+        )
+        repaired = _repair_resp.text
+        if trace is not None:
+            trace.add_usage(_repair_resp, agent.model.name)
         if is_failed_model_text(repaired):
             return None, planner_messages, response
         return parse_media_tool_plan(agent, repaired), planner_messages, response

@@ -115,14 +115,9 @@ def test_web_search_agent_writes_structured_trace(tmp_path) -> None:
 
     assert out.result is not None
     trace_path = trace_dir / "session_Any_task.web_search_trace.json"
-    events_path = trace_dir / "session_Any_task.trace.jsonl"
     assert trace_path.exists()
-    assert events_path.exists()
 
     payload = json.loads(trace_path.read_text(encoding="utf-8"))
-    event_lines = [
-        json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
 
     assert payload["agent"] == "WebSearchAgent"
     assert payload["status"] == AgentStatus.COMPLETED.value
@@ -132,11 +127,8 @@ def test_web_search_agent_writes_structured_trace(tmp_path) -> None:
     assert payload["iterations"][0]["selected_sources"][0]["sources"][0]["url"] == "https://a.example.com"
     assert payload["iterations"][0]["retrievals"][0]["source"]["url"] == "https://a.example.com"
     assert payload["summary"]["result"]["result"]["text"] == "Final synthesis"
-    assert payload["summary"]["events_path"] == str(events_path)
     assert any(event["event_type"] == "search_result" for event in payload["events"])
     assert any(event["event_type"] == "retrieval_result" for event in payload["events"])
-    assert event_lines[0]["event_type"] == "run_started"
-    assert event_lines[-1]["event_type"] == "run_finished"
 
 
 def test_web_search_agent_uses_prior_session_context_for_follow_up() -> None:
@@ -291,10 +283,8 @@ def test_web_search_agent_falls_back_when_summary_is_failure_text() -> None:
     )
 
     out = agent.run(_make_session("Any task"))
-    assert out.result is not None
-    assert "Source: https://a.example.com" in str(out.result)
-    assert len(out.evidences) == 1
-    assert out.evidences[0].is_useful() is True
+    assert out.result is None
+    assert len(out.evidences) == 0
 
 
 def test_web_search_agent_passes_end_date_to_query() -> None:

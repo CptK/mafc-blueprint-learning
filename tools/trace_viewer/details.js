@@ -354,6 +354,70 @@ export function renderDetail(node) {
     `;
   }
 
+  if (detailType === "run_summary") {
+    const errors = payload.errors || [];
+    const correctIcon = payload.correct === true ? "✓ correct" : payload.correct === false ? "✗ incorrect" : null;
+    const totalTokens = (payload.total_input_tokens ?? 0) + (payload.total_output_tokens ?? 0);
+    const byModel = payload.by_model || {};
+    const modelNames = Object.keys(byModel);
+    return `
+      <h3>Run Summary</h3>
+
+      <p>
+        ${payload.predicted_label ? `<strong>Predicted label:</strong> ${escapeHtml(payload.predicted_label)}` : "<strong>Predicted label:</strong> <em>none</em>"}
+        ${payload.true_label ? ` &nbsp;|&nbsp; <strong>True label:</strong> ${escapeHtml(payload.true_label)}` : ""}
+        ${correctIcon ? ` &nbsp;|&nbsp; <strong>${escapeHtml(correctIcon)}</strong>` : ""}
+      </p>
+
+      <p>
+        ${payload.runtime_seconds != null ? `<strong>Runtime:</strong> ${payload.runtime_seconds}s &nbsp;|&nbsp; ` : ""}
+        ${payload.evidence_count != null ? `<strong>Evidence:</strong> ${payload.evidence_count}` : ""}
+        ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
+      </p>
+
+      <div class="detail-section">
+        <strong>LLM Usage (total)</strong>
+        <table style="margin-top:4px;border-collapse:collapse;width:100%">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:2px 8px 2px 0">Model</th>
+              <th style="text-align:right;padding:2px 8px">Input tok</th>
+              <th style="text-align:right;padding:2px 8px">Output tok</th>
+              <th style="text-align:right;padding:2px 8px">Total tok</th>
+              <th style="text-align:right;padding:2px 0">Cost (USD)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${modelNames.map((name) => {
+              const m = byModel[name];
+              const mTotal = (m.input_tokens || 0) + (m.output_tokens || 0);
+              return `<tr>
+                <td style="padding:2px 8px 2px 0">${escapeHtml(name)}</td>
+                <td style="text-align:right;padding:2px 8px">${(m.input_tokens || 0).toLocaleString()}</td>
+                <td style="text-align:right;padding:2px 8px">${(m.output_tokens || 0).toLocaleString()}</td>
+                <td style="text-align:right;padding:2px 8px">${mTotal.toLocaleString()}</td>
+                <td style="text-align:right;padding:2px 0">$${(m.cost_usd || 0).toFixed(4)}</td>
+              </tr>`;
+            }).join("")}
+            ${modelNames.length > 1 ? `<tr style="border-top:1px solid #ccc;font-weight:bold">
+              <td style="padding:2px 8px 2px 0">Total</td>
+              <td style="text-align:right;padding:2px 8px">${(payload.total_input_tokens || 0).toLocaleString()}</td>
+              <td style="text-align:right;padding:2px 8px">${(payload.total_output_tokens || 0).toLocaleString()}</td>
+              <td style="text-align:right;padding:2px 8px">${totalTokens.toLocaleString()}</td>
+              <td style="text-align:right;padding:2px 0">$${(payload.total_cost_usd || 0).toFixed(4)}</td>
+            </tr>` : ""}
+          </tbody>
+        </table>
+      </div>
+
+      ${errors.length ? `
+        <div class="detail-section">
+          <strong>Errors</strong>
+          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
+        </div>` : ""}
+    `;
+  }
+
   if (detailType === "iteration_synthesis") {
     return `
       <h3>Iteration Synthesis</h3>

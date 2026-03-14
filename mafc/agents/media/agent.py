@@ -135,9 +135,11 @@ class MediaAgent(Agent):
             result.trace = trace.trace
             return result
 
-        synthesis, relevant_evidences = self._synthesize_with_relevant_evidences(
+        synthesis, relevant_evidences, synthesis_resp = self._synthesize_with_relevant_evidences(
             instruction, session.evidences
         )
+        if synthesis_resp is not None:
+            trace.add_usage(synthesis_resp, self.summarization_model.name)
         if synthesis.strip():
             trace.record_synthesis(synthesis, len(session.evidences))
 
@@ -171,12 +173,12 @@ class MediaAgent(Agent):
         return result
 
     def synthesize_from_evidences(self, instruction: str, evidences: list[Evidence]) -> str:
-        synthesis, _ = self._synthesize_with_relevant_evidences(instruction, evidences)
+        synthesis, _, _resp = self._synthesize_with_relevant_evidences(instruction, evidences)
         return synthesis
 
     def _synthesize_with_relevant_evidences(
         self, instruction: str, evidences: list[Evidence]
-    ) -> tuple[str, list[Evidence]]:
+    ) -> tuple[str, list[Evidence], "Response | None"]:
         evidence_blocks = []
         evidence_id_to_item: dict[str, Evidence] = {}
         for idx, evidence in enumerate(evidences, start=1):
@@ -193,7 +195,7 @@ class MediaAgent(Agent):
                 f"Evidence ID: {evidence_id}\nSource: {evidence.source}\nSummary: {summary}"
             )
         if not evidence_blocks:
-            return "", []
+            return "", [], None
 
         synthesis_prompt = (
             "You are a media verification evidence synthesizer.\n"
@@ -208,15 +210,17 @@ class MediaAgent(Agent):
             f"Accepted evidence:\n{chr(10).join(evidence_blocks)}"
         )
         try:
-            response_text = self.summarization_model.generate(
+            _resp = self.summarization_model.generate(
                 [Message(role=MessageRole.USER, content=Prompt(text=synthesis_prompt))]
-            ).text.strip()
+            )
+            response_text = _resp.text.strip()
         except Exception:
-            return "\n\n".join(evidence_blocks), list(evidences)
+            return "\n\n".join(evidence_blocks), list(evidences), None
         parsed = self._parse_synthesis_response(response_text, evidence_id_to_item)
         if parsed is None:
-            return response_text, list(evidences)
-        return parsed
+            return response_text, list(evidences), _resp
+        answer, relevant_evidences = parsed
+        return answer, relevant_evidences, _resp
 
     def _parse_synthesis_response(
         self, response_text: str, evidence_id_to_item: dict[str, Evidence]
@@ -271,7 +275,9 @@ class MediaAgent(Agent):
         errors: list[str],
         trace: MediaTraceRecorder | None = None,
     ) -> list[tuple[str, ToolResult]]:
-        plan, planner_messages, planner_response = plan_media_tools(self, instruction, prior_context, errors)
+        plan, planner_messages, planner_response = plan_media_tools(
+            self, instruction, prior_context, errors, trace=trace
+        )
         if trace is not None:
             trace.record_planner_messages(planner_messages)
             if planner_response is not None:

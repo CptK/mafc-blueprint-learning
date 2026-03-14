@@ -66,7 +66,7 @@ class FactCheckAgent(Agent):
             "web_search_agent": "web_search",
         }
 
-    def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
+    def run(self, session: AgentSession, trace_scope=None, true_label: str | None = None) -> AgentResult:
         """Run the blueprint-guided orchestration loop for one session."""
         self._mark_running(session)
         root_scope = trace_scope or TraceScope.root(
@@ -76,7 +76,9 @@ class FactCheckAgent(Agent):
             key=session.id,
             metadata={"agent": self.name},
         )
-        trace = FactCheckTraceRecorder(self.trace_dir, session, self.name, trace_scope=root_scope)
+        trace = FactCheckTraceRecorder(
+            self.trace_dir, session, self.name, trace_scope=root_scope, true_label=true_label
+        )
         claim = self._resolve_claim(session)
         trace.set_claim(claim)
         logger.debug(f"[FactCheckAgent] Starting verification for claim: '{claim}'")
@@ -240,7 +242,9 @@ class FactCheckAgent(Agent):
         logger.info(f"[FactCheckAgent] Iteration {iteration} planner messages:")
         for msg in planner_messages:
             logger.info(f"- {msg.role.value} message:\n{msg.content}\n")
-        planner_response = self.model.generate(planner_messages).text.strip()
+        _planner_resp = self.model.generate(planner_messages)
+        planner_response = _planner_resp.text.strip()
+        trace.add_usage(_planner_resp, self.model.name)
         trace.record_planner_response(planner_response, iteration)
         logger.info(f"[FactCheckAgent] Iteration {iteration} planner response:\n{planner_response}")
         decision = try_parse_planner_decision(planner_response)
@@ -579,9 +583,10 @@ class FactCheckAgent(Agent):
         prompt_text = build_final_synthesis_prompt(session, state)
         if instruction:
             prompt_text += f"\n\nAdditional instruction:\n{instruction}"
-        answer = self.model.generate(
-            [Message(role=MessageRole.USER, content=Prompt(text=prompt_text))]
-        ).text.strip()
+        _synth_resp = self.model.generate([Message(role=MessageRole.USER, content=Prompt(text=prompt_text))])
+        answer = _synth_resp.text.strip()
+        if trace is not None:
+            trace.add_usage(_synth_resp, self.model.name)
         if trace is not None:
             trace.record_synthesis(
                 iteration=state.iteration or None,

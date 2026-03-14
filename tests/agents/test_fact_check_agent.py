@@ -338,14 +338,9 @@ def test_fact_check_agent_writes_structured_execution_trace(tmp_path) -> None:
 
     assert result.result is not None
     trace_path = trace_dir / "fact-check_trace.fact_check_trace.json"
-    events_path = trace_dir / "fact-check_trace.trace.jsonl"
     assert trace_path.exists()
-    assert events_path.exists()
 
     payload = json.loads(trace_path.read_text(encoding="utf-8"))
-    event_lines = [
-        json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
 
     assert payload["agent"] == "FactCheckAgent"
     assert payload["status"] == AgentStatus.COMPLETED.value
@@ -361,11 +356,7 @@ def test_fact_check_agent_writes_structured_execution_trace(tmp_path) -> None:
     )
     assert payload["iterations"][1]["decision"]["decision_type"] == "finalize"
     assert payload["summary"]["result"]["text"] == "The image is consistent with Athens."
-    assert payload["summary"]["events_path"] == str(events_path)
     assert any(event["event_type"] == "planner_prompt" for event in payload["events"])
-    assert event_lines[0]["event_type"] == "run_started"
-    assert event_lines[-1]["event_type"] == "run_finished"
-    assert all(event["trace_id"] == "fact-check:trace" for event in event_lines)
     assert {"source": "run", "target": "iteration:1", "type": "next"} in payload["flow"]["edges"]
     assert {
         "source": "iteration:1",

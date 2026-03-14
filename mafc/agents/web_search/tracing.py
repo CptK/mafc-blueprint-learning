@@ -1,64 +1,36 @@
 from __future__ import annotations
 
-import json
-import re
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ezmm import MultimodalSequence
-
 from mafc.agents.agent import AgentResult
 from mafc.agents.common import AgentSession
+from mafc.agents.tracing import (
+    BaseTraceRecorder,
+    sanitize_filename,
+    serialize_evidence,
+    serialize_message,
+    serialize_multimodal,
+    serialize_result,
+    timestamp,
+)
 from mafc.common.evidence import Evidence
 from mafc.common.modeling.message import Message
 from mafc.common.trace import TraceScope
 from mafc.tools.web_search.common import Source, WebSource
 
-
-def _timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _sanitize_filename(value: str) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
-    return sanitized or "web_search_trace"
-
-
-def get_web_search_trace_path(trace_dir: str | Path, session_id: str) -> Path:
-    return Path(trace_dir) / f"{_sanitize_filename(session_id)}.web_search_trace.json"
-
-
 _RAW_TRUNCATE_CHARS = 20000
 
 
-def _serialize_multimodal(
-    content: MultimodalSequence | None, truncate: int | None = None
-) -> dict[str, Any] | None:
-    if content is None:
-        return None
-    text = str(content)
-    if truncate is not None and len(text) > truncate:
-        text = text[:truncate] + f"… [{len(str(content)) - truncate} chars truncated]"
-    return {
-        "text": text,
-        "images": [image.reference for image in content.images],
-        "videos": [video.reference for video in content.videos],
-    }
-
-
-def _serialize_message(message: Message) -> dict[str, Any]:
-    return {
-        "role": message.role.value,
-        "content": _serialize_multimodal(message.content),
-    }
+def get_web_search_trace_path(trace_dir: str | Path, session_id: str) -> Path:
+    return Path(trace_dir) / f"{sanitize_filename(session_id, 'web_search_trace')}.web_search_trace.json"
 
 
 def _serialize_source(source: Source) -> dict[str, Any]:
-    payload = {
+    payload: dict[str, Any] = {
         "reference": source.reference,
-        "content": _serialize_multimodal(source.content),
-        "takeaways": _serialize_multimodal(source.takeaways),
+        "content": serialize_multimodal(source.content),
+        "takeaways": serialize_multimodal(source.takeaways),
     }
     if isinstance(source, WebSource):
         payload.update(
@@ -72,28 +44,7 @@ def _serialize_source(source: Source) -> dict[str, Any]:
     return payload
 
 
-def _serialize_evidence(evidence: Evidence) -> dict[str, Any]:
-    return {
-        "source": evidence.source,
-        "action": evidence.action.name,
-        "action_repr": str(evidence.action),
-        "preview": evidence.preview,
-        "raw": _serialize_multimodal(evidence.raw, truncate=_RAW_TRUNCATE_CHARS),
-        "takeaways": _serialize_multimodal(evidence.takeaways),
-    }
-
-
-def _serialize_result(result: AgentResult) -> dict[str, Any]:
-    return {
-        "status": result.status.value if result.status is not None else None,
-        "result": _serialize_multimodal(result.result),
-        "errors": list(result.errors),
-        "evidences": [_serialize_evidence(evidence) for evidence in result.evidences],
-        "message_count": len(result.messages),
-    }
-
-
-class WebSearchTraceRecorder:
+class WebSearchTraceRecorder(BaseTraceRecorder):
     trace_version = 1
 
     def __init__(
@@ -103,22 +54,17 @@ class WebSearchTraceRecorder:
         agent_name: str,
         trace_scope: TraceScope | None = None,
     ):
-        self.enabled = trace_dir is not None
-        self.trace_dir = Path(trace_dir) if trace_dir is not None else None
-        self.write_file = trace_dir is not None and session.parent_session_id is None
-        self.path: Path | None = None
-        self.scope = trace_scope
-        self._event_seq = 0
+        super().__init__(trace_dir, session, trace_scope)
         self._current_iteration_index: int | None = None
-        self.trace: dict[str, Any] = {
+        self.trace = {
             "trace_version": self.trace_version,
             "agent": agent_name,
             "session_id": session.id,
             "parent_session_id": session.parent_session_id,
             "status": None,
-            "started_at": _timestamp(),
+            "started_at": timestamp(),
             "ended_at": None,
-            "goal": _serialize_multimodal(session.goal),
+            "goal": serialize_multimodal(session.goal),
             "iterations": [],
             "events": [],
             "summary": {
@@ -127,7 +73,10 @@ class WebSearchTraceRecorder:
                 "evidence_count": 0,
                 "message_count": 0,
                 "seen_queries": [],
-                "events_path": None,
+                "total_cost_usd": 0.0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "by_model": {},
             },
         }
         if self.enabled:
@@ -137,11 +86,25 @@ class WebSearchTraceRecorder:
 
         self.record_event("run_started", {"session_id": session.id})
 
+    # Override to include ``step`` in the event dict.
+    def record_event(self, event_type: str, payload: dict[str, Any], *, step: int | None = None) -> None:  # type: ignore[override]
+        self._event_seq += 1
+        event: dict[str, Any] = {
+            "seq": self._event_seq,
+            "ts": timestamp(),
+            "event_type": event_type,
+            "step": step,
+            "payload": payload,
+        }
+        self.trace["events"].append(event)
+        if self.scope is not None:
+            self.scope.append_event(event_type, event)
+
     def start_iteration(self, *, step: int, evidence_count: int, seen_queries: set[str]) -> None:
         self.trace["iterations"].append(
             {
                 "step": step,
-                "started_at": _timestamp(),
+                "started_at": timestamp(),
                 "ended_at": None,
                 "planner_messages": [],
                 "planner_response": None,
@@ -174,7 +137,7 @@ class WebSearchTraceRecorder:
 
     def record_planner_messages(self, messages: list[Message], *, step: int) -> None:
         record = self._current_iteration()
-        record["planner_messages"] = [_serialize_message(message) for message in messages]
+        record["planner_messages"] = [serialize_message(message) for message in messages]
         self.record_event("planner_prompt", {"messages": record["planner_messages"]}, step=step)
 
     def record_planner_response(self, response_text: str, *, step: int) -> None:
@@ -269,7 +232,11 @@ class WebSearchTraceRecorder:
                 if retrieved_content and len(retrieved_content) > _RAW_TRUNCATE_CHARS
                 else retrieved_content
             ),
-            "evidence": _serialize_evidence(evidence) if evidence is not None else None,
+            "evidence": (
+                serialize_evidence(evidence, raw_truncate=_RAW_TRUNCATE_CHARS)
+                if evidence is not None
+                else None
+            ),
             "irrelevant": irrelevant,
         }
         self._current_iteration()["retrievals"].append(payload)
@@ -303,7 +270,7 @@ class WebSearchTraceRecorder:
         self, *, step: int, evidence_count: int, seen_queries: set[str], new_errors: list[str]
     ) -> None:
         record = self._current_iteration()
-        record["ended_at"] = _timestamp()
+        record["ended_at"] = timestamp()
         record["evidence_count_after"] = evidence_count
         record["seen_queries_after"] = sorted(seen_queries)
         for error in new_errors:
@@ -329,19 +296,14 @@ class WebSearchTraceRecorder:
         errors: list[str],
         seen_queries: set[str],
     ) -> None:
-        self.trace["ended_at"] = _timestamp()
+        self.trace["ended_at"] = timestamp()
         self.trace["status"] = session.status.value
         self.trace["summary"]["errors"] = list(errors)
         self.trace["summary"]["evidence_count"] = len(session.evidences)
         self.trace["summary"]["message_count"] = len(result.messages) if result is not None else 0
         self.trace["summary"]["seen_queries"] = sorted(seen_queries)
-        self.trace["summary"]["events_path"] = (
-            str(self.trace_dir / f"{_sanitize_filename(session.id)}.trace.jsonl")
-            if self.trace_dir is not None
-            else None
-        )
         if result is not None:
-            self.trace["summary"]["result"] = _serialize_result(result)
+            self.trace["summary"]["result"] = serialize_result(result, raw_truncate=_RAW_TRUNCATE_CHARS)
         self.record_event(
             "run_finished",
             {
@@ -350,23 +312,8 @@ class WebSearchTraceRecorder:
                 "error_count": len(errors),
             },
         )
-        if self.scope is not None:
-            self.scope.set_summary(self.trace)
-        if self.write_file and self.path is not None:
-            self.path.write_text(json.dumps(self.trace, indent=2, ensure_ascii=True), encoding="utf-8")
-
-    def record_event(self, event_type: str, payload: dict[str, Any], *, step: int | None = None) -> None:
-        self._event_seq += 1
-        event = {
-            "seq": self._event_seq,
-            "ts": _timestamp(),
-            "event_type": event_type,
-            "step": step,
-            "payload": payload,
-        }
-        self.trace["events"].append(event)
-        if self.scope is not None:
-            self.scope.append_event(event_type, event)
+        self._write_usage_stats()
+        self._persist()
 
     def _current_iteration(self) -> dict[str, Any]:
         assert self._current_iteration_index is not None, "No iteration is currently active."
