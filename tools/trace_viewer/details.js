@@ -4,6 +4,63 @@ export function renderDetail(node) {
   const payload = node.payload || {};
   const detailType = payload.detailType || node.type;
 
+  if (detailType === "claim") {
+    const images = payload.images || [];
+    const videos = payload.videos || [];
+
+    // Annotate claim text: replace <image:N> / <video:N> with styled badges
+    const rawText = payload.text || "";
+    const annotatedText = escapeHtml(rawText).replace(
+      /&lt;(image|video):(\d+)&gt;/g,
+      (_, kind, id) =>
+        `<span class="media-ref-badge">${kind === "video" ? "▶" : "◉"} ${kind}:${id}</span>`
+    );
+
+    const meta = [
+      payload.id ? ["ID", payload.id] : null,
+      payload.dataset ? ["Dataset", payload.dataset] : null,
+      payload.date ? ["Date", payload.date.replace("T00:00:00", "")] : null,
+      payload.author ? ["Author", payload.author] : null,
+      payload.origin ? ["Origin", payload.origin] : null,
+    ].filter(Boolean);
+
+    const mediaItems = [
+      ...images.map((ref) => ({ kind: "image", ref })),
+      ...videos.map((ref) => ({ kind: "video", ref })),
+    ];
+
+    function mediaId(ref) {
+      const m = ref.match(/:(\d+)>/);
+      return m ? m[1] : null;
+    }
+
+    const mediaHtml = mediaItems.length
+      ? `<div class="claim-media-grid">${mediaItems.map(({ kind, ref }) => {
+          const id = mediaId(ref);
+          if (!id) return "";
+          const url = `/api/media/${kind}/${id}`;
+          if (kind === "image") {
+            return `<a href="${url}" target="_blank"><img class="claim-media-img" src="${url}" alt="${escapeHtml(ref)}" /></a>`;
+          }
+          return `<video class="claim-media-video" src="${url}" controls></video>`;
+        }).join("")}</div>`
+      : "";
+
+    return `
+      <h3>Claim</h3>
+
+      <div class="claim-text">${annotatedText || "<em>No claim text.</em>"}</div>
+
+      ${mediaHtml}
+
+      ${meta.length ? `<div class="claim-meta">${meta.map(([label, val]) =>
+        `<span class="claim-meta-item"><span class="claim-meta-label">${escapeHtml(label)}</span>${escapeHtml(String(val))}</span>`
+      ).join("")}</div>` : ""}
+
+      ${payload.meta_info ? renderCollapsibleText("Meta Info", typeof payload.meta_info === "string" ? payload.meta_info : JSON.stringify(payload.meta_info, null, 2)) : ""}
+    `;
+  }
+
   if (detailType === "query") {
     return `
       <h3>Query</h3>
