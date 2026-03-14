@@ -14,12 +14,7 @@ export function renderSummary(summaryEl, trace, label) {
 
   summaryEl.innerHTML = items
     .map(
-      ([labelText, value]) => `
-        <div class="stat">
-          <div class="label">${labelText}</div>
-          <div class="value">${value}</div>
-        </div>
-      `
+      ([labelText, value]) => `<div class="stat"><span class="label">${labelText}</span><span class="value">${value}</span></div>`
     )
     .join("");
 }

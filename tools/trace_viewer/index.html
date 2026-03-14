@@ -9,6 +9,14 @@
   <body>
     <div class="app">
       <main class="main">
+        <div id="canvasWrap">
+          <div id="graph"></div>
+        </div>
+      </main>
+
+      <div id="divider" class="divider" aria-hidden="true"></div>
+
+      <aside class="sidebar">
         <div class="controls">
           <label class="upload">
             <input id="fileInput" type="file" accept=".json,application/json" />
@@ -32,18 +40,9 @@
           <span><i class="swatch" style="background: var(--result)"></i>Result</span>
         </div>
 
-        <div id="canvasWrap">
-          <div id="graph"></div>
-        </div>
-      </main>
+        <hr class="sidebar-divider" />
 
-      <div id="divider" class="divider" aria-hidden="true"></div>
-
-      <aside class="sidebar">
         <h2>Details</h2>
-        <p class="subtle">
-          Click a node to inspect the underlying payload and execution context.
-        </p>
         <div id="detailMeta" class="pillbar"></div>
         <div id="detailBody" class="empty">Nothing selected yet.</div>
       </aside>

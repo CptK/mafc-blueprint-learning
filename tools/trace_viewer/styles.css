@@ -37,14 +37,14 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) 12px minmax(280px, 360px);
+  grid-template-columns: minmax(360px, 1fr) 12px minmax(480px, 560px);
   height: 100vh;
 }
 
 .main {
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: 0;
   overflow-y: auto;
 }
 
@@ -87,7 +87,10 @@ body {
   background: rgba(255, 253, 248, 0.88);
   backdrop-filter: blur(12px);
   padding: 24px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 h1,
@@ -119,7 +122,7 @@ p {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .upload,
@@ -142,42 +145,31 @@ p {
 }
 
 .summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 12px;
 }
 
 .stat {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 10px 12px;
-  box-shadow: var(--shadow);
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
 }
 
 .stat .label {
   color: var(--muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  font-size: 11px;
 }
 
 .stat .value {
-  font-size: 14px;
-  margin-top: 4px;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 #canvasWrap {
   background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--line);
-  border-radius: 24px;
   overflow: hidden;
-  box-shadow: var(--shadow);
 }
 
 #graph {
@@ -241,6 +233,12 @@ pre {
   height: 12px;
   border-radius: 999px;
   border: 1px solid rgba(32, 32, 32, 0.1);
+}
+
+.sidebar-divider {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 4px 0 18px;
 }
 
 .detail-section {
