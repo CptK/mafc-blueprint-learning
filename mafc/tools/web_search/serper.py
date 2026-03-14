@@ -120,13 +120,10 @@ class SerperAPI:
                         logger.critical(error_msg)
                         raise RuntimeError(error_msg)
 
-            except requests.exceptions.Timeout:
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
                 sleep_time = min(sleep_time * 2, 600)
                 sleep_time = random.uniform(1, 10) if not sleep_time else sleep_time
-                logger.warning(
-                    f"Unable to reach Serper API: Connection timed out. "
-                    f"Retrying after {sleep_time} seconds."
-                )
+                logger.warning(f"Unable to reach Serper API: {exc}. " f"Retrying after {sleep_time} seconds.")
                 time.sleep(sleep_time)
 
         if response is None:
