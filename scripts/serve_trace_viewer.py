@@ -108,7 +108,9 @@ def main() -> None:
     args = parse_args()
     viewer_dir = REPO_ROOT / "tools" / "trace_viewer"
 
-    registry_path = Path(args.registry).resolve() if args.registry else REPO_ROOT / "temp" / "item_registry.db"
+    registry_path = (
+        Path(args.registry).resolve() if args.registry else REPO_ROOT / "temp" / "item_registry.db"
+    )
 
     TraceViewerHandler.viewer_dir = viewer_dir
     TraceViewerHandler.registry_path = registry_path
