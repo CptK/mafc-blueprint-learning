@@ -86,9 +86,9 @@ export function renderDetail(node) {
       ${payload.irrelevant ? `<p><em>No relevant content found — excluded from evidence.</em></p>` : ""}
       ${payload.query_text ? `<p><strong>Query:</strong> ${escapeHtml(payload.query_text)}</p>` : ""}
       <p><strong>URL:</strong> ${escapeHtml((payload.source && (payload.source.url || payload.source.reference)) || "")}</p>
-      ${!payload.irrelevant ? renderCollapsibleText("Preview", payload.evidence && payload.evidence.preview) : ""}
+      ${renderCollapsibleText("Preview", (payload.evidence && payload.evidence.preview) || (payload.source && payload.source.preview))}
       ${!payload.irrelevant ? renderCollapsibleMultimodal("Takeaways", payload.evidence && payload.evidence.takeaways) : ""}
-      ${!payload.irrelevant ? renderCollapsibleMultimodal("Raw", payload.evidence && payload.evidence.raw) : ""}
+      ${renderCollapsibleMultimodal("Raw", (payload.evidence && payload.evidence.raw) || (payload.retrieved_content ? { text: payload.retrieved_content } : null))}
     `;
   }
 

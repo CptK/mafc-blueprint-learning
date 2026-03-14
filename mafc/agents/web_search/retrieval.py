@@ -372,7 +372,7 @@ def retrieve_and_extract_evidence(
                 step=step,
                 query_text=query_text,
                 source=source,
-                retrieved_content=raw_text if raw_text and not irrelevant else None,
+                retrieved_content=raw_text,
                 evidence=evidence,
                 irrelevant=irrelevant,
             )
