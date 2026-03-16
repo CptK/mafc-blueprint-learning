@@ -62,6 +62,9 @@ class BlueprintSelectionResult:
     surviving_blueprints: list[str]
     rejected_blueprints: list[BlueprintRejection] = field(default_factory=list)
     reason: str | None = None
+    all_blueprints: list[str] = field(default_factory=list)
+    llm_prompt: str | None = None
+    llm_raw_response: str | None = None
 
 
 class BlueprintSelector:
@@ -85,6 +88,7 @@ class BlueprintSelector:
             for blueprint in self.registry.get_all()
             if blueprint.name != self.default_blueprint_name
         ]
+        all_blueprint_names = [blueprint.name for blueprint in blueprints]
 
         survivors: list[Blueprint] = []
         rejected: list[BlueprintRejection] = []
@@ -108,6 +112,7 @@ class BlueprintSelector:
                 surviving_blueprints=[survivors[0].name],
                 rejected_blueprints=rejected,
                 reason="Exactly one blueprint matched the rule-based entry conditions.",
+                all_blueprints=all_blueprint_names,
             )
 
         if not survivors:
@@ -118,9 +123,12 @@ class BlueprintSelector:
                 surviving_blueprints=[],
                 rejected_blueprints=rejected,
                 reason="No blueprint matched the rule-based entry conditions.",
+                all_blueprints=all_blueprint_names,
             )
 
-        return self._select_with_llm(claim, claim_features, survivors, rejected, default_blueprint)
+        return self._select_with_llm(
+            claim, claim_features, survivors, rejected, default_blueprint, all_blueprint_names
+        )
 
     def _select_with_llm(
         self,
@@ -129,15 +137,21 @@ class BlueprintSelector:
         survivors: list[Blueprint],
         rejected: list[BlueprintRejection],
         default_blueprint: Blueprint,
+        all_blueprints: list[str],
     ) -> BlueprintSelectionResult:
         """Run the LLM tie-break over the surviving blueprints only."""
-        prompt = Prompt(text=self._build_tiebreak_prompt(claim, claim_features, survivors))
+        llm_prompt = self._build_tiebreak_prompt(claim, claim_features, survivors)
+        prompt = Prompt(text=llm_prompt)
+        llm_raw_response: str | None = None
+        parsed = None
 
         try:
-            response = self.model.generate([Message(role=MessageRole.USER, content=prompt)]).text.strip()
-            parsed = self._parse_tiebreak_response(response)
+            llm_raw_response = self.model.generate(
+                [Message(role=MessageRole.USER, content=prompt)]
+            ).text.strip()
+            parsed = self._parse_tiebreak_response(llm_raw_response)
         except (json.JSONDecodeError, ValueError):
-            parsed = None
+            pass
 
         if parsed is not None:
             selected_name = parsed.selected_blueprint
@@ -160,6 +174,9 @@ class BlueprintSelector:
                     surviving_blueprints=[blueprint.name for blueprint in survivors],
                     rejected_blueprints=llm_rejections,
                     reason=parsed.reason,
+                    all_blueprints=all_blueprints,
+                    llm_prompt=llm_prompt,
+                    llm_raw_response=llm_raw_response,
                 )
 
         fallback_rejections = list(rejected)
@@ -177,6 +194,9 @@ class BlueprintSelector:
             surviving_blueprints=[blueprint.name for blueprint in survivors],
             rejected_blueprints=fallback_rejections,
             reason="Multiple blueprints survived rule filtering, but the LLM tie-break was invalid.",
+            all_blueprints=all_blueprints,
+            llm_prompt=llm_prompt,
+            llm_raw_response=llm_raw_response,
         )
 
     def _build_tiebreak_prompt(

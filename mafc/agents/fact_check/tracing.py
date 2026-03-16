@@ -17,6 +17,7 @@ from mafc.agents.tracing import (
     serialize_result,
     timestamp,
 )
+from mafc.blueprints.selector import BlueprintSelectionResult
 from mafc.common.claim import Claim
 from mafc.common.modeling.message import Message
 from mafc.common.trace import TraceScope
@@ -117,18 +118,34 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
     def set_claim(self, claim: Claim | None) -> None:
         self.trace["claim"] = serialize_claim(claim)
 
-    def set_blueprint(self, blueprint_name: str, max_iterations: int, start_node_id: str) -> None:
+    def set_blueprint(self, selection_result: BlueprintSelectionResult) -> None:
+        bp = selection_result.selected_blueprint
+        selection: dict[str, Any] = {
+            "mode": selection_result.selection_mode.value,
+            "claim_features": selection_result.claim_features.model_dump(),
+            "all_blueprints": selection_result.all_blueprints,
+            "surviving_blueprints": selection_result.surviving_blueprints,
+            "rejected_blueprints": [
+                {"blueprint_name": r.blueprint_name, "reason": r.reason}
+                for r in selection_result.rejected_blueprints
+            ],
+            "reason": selection_result.reason,
+            "llm_prompt": selection_result.llm_prompt,
+            "llm_raw_response": selection_result.llm_raw_response,
+        }
         self.trace["blueprint"] = {
-            "name": blueprint_name,
-            "max_iterations": max_iterations,
-            "start_node_id": start_node_id,
+            "name": bp.name,
+            "max_iterations": bp.policy_constraints.max_iterations,
+            "start_node_id": bp.verification_graph.start_node,
+            "selection": selection,
         }
         self.record_event(
             "blueprint_selected",
             {
-                "name": blueprint_name,
-                "max_iterations": max_iterations,
-                "start_node_id": start_node_id,
+                "name": bp.name,
+                "max_iterations": bp.policy_constraints.max_iterations,
+                "start_node_id": bp.verification_graph.start_node,
+                "selection": selection,
             },
         )
 

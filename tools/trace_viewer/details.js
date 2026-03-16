@@ -464,6 +464,67 @@ export function renderDetail(node) {
     `;
   }
 
+  if (detailType === "blueprint") {
+    const sel = payload.selection || {};
+    const mode = sel.mode || "unknown";
+    const modeColors = {
+      rule_based: "#2a7a2a",
+      llm_tiebreak: "#7a5c00",
+      default_fallback: "#7a2a2a",
+    };
+    const modeColor = modeColors[mode] || "#555";
+    const modeBadge = `<span style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:0.85em;font-weight:bold;background:${modeColor};color:#fff">${escapeHtml(mode)}</span>`;
+
+    const allBlueprints = sel.all_blueprints || [];
+    const survivingSet = new Set(sel.surviving_blueprints || []);
+    const rejectedMap = {};
+    (sel.rejected_blueprints || []).forEach((r) => { rejectedMap[r.blueprint_name] = r.reason; });
+
+    const bpRows = allBlueprints.map((name) => {
+      const passed = survivingSet.has(name);
+      const isSelected = name === payload.name;
+      const icon = passed ? "✓" : "✗";
+      const iconColor = passed ? "#2a7a2a" : "#aa3333";
+      const reason = passed
+        ? (isSelected ? "<strong>selected</strong>" : "<em>passed rule filter</em>")
+        : escapeHtml(rejectedMap[name] || "");
+      return `<tr>
+        <td style="padding:2px 6px 2px 0;white-space:nowrap"><span style="color:${iconColor};font-weight:bold">${icon}</span> ${escapeHtml(name)}</td>
+        <td style="padding:2px 0;color:#555;font-size:0.9em">${reason}</td>
+      </tr>`;
+    }).join("");
+
+    const features = sel.claim_features || {};
+    const featureRows = Object.entries(features).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) =>
+      `<tr><td style="padding:2px 8px 2px 0;white-space:nowrap">${escapeHtml(k)}</td><td style="color:#555">${escapeHtml(String(v))}</td></tr>`
+    ).join("");
+
+    return `
+      <h3>Blueprint: ${escapeHtml(payload.name || "unknown")} &nbsp;${modeBadge}</h3>
+
+      ${sel.reason ? `<p>${escapeHtml(sel.reason)}</p>` : ""}
+
+      ${allBlueprints.length ? `
+      <details open>
+        <summary><strong>Rule filtering</strong> — ${allBlueprints.length} evaluated, ${survivingSet.size} passed</summary>
+        <table style="width:100%;border-collapse:collapse;margin-top:6px">
+          <tbody>${bpRows}</tbody>
+        </table>
+      </details>` : ""}
+
+      ${Object.keys(features).length ? `
+      <details>
+        <summary><strong>Claim features</strong></summary>
+        <table style="border-collapse:collapse;margin-top:6px">
+          <tbody>${featureRows}</tbody>
+        </table>
+      </details>` : ""}
+
+      ${renderCollapsibleText("LLM Tiebreak Prompt", sel.llm_prompt)}
+      ${renderCollapsibleText("LLM Tiebreak Raw Response", sel.llm_raw_response)}
+    `;
+  }
+
   return `<pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
 }
 

@@ -78,12 +78,17 @@ export function buildViewModel(trace) {
 
   pushNode(makeNode("claim", "claim", "Claim", summarizeText(trace.claim && trace.claim.text, 180), trace.claim || {}, null, false, WEB_LAYOUT.mainX, currentMainY));
   currentMainY += WEB_LAYOUT.rowGap;
+  const blueprintMode = trace.blueprint && trace.blueprint.selection && trace.blueprint.selection.mode;
+  const blueprintSubtitle = [
+    trace.blueprint ? trace.blueprint.name : "Unknown blueprint",
+    blueprintMode ? `(${blueprintMode})` : null,
+  ].filter(Boolean).join(" — ");
   pushNode(
     makeNode(
       "blueprint",
       "blueprint",
       "Blueprint",
-      trace.blueprint ? trace.blueprint.name : "Unknown blueprint",
+      blueprintSubtitle,
       trace.blueprint || {},
       null,
       false,

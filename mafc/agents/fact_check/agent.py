@@ -101,11 +101,7 @@ class FactCheckAgent(Agent):
 
         session.claim = claim
         selection_result = self.blueprint_selector.select(claim)
-        trace.set_blueprint(
-            selection_result.selected_blueprint.name,
-            selection_result.selected_blueprint.policy_constraints.max_iterations,
-            selection_result.selected_blueprint.verification_graph.start_node,
-        )
+        trace.set_blueprint(selection_result)
         logger.debug(f"[FactCheckAgent] Running with blueprint '{selection_result.selected_blueprint.name}'")
         state = self._initialize_state(selection_result.selected_blueprint, session.evidences)
         max_iterations = selection_result.selected_blueprint.policy_constraints.max_iterations
