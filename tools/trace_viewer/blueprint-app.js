@@ -239,7 +239,6 @@ function buildGraphElements(bp) {
           id: `e${edgeIdx++}`,
           source: node.id,
           target: t.to,
-          label: t.if || "",
         },
       });
     }
@@ -311,14 +310,7 @@ function renderGraph(bp) {
           "curve-style": "taxi",
           "taxi-direction": "downward",
           "taxi-turn": 30,
-          label: "data(label)",
-          color: "#6c675d",
-          "font-size": 9,
-          "font-family": 'Georgia, "Iowan Old Style", "Palatino Linotype", serif',
-          "text-background-color": "#fffdf8",
-          "text-background-opacity": 0.95,
-          "text-background-padding": "2px",
-          "text-rotation": "autorotate",
+          label: "",
         },
       },
     ],
