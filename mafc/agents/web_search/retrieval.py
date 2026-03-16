@@ -327,6 +327,7 @@ def retrieve_and_extract_evidence(
 
     for source, content in zip(selected_sources, contents):
         irrelevant = False
+        relevant_media: list = []
         if content is None:
             errors.append(f"Failed to retrieve content from {source.url}")
             logger.debug(f"[WebSearch-Agent] Failed to retrieve content from {source.url}")
@@ -340,9 +341,13 @@ def retrieve_and_extract_evidence(
                 )
         else:
             content_text = str(content).strip()
+            media_items = list(content.images) + list(content.videos)
             if content_text:
-                snippet, obs_resp = summarize_observation(
-                    model=model, instruction=query_text, observation=content_text
+                snippet, relevant_media, obs_resp = summarize_observation(
+                    model=model,
+                    instruction=query_text,
+                    observation=content_text,
+                    media_items=media_items,
                 )
                 if trace is not None and obs_resp is not None:
                     trace.add_usage(obs_resp, model.name)
@@ -353,6 +358,7 @@ def retrieve_and_extract_evidence(
             else:
                 snippet = ""
                 raw_text = ""
+                relevant_media = []
                 irrelevant = True
         title = source.title or "Untitled"
         lines.append(f"- {title} | {source.url}\n  Content snippet: {snippet}")
@@ -365,6 +371,7 @@ def retrieve_and_extract_evidence(
                 raw_text=raw_text,
                 snippet=snippet,
                 preview=source.preview,
+                relevant_media=relevant_media,
             )
         )
         if trace is not None and step is not None:
@@ -394,12 +401,14 @@ def build_evidence_from_source(
     raw_text: str,
     snippet: str,
     preview: str | None = None,
+    relevant_media: list | None = None,
 ) -> Evidence | None:
     """Build one source-backed evidence item from a retrieved web source."""
     raw_payload = raw_text.strip()
     takeaway_text = snippet.strip()
     if not raw_payload and not takeaway_text:
         return None
+    rel_media = relevant_media or []
     return Evidence(
         raw=MultimodalSequence(raw_payload or takeaway_text),
         action=InspectWebSource(
@@ -409,5 +418,5 @@ def build_evidence_from_source(
         ),
         source=source.url,
         preview=preview or None,
-        takeaways=MultimodalSequence(takeaway_text) if takeaway_text else None,
+        takeaways=MultimodalSequence(takeaway_text, *rel_media) if takeaway_text else None,
     )

@@ -24,27 +24,7 @@ export function renderDetail(node) {
       payload.origin ? ["Origin", payload.origin] : null,
     ].filter(Boolean);
 
-    const mediaItems = [
-      ...images.map((ref) => ({ kind: "image", ref })),
-      ...videos.map((ref) => ({ kind: "video", ref })),
-    ];
-
-    function mediaId(ref) {
-      const m = ref.match(/:(\d+)>/);
-      return m ? m[1] : null;
-    }
-
-    const mediaHtml = mediaItems.length
-      ? `<div class="claim-media-grid">${mediaItems.map(({ kind, ref }) => {
-          const id = mediaId(ref);
-          if (!id) return "";
-          const url = `/api/media/${kind}/${id}`;
-          if (kind === "image") {
-            return `<a href="${url}" target="_blank"><img class="claim-media-img" src="${url}" alt="${escapeHtml(ref)}" /></a>`;
-          }
-          return `<video class="claim-media-video" src="${url}" controls></video>`;
-        }).join("")}</div>`
-      : "";
+    const mediaHtml = renderMediaGrid(images, videos);
 
     return `
       <h3>Claim</h3>
@@ -147,9 +127,9 @@ export function renderDetail(node) {
         </div>` : ""}
 
       ${(payload.planner_messages || []).map((msg, i) =>
-        renderCollapsibleText(
+        renderCollapsibleMultimodalPrompt(
           `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-          msg.content && msg.content.text
+          msg.content
         )
       ).join("")}
 
@@ -198,9 +178,9 @@ export function renderDetail(node) {
         </div>` : ""}
 
       ${(payload.planner_messages || []).map((msg, i) =>
-        renderCollapsibleText(
+        renderCollapsibleMultimodalPrompt(
           `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-          msg.content && msg.content.text
+          msg.content
         )
       ).join("")}
 
@@ -285,7 +265,7 @@ export function renderDetail(node) {
           <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
         </div>` : ""}
 
-      ${renderCollapsibleText("Summary", payload.answer)}
+      ${renderCollapsibleMultimodal("Summary", payload.result || (payload.answer ? { text: payload.answer } : null))}
 
       <div class="evidence-list">
         ${evidences.map((ev, i) => `
@@ -308,9 +288,9 @@ export function renderDetail(node) {
       <p><strong>Planned tools:</strong> ${escapeHtml((payload.planned_tools || []).join(", ") || "none")}</p>
 
       ${(payload.planner_messages || []).map((msg, i) =>
-        renderCollapsibleText(
+        renderCollapsibleMultimodalPrompt(
           `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-          msg.content && msg.content.text
+          msg.content
         )
       ).join("")}
 
@@ -379,9 +359,9 @@ export function renderDetail(node) {
       ${justification ? renderCollapsibleText("Justification", justification) : ""}
 
       ${(payload.prompt_messages || []).map((msg, i) =>
-        renderCollapsibleText(
+        renderCollapsibleMultimodalPrompt(
           `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-          msg.content && msg.content.text
+          msg.content
         )
       ).join("")}
 
@@ -407,7 +387,7 @@ export function renderDetail(node) {
           <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
         </div>` : ""}
 
-      ${renderCollapsibleText("Answer", payload.answer)}
+      ${renderCollapsibleMultimodal("Answer", payload.result || (payload.answer ? { text: payload.answer } : null))}
     `;
   }
 
@@ -508,15 +488,54 @@ function renderCollapsibleText(label, value) {
   `;
 }
 
+function mediaId(ref) {
+  const m = String(ref).match(/:(\d+)>/);
+  return m ? m[1] : null;
+}
+
+function renderMediaGrid(images, videos) {
+  const items = [
+    ...(images || []).map((ref) => ({ kind: "image", ref })),
+    ...(videos || []).map((ref) => ({ kind: "video", ref })),
+  ];
+  if (!items.length) return "";
+  return `<div class="claim-media-grid">${items.map(({ kind, ref }) => {
+    const id = mediaId(ref);
+    if (!id) return "";
+    const url = `/api/media/${kind}/${id}`;
+    if (kind === "image") {
+      return `<a href="${url}" target="_blank"><img class="claim-media-img" src="${url}" alt="${escapeHtml(ref)}" /></a>`;
+    }
+    return `<video class="claim-media-video" src="${url}" controls></video>`;
+  }).join("")}</div>`;
+}
+
 function renderCollapsibleMultimodal(label, value) {
-  const text = value && value.text ? value.text : "";
-  if (!text) {
-    return "";
-  }
+  const text = (value && value.text) || "";
+  const images = (value && value.images) || [];
+  const videos = (value && value.videos) || [];
+  if (!text && !images.length && !videos.length) return "";
+  const mediaHtml = renderMediaGrid(images, videos);
   return `
     <details>
       <summary>${escapeHtml(label)}</summary>
-      <pre>${escapeHtml(text)}</pre>
+      ${mediaHtml}
+      ${text ? `<pre>${escapeHtml(text)}</pre>` : ""}
+    </details>
+  `;
+}
+
+function renderCollapsibleMultimodalPrompt(label, value) {
+  const text = (value && value.text) || "";
+  const images = (value && value.images) || [];
+  const videos = (value && value.videos) || [];
+  if (!text && !images.length && !videos.length) return "";
+  const mediaHtml = renderMediaGrid(images, videos);
+  return `
+    <details>
+      <summary>${escapeHtml(label)}</summary>
+      ${text ? `<pre>${escapeHtml(text)}</pre>` : ""}
+      ${mediaHtml}
     </details>
   `;
 }

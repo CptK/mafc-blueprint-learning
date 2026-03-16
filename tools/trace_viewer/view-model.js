@@ -248,6 +248,7 @@ export function buildViewModel(trace) {
           {
             detailType: isWebSearch ? "web_search_result" : "child_result",
             answer: summary.result.result.text,
+            result: summary.result.result,
             evidences: summary.result.evidences || [],
             errors: summary.errors || [],
           },

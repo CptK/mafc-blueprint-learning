@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 from typing import cast
 
 from ezmm import MultimodalSequence
+from ezmm.common.items import Image, Video
 
 from mafc.common.modeling.prompt import Prompt
 from mafc.common.modeling.message import Message, MessageRole
@@ -15,7 +17,8 @@ from mafc.tools.web_search.google_search import GoogleSearchPlatform
 from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
 from mafc.common.modeling.model import Model, Response
-from mafc.utils.parsing import is_failed_model_text
+from mafc.utils.parsing import extract_json_object, is_failed_model_text
+from mafc.utils.media import build_media_json_instruction, parse_media_relevance
 
 from mafc.agents.web_search.models import IterationOutcome, SearchPlanStep, StepQueryPlan, SearchTool
 from mafc.agents.web_search.planner import plan_step
@@ -26,6 +29,21 @@ from mafc.agents.web_search.retrieval import (
 )
 from mafc.agents.web_search.tracing import WebSearchTraceRecorder
 from mafc.common.trace import TraceScope
+
+
+def _parse_synthesis_response(
+    response_text: str, media_items: list[Image | Video]
+) -> tuple[str, list[Image | Video]]:
+    """Parse the JSON synthesis response and return (synthesis_text, relevant_media)."""
+    text = extract_json_object(response_text.strip())
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return response_text.strip(), media_items
+
+    synthesis = payload.get("synthesis", "").strip()
+    relevant_media = parse_media_relevance(payload.get("media", []), media_items)
+    return synthesis, relevant_media
 
 
 class WebSearchAgent(Agent):
@@ -125,44 +143,54 @@ class WebSearchAgent(Agent):
 
     def synthesize_from_evidences(self, instruction: str, evidences) -> str:
         """Synthesize an answer directly from already accepted evidence."""
-        synthesis, _resp = self._synthesize_final(instruction, evidences)
-        return synthesis
+        result, _resp = self._synthesize_final(instruction, evidences)
+        return str(result).strip() if result is not None else ""
 
-    def _synthesize_final(self, instruction: str, evidences) -> tuple[str, "Response | None"]:
-        """Synthesize an answer and return (text, response)."""
+    def _synthesize_final(
+        self, instruction: str, evidences
+    ) -> tuple[MultimodalSequence | None, "Response | None"]:
+        """Synthesize an answer and return (multimodal result, response)."""
         evidence_blocks = []
+        all_media: list[Image | Video] = []
         for evidence in evidences:
-            summary = (
-                str(evidence.takeaways).strip()
-                if evidence.takeaways is not None
-                else str(evidence.raw).strip()
-            )
+            if evidence.takeaways is not None:
+                summary = str(evidence.takeaways).strip()
+                all_media.extend(evidence.takeaways.images)
+                all_media.extend(evidence.takeaways.videos)
+            else:
+                summary = str(evidence.raw).strip()
             if not summary:
                 continue
             evidence_blocks.append(f"Source: {evidence.source}\nSummary: {summary}")
 
         if not evidence_blocks:
-            return "", None
+            return None, None
+
+        media_instruction = build_media_json_instruction(all_media, context="The evidence")
 
         synthesis_prompt = (
             "You are a factual evidence synthesizer.\n"
             "Answer the task using only the accepted evidence provided below.\n"
             "State agreements and disagreements between sources when present.\n"
             "Include concrete facts and source references where possible.\n"
-            "Call out important uncertainties or missing evidence.\n\n"
+            "Call out important uncertainties or missing evidence.\n"
+            "Return strict JSON only with schema:\n"
+            '  {"synthesis": "..."}\n'
+            f"{media_instruction}\n"
             f"Task:\n{instruction}\n\n"
             f"Accepted evidence:\n{chr(10).join(evidence_blocks)}"
         )
+        content = MultimodalSequence(synthesis_prompt, *all_media)
         try:
             resp = self.summarization_model.generate(
-                [Message(role=MessageRole.USER, content=Prompt(text=synthesis_prompt))]
+                [Message(role=MessageRole.USER, content=content)]
             )
-            synthesis = resp.text.strip()
+            synthesis, relevant_media = _parse_synthesis_response(resp.text, all_media)
             if not synthesis or is_failed_model_text(synthesis):
-                return "\n\n".join(evidence_blocks), resp
-            return synthesis, resp
+                return MultimodalSequence("\n\n".join(evidence_blocks), *all_media), resp
+            return MultimodalSequence(synthesis, *relevant_media), resp
         except Exception:
-            return "\n\n".join(evidence_blocks), None
+            return MultimodalSequence("\n\n".join(evidence_blocks), *all_media), None
 
     def _initialize_run(
         self,
@@ -308,7 +336,7 @@ class WebSearchAgent(Agent):
                 trace=trace.trace if trace is not None else None,
             )
 
-        synthesis, synthesis_resp = self._synthesize_final(instruction, session.evidences)
+        result_text, synthesis_resp = self._synthesize_final(instruction, session.evidences)
         if trace is not None and synthesis_resp is not None:
             trace.add_usage(synthesis_resp, self.summarization_model.name)
         if trace is not None:
@@ -316,10 +344,10 @@ class WebSearchAgent(Agent):
                 step=None,
                 stage="finalize",
                 instruction=instruction,
-                answer=synthesis,
+                answer=str(result_text).strip() if result_text is not None else "",
                 evidence_count=len(session.evidences),
             )
-        if not synthesis.strip():
+        if result_text is None or not str(result_text).strip():
             self._mark_failed(session)
             return AgentResult(
                 session=session,
@@ -330,7 +358,6 @@ class WebSearchAgent(Agent):
                 trace=trace.trace if trace is not None else None,
             )
 
-        result_text = MultimodalSequence(synthesis)
         result_message = self.make_result_message(session, result_text, list(session.evidences))
         session.messages.append(result_message)
         self._mark_completed(session)
