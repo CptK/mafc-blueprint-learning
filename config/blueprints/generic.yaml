@@ -18,7 +18,7 @@ selector_hints:
 
 policy_constraints:
   allowed_actions: [web_search, media]
-  max_iterations: 4
+  max_iterations: 2
   require_counterevidence_search: true
 
 required_checks:
@@ -40,15 +40,38 @@ verification_graph:
       transition:
         - if: continue
           to: layer1_expand
+
     - id: layer1_expand
+      type: synthesis
+      transition:
+        - if: "core claim is already verified or refuted with sufficient evidence"
+          to: layer2_gate
+        - if: "evidence is insufficient, contradictory, or key aspects of the claim remain uninvestigated"
+          to: layer2_deepen
+
+    - id: layer2_deepen
+      type: actions
+      actions:
+        - action: web_search
+          intent: follow up on open questions identified in the first synthesis
+          query_guidance: address the specific aspects of the claim that were unresolved or weakly sourced
+        - action: web_search
+          intent: search explicitly for counter-evidence and contradictions to the claim
+          query_guidance: look for corrections, fact-checks, or sources that contradict the evidence found so far
+      transition:
+        - if: continue
+          to: layer2_synthesis
+
+    - id: layer2_synthesis
       type: synthesis
       transition:
         - if: continue
           to: layer2_gate
+
     - id: layer2_gate
       type: gate
       rules:
-        support_conditions: [core_claim_checked]
+        support_conditions: [core_claim_checked, counterevidence_checked]
         refute_conditions: []
         if_fail: return unknown
 

@@ -1,0 +1,126 @@
+name: media_claim
+description: Fact-checking for claims containing images or videos, focusing on media authenticity and text-media consistency.
+
+entry_conditions:
+  all: []
+  any:
+    - feature: "has_image"
+      op: "=="
+      value: true
+    - feature: "has_video"
+      op: "=="
+      value: true
+
+selector_hints:
+  positive:
+    features: ["has_image", "has_video", "is_multimodal"]
+    examples:
+      - "This photo shows flooding in Valencia during the 2024 disaster."
+      - "Video of police brutality at the protest last weekend."
+      - "Image of a shark swimming in flooded streets during the hurricane."
+      - "This clip was filmed during the 2019 Hong Kong protests."
+  negative:
+    features: []
+    examples:
+      - "A politician said X in a speech yesterday."
+      - "According to official statistics, unemployment rose to 5%."
+
+policy_constraints:
+  allowed_actions: [web_search, media]
+  max_iterations: 3
+  require_counterevidence_search: true
+
+required_checks:
+  - id: media_origin_investigated
+    description: The origin and earliest known appearance of the media was investigated via reverse search and source tracing.
+  - id: media_authenticity_assessed
+    description: The media was assessed for signs of manipulation, editing, or AI generation.
+  - id: text_media_consistent
+    description: The textual claim is consistent with what the media actually depicts (location, date, event, actors).
+  - id: claim_provenance_checked
+    description: The original publisher of the claim was identified and their framing of the media was assessed.
+  - id: cross_source_framing_checked
+    description: Other sources that published the same media were found and compared for consistent or divergent framing.
+  - id: counterevidence_checked
+    description: Inconsistencies, alternative captions, misuse, or debunks of the media were explicitly searched for.
+
+verification_graph:
+  start_node: layer0_initial_search
+  nodes:
+    - id: layer0_initial_search
+      type: actions
+      actions:
+        - action: media
+          intent: find where the media was published online, assess authenticity, and extract geolocation or contextual cues
+          query_guidance: use reverse image/video search; look for earliest appearance, metadata, and signs of manipulation
+        - action: web_search
+          intent: establish the context in which the claim was published and identify its original source
+          query_guidance: search for the claim text, the publication, and any named entities to understand when and by whom the claim was first made
+      transition:
+        - if: continue
+          to: layer1_synthesis
+
+    - id: layer1_synthesis
+      type: synthesis
+      transition:
+        - if: "media origin is confirmed, authenticity is established, and the textual claim is fully consistent with the media context — no significant open questions remain"
+          to: layer4_gate
+        - if: "media origin is unclear, authenticity is unresolved, text-media consistency is in doubt, or counter-evidence has not been searched"
+          to: layer2_counter_search
+
+    - id: layer2_counter_search
+      type: actions
+      actions:
+        - action: web_search
+          intent: search specifically for inconsistencies or facts that contradict the claim or the identified media context
+          query_guidance: look for alternative explanations, corrections, or known misuse of this media; include known fact-checking sources
+        - action: web_search
+          intent: investigate who published the claim, their track record, and whether they have a history of misleading content
+          query_guidance: search for the publisher, account, or outlet that first circulated this claim and any reliability assessments
+        - action: web_search
+          intent: find other sources that published the same media and compare how they framed it
+          query_guidance: use image/video identifiers or descriptions found in layer0; compare captions, dates, and contexts across publications
+      transition:
+        - if: continue
+          to: layer2_synthesis
+
+    - id: layer2_synthesis
+      type: synthesis
+      transition:
+        - if: "all inconsistencies are resolved and evidence is sufficient for a verdict"
+          to: layer4_gate
+        - if: "specific unresolved inconsistencies remain that targeted search could address"
+          to: layer3_targeted_search
+
+    - id: layer3_targeted_search
+      type: actions
+      actions:
+        - action: web_search
+          intent: resolve the specific remaining inconsistencies identified in the previous synthesis
+          query_guidance: formulate queries directly targeting the open questions — disputed dates, locations, identities, or contradictory sources
+      transition:
+        - if: continue
+          to: layer3_synthesis
+
+    - id: layer3_synthesis
+      type: synthesis
+      transition:
+        - if: continue
+          to: layer4_gate
+
+    - id: layer4_gate
+      type: gate
+      rules:
+        support_conditions: [media_origin_investigated, media_authenticity_assessed, text_media_consistent, claim_provenance_checked, cross_source_framing_checked, counterevidence_checked]
+        refute_conditions: []
+        if_fail: return unknown
+
+termination:
+  - if: budget.exhausted == true
+    return: unknown
+  - if: gate.result == support
+    return: label_from_judge_support
+  - if: gate.result == refute
+    return: label_from_judge_refute
+  - if: gate.result == unknown
+    return: unknown

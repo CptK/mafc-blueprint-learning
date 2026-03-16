@@ -1,0 +1,125 @@
+name: quote_attribution
+description: Verifies claims attributing statements or quotes to a specific person, with or without accompanying media such as screenshots or social media posts.
+
+entry_conditions:
+  all:
+    - feature: "claim_has_author"
+      op: "=="
+      value: true
+  any: []
+
+selector_hints:
+  positive:
+    features: ["claim_has_author"]
+    examples:
+      - "Angela Merkel said Germany will never take in more refugees."
+      - "Screenshot of a tweet where Elon Musk claims to have sold all his Bitcoin."
+      - "Pope Francis reportedly called capitalism inherently immoral."
+      - "This Facebook post shows Joe Biden admitting to voter fraud."
+      - "Video clip in which Zelensky announces Ukraine's surrender."
+  negative:
+    features: []
+    examples:
+      - "An earthquake struck Turkey in February 2023."
+      - "This photo shows flooding in Dubai."
+      - "The unemployment rate rose to 5% in Q3."
+
+policy_constraints:
+  allowed_actions: [web_search, media]
+  max_iterations: 3
+  require_counterevidence_search: true
+
+required_checks:
+  - id: quote_source_found
+    description: The original source or recording of the attributed statement was investigated.
+  - id: authorship_verified
+    description: Whether the attributed person actually made this statement was assessed.
+  - id: context_checked
+    description: The full original context of the quote was checked to assess whether the claim is accurate or misleading.
+  - id: claim_provenance_checked
+    description: The outlet, account, or source spreading the claim was identified and assessed for credibility (e.g. satire site, known disinfo outlet, credible news source).
+  - id: text_media_consistent
+    description: If media is present, it is authentic and consistent with the quoted statement and attributed person (applies when media is present).
+  - id: counterevidence_checked
+    description: Known fabrications, misattributions, or out-of-context uses of similar quotes were searched for.
+
+verification_graph:
+  start_node: layer0_quote_search
+  nodes:
+    - id: layer0_quote_search
+      type: actions
+      actions:
+        - action: web_search
+          intent: find the original source of the quote and verify it is correctly attributed
+          query_guidance: search for the exact or paraphrased quote together with the attributed person's name and topic
+        - action: media
+          intent: if media is present, verify its authenticity and whether it genuinely shows the attributed statement
+          query_guidance: check visible usernames, timestamps, UI elements, and platform-specific details for signs of manipulation
+      transition:
+        - if: continue
+          to: layer1_synthesis
+
+    - id: layer1_synthesis
+      type: synthesis
+      transition:
+        - if: "original source is found and attribution is conclusively confirmed or clearly refuted, with media verified if present"
+          to: layer4_gate
+        - if: "quote source is missing, context is ambiguous, or counter-evidence has not been searched"
+          to: layer2_context_search
+
+    - id: layer2_context_search
+      type: actions
+      actions:
+        - action: web_search
+          intent: investigate the full context of the quote and search for authoritative transcripts or recordings
+          query_guidance: look for official transcripts, interviews, press releases, or archived recordings by the attributed person
+        - action: web_search
+          intent: search for counter-evidence, known fabrications, or misattributions of this quote
+          query_guidance: include terms like "fake quote", "misattributed", "fact check", "satire" with the person's name and the claim topic
+        - action: web_search
+          intent: identify the outlet or account spreading this claim and assess their credibility
+          query_guidance: search for the publisher, account name, or website; look for reliability ratings, satire labels, or known disinfo history
+      transition:
+        - if: continue
+          to: layer2_synthesis
+
+    - id: layer2_synthesis
+      type: synthesis
+      transition:
+        - if: "all checks are resolved and evidence is sufficient for a verdict"
+          to: layer4_gate
+        - if: "specific disputes remain around context, authorship, or provenance that targeted search could address"
+          to: layer3_targeted_search
+
+    - id: layer3_targeted_search
+      type: actions
+      actions:
+        - action: web_search
+          intent: resolve the specific remaining disputes identified in the previous synthesis
+          query_guidance: formulate queries directly targeting the open questions — full transcript location, alternative attributions, archived versions of deleted content
+      transition:
+        - if: continue
+          to: layer3_synthesis
+
+    - id: layer3_synthesis
+      type: synthesis
+      transition:
+        - if: continue
+          to: layer4_gate
+
+    - id: layer4_gate
+      type: gate
+      rules:
+        support_conditions: [quote_source_found, authorship_verified, context_checked, claim_provenance_checked, text_media_consistent, counterevidence_checked]
+        refute_conditions: []
+        if_fail: return unknown
+
+termination:
+  - if: budget.exhausted == true
+    return: unknown
+  - if: gate.result == support
+    return: label_from_judge_support
+  - if: gate.result == refute
+    return: label_from_judge_refute
+  - if: gate.result == unknown
+    return: unknown
