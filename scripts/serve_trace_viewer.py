@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import argparse
 import http.server
+import json
 import mimetypes
 import sqlite3
 import urllib.parse
 from pathlib import Path
 import socketserver
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,22 +35,30 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to item_registry.db (default: temp/item_registry.db in repo root).",
     )
+    parser.add_argument(
+        "--blueprints",
+        default=None,
+        help="Path to blueprints config directory (default: config/blueprints in repo root).",
+    )
     return parser.parse_args()
 
 
 class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
-    """Static file server with an extra /api/media/{kind}/{id} endpoint."""
+    """Static file server with extra API endpoints for media and blueprints."""
 
     registry_path: Path | None = None
     viewer_dir: Path | None = None
+    blueprints_dir: Path | None = None
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, directory=str(self.viewer_dir), **kwargs)
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path.startswith("/api/media/"):
-            parts = parsed.path.strip("/").split("/")  # ['api', 'media', kind, id]
+        path = parsed.path
+
+        if path.startswith("/api/media/"):
+            parts = path.strip("/").split("/")  # ['api', 'media', kind, id]
             if len(parts) == 4:
                 kind = parts[2]
                 try:
@@ -59,6 +70,20 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_error(404, "Not found")
             return
+
+        if path == "/api/blueprints":
+            self._serve_blueprints_list()
+            return
+
+        if path.startswith("/api/blueprints/"):
+            name = path[len("/api/blueprints/"):]
+            self._serve_blueprint_by_name(name)
+            return
+
+        if path in ("/blueprints", "/blueprints/"):
+            self._serve_static_file(self.__class__.viewer_dir / "blueprints.html")
+            return
+
         super().do_GET()
 
     def _serve_media(self, kind: str, media_id: int) -> None:
@@ -98,6 +123,55 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_blueprints_list(self) -> None:
+        bp_dir = self.__class__.blueprints_dir
+        if not bp_dir or not bp_dir.is_dir():
+            self._send_json([])
+            return
+        items = []
+        for bp_path in sorted(bp_dir.glob("*.yaml")):
+            try:
+                data = yaml.safe_load(bp_path.read_text(encoding="utf-8"))
+                items.append({"name": data.get("name", bp_path.stem), "description": data.get("description", "")})
+            except Exception:
+                pass
+        self._send_json(items)
+
+    def _serve_blueprint_by_name(self, name: str) -> None:
+        bp_dir = self.__class__.blueprints_dir
+        if not bp_dir or not bp_dir.is_dir():
+            self.send_error(503, "Blueprints directory not available")
+            return
+        for bp_path in sorted(bp_dir.glob("*.yaml")):
+            try:
+                data = yaml.safe_load(bp_path.read_text(encoding="utf-8"))
+                if data.get("name") == name:
+                    self._send_json(data)
+                    return
+            except Exception:
+                pass
+        self.send_error(404, f"Blueprint '{name}' not found")
+
+    def _send_json(self, data: object) -> None:
+        body = json.dumps(data).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_static_file(self, file_path: Path) -> None:
+        if not file_path or not file_path.exists():
+            self.send_error(404, "File not found")
+            return
+        mime, _ = mimetypes.guess_type(str(file_path))
+        data = file_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mime or "text/html")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         # Only log non-media requests to avoid spam
         if args and "/api/media/" not in str(args[0]):
@@ -112,8 +186,13 @@ def main() -> None:
         Path(args.registry).resolve() if args.registry else REPO_ROOT / "temp" / "item_registry.db"
     )
 
+    blueprints_dir = (
+        Path(args.blueprints).resolve() if args.blueprints else REPO_ROOT / "config" / "blueprints"
+    )
+
     TraceViewerHandler.viewer_dir = viewer_dir
     TraceViewerHandler.registry_path = registry_path
+    TraceViewerHandler.blueprints_dir = blueprints_dir
 
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer((args.host, args.port), TraceViewerHandler) as httpd:
@@ -123,6 +202,10 @@ def main() -> None:
             print(f"Registry:     {registry_path}")
         else:
             print(f"Registry not found at {registry_path} — media will not be displayed")
+        if blueprints_dir.exists():
+            print(f"Blueprints:   {blueprints_dir}")
+        else:
+            print(f"Blueprints not found at {blueprints_dir} — /blueprints will be empty")
         httpd.serve_forever()
 
 
