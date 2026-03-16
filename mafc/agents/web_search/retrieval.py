@@ -22,7 +22,7 @@ from mafc.agents.web_search.models import (
     QuerySearchResult,
     SearchTool,
 )
-from mafc.utils.parsing import extract_json_object
+from mafc.utils.parsing import extract_json_object, is_failed_model_text
 from mafc.agents.web_search.synthesis import summarize_observation
 from mafc.agents.web_search.tracing import WebSearchTraceRecorder
 
@@ -352,7 +352,7 @@ def retrieve_and_extract_evidence(
                 if trace is not None and obs_resp is not None:
                     trace.add_usage(obs_resp, model.name)
                 raw_text = content_text
-                if not snippet:
+                if not snippet or is_failed_model_text(snippet):
                     irrelevant = True
                     logger.debug(f"[WebSearch-Agent] No relevant content found at {source.url}")
             else:

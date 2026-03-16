@@ -183,7 +183,9 @@ class WebSearchAgent(Agent):
         try:
             resp = self.summarization_model.generate([Message(role=MessageRole.USER, content=content)])
             synthesis, relevant_media = _parse_synthesis_response(resp.text, all_media)
-            if not synthesis or is_failed_model_text(synthesis):
+            if synthesis and is_failed_model_text(synthesis):
+                return None, resp
+            if not synthesis:
                 return MultimodalSequence("\n\n".join(evidence_blocks), *all_media), resp
             return MultimodalSequence(synthesis, *relevant_media), resp
         except Exception:
