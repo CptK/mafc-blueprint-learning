@@ -8,7 +8,6 @@ from typing import cast
 from ezmm import MultimodalSequence
 from ezmm.common.items import Image, Video
 
-from mafc.common.modeling.prompt import Prompt
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.agents.agent import Agent, AgentResult
 from mafc.agents.common import AgentSession
@@ -182,9 +181,7 @@ class WebSearchAgent(Agent):
         )
         content = MultimodalSequence(synthesis_prompt, *all_media)
         try:
-            resp = self.summarization_model.generate(
-                [Message(role=MessageRole.USER, content=content)]
-            )
+            resp = self.summarization_model.generate([Message(role=MessageRole.USER, content=content)])
             synthesis, relevant_media = _parse_synthesis_response(resp.text, all_media)
             if not synthesis or is_failed_model_text(synthesis):
                 return MultimodalSequence("\n\n".join(evidence_blocks), *all_media), resp

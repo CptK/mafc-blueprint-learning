@@ -43,6 +43,6 @@ def build_media_json_instruction(
         parts.append(f"{n_videos} video(s)")
     return (
         f"\n{context} also contains {' and '.join(parts)} (shown below).\n"
-        "Include a \"media\" key in the JSON: a list of objects with \"index\" (1-based) "
-        "and \"relevant\" (true/false) for each media item.\n"
+        'Include a "media" key in the JSON: a list of objects with "index" (1-based) '
+        'and "relevant" (true/false) for each media item.\n'
     )
