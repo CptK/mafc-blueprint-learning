@@ -103,8 +103,16 @@ export function buildViewModel(trace) {
   let pendingReturnEdges = [];
   for (const iteration of trace.iterations || []) {
     const iterationId = `iteration-${iteration.iteration}`;
+    const routing = iteration.routing || {};
     const subtitle = [
-      iteration.decision && iteration.decision.decision_type ? `decision: ${iteration.decision.decision_type}` : null,
+      iteration.execution_type || null,
+      routing.type === "auto"
+        ? `auto → ${routing.target_node_id}`
+        : routing.type === "llm"
+        ? `routed → ${routing.target_node_id}`
+        : iteration.decision && iteration.decision.decision_type
+        ? `decision: ${iteration.decision.decision_type}`
+        : null,
       `node: ${iteration.node_before} -> ${iteration.node_after}`,
       `evidence: ${iteration.evidence_count_before} -> ${iteration.evidence_count_after}`,
     ]

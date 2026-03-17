@@ -11,20 +11,21 @@ def build_planner_system_instructions() -> str:
         "You are a fact-checking orchestration agent.\n"
         "Use the selected blueprint as strategic guidance, not as a rigid program.\n"
         "Avoid redundant work. Track which required checks are satisfied, refuted, or still unclear.\n"
-        "Only finalize when the evidence is sufficient or the budget is exhausted.\n"
         "You are an internal controller, not a user-facing assistant.\n\n"
-        "Delegation rules:\n"
+        "Each iteration has two separate phases:\n"
+        "1. Execution phase: you decide what work to do at the current node (delegate tasks or finalize).\n"
+        "2. Routing phase: after execution, a separate call decides where to go next. "
+        "You do not need to pick the next node during execution — routing is handled automatically "
+        "if only one path is available, or asked of you separately when a choice must be made.\n\n"
+        "Delegation rules (execution phase):\n"
         "- Use decision_type 'delegate' to dispatch one or more tasks to worker agents.\n"
-        "- All tasks in a single 'delegate' response run in parallel. Use this to investigate independent angles simultaneously.\n"
+        "- All tasks in a single response run in parallel. Use this to investigate independent angles simultaneously.\n"
         "- Each task needs a unique task_id (e.g. 'search_origin', 'geolocate_image').\n"
-        "- Set follow_up_to to a prior task_id to continue that agent's session: the worker will receive the prior session's full evidence and context, making it efficient for follow-up questions that build on earlier findings.\n"
+        "- Set follow_up_to to a prior task_id to continue that agent's session: the worker receives "
+        "the prior session's full evidence and context, making it efficient for follow-up questions "
+        "that build on earlier findings.\n"
         "- Leave follow_up_to null to start a fresh session with no prior context.\n"
-        "- Use follow_up_to when refining or extending a prior investigation (e.g. 'you found the image on site X, now check its publication date'). Use a fresh session for independent new angles.\n\n"
-        "Return strict JSON only with schema:\n"
-        '{"decision_type":"delegate|synthesize|finalize|advance_node","rationale":"string",'
-        '"tasks":[{"task_id":"string","agent_type":"string","instruction":"string","follow_up_to":"string|null","rationale":"string|null"}],'
-        '"instruction":"string|null","target_node_id":"string|null",'
-        '"final_answer":"string|null","check_updates":[{"id":"string","status":"unchecked|supported|refuted|unclear","reason":"string"}]}'
+        "- Use follow_up_to when refining or extending a prior investigation. Use a fresh session for independent new angles."
     )
 
 
@@ -67,67 +68,86 @@ def build_system_prompt(state: FactCheckSessionState, available_sub_agents: str)
     )
 
 
-def build_iteration_prompt(
+def build_action_node_prompt(
     session: AgentSession,
     state: FactCheckSessionState,
 ) -> str:
-    """Build the working prompt for one orchestration iteration."""
+    """Build the execution-phase prompt for an action node.
+
+    The planner decides which tasks to delegate (or finalizes). It does not
+    pick the next node — routing is handled separately after this call.
+    """
     blueprint = state.selected_blueprint
     current_node = next(
         node for node in blueprint.verification_graph.nodes if node.id == state.current_node_id
     )
-    progression = _progression_summary(state)
     check_status_lines = [
         f"- {check_id}: {status.value}"
         + (f" — {state.required_check_reasons[check_id]}" if check_id in state.required_check_reasons else "")
         for check_id, status in state.required_check_status.items()
     ]
-    current_node_lines = [
-        f"- id: {current_node.id}",
-        f"- type: {current_node.type}",
-    ]
-    if hasattr(current_node, "actions"):
-        current_node_lines.append(
-            "- actions: "
-            + (
-                ", ".join(action.action for action in current_node.actions)
-                if current_node.actions
-                else "None"
-            )
-        )
-    if hasattr(current_node, "transition"):
-        current_node_lines.append(
-            "- transitions: "
-            + (
-                " | ".join(f"{transition.if_} -> {transition.to}" for transition in current_node.transition)
-                if current_node.transition
-                else "None"
-            )
-        )
+    action_lines = []
+    if hasattr(current_node, "actions") and current_node.actions:
+        for action in current_node.actions:
+            line = f"  - {action.action}"
+            if action.intent:
+                line += f"\n    intent: {action.intent}"
+            if action.query_guidance:
+                line += f"\n    query_guidance: {action.query_guidance}"
+            action_lines.append(line)
 
     claim_has_image = bool(session.claim.images) if session.claim is not None else bool(session.goal.images)
     claim_has_video = bool(session.claim.videos) if session.claim is not None else bool(session.goal.videos)
     return (
         f"Claim:\n{session.claim.describe() if session.claim is not None else str(session.goal).strip()}\n\n"
-        f"Iteration: {state.iteration}\n"
+        f"Iteration: {state.iteration} / remaining budget: {max(blueprint.policy_constraints.max_iterations - state.iteration, 0)}\n"
         f"Claim modalities:\n"
         f"- has_image: {claim_has_image}\n"
         f"- has_video: {claim_has_video}\n"
         f"- media_delegation_allowed: {claim_has_image or claim_has_video}\n\n"
-        f"Current node details:\n{chr(10).join(current_node_lines)}\n\n"
-        f"Progression constraints:\n"
-        f"- current_layer: {progression['current_layer']}\n"
-        f"- max_layer: {progression['max_layer']}\n"
-        f"- remaining_layers: {progression['remaining_layers']}\n"
-        f"- remaining_budget: {progression['remaining_budget']}\n"
-        f"- stay_allowed: {progression['stay_allowed']}\n"
-        f"- allowed_next_nodes: {_render_allowed_transitions(state, progression['allowed_next_nodes'])}\n\n"
+        f"Current node: {current_node.id}\n"
+        f"Suggested actions:\n{chr(10).join(action_lines) if action_lines else '  None'}\n\n"
         f"Accepted evidence summaries:\n{_render_planner_evidence_summaries(state)}\n\n"
         f"Action history:\n"
         f"{chr(10).join(f'- {item}' for item in state.action_history) if state.action_history else 'None'}\n\n"
         f"Delegated task history:\n{_render_delegated_tasks_block(state)}\n\n"
         f"Required check status:\n{chr(10).join(check_status_lines) if check_status_lines else 'None'}\n\n"
-        "Decide the best next step."
+        "Decide which tasks to delegate, or finalize if the evidence is already sufficient.\n\n"
+        "Return strict JSON only:\n"
+        '{"decision_type":"delegate|finalize","rationale":"string",'
+        '"tasks":[{"task_id":"string","agent_type":"string","instruction":"string","follow_up_to":"string|null","rationale":"string|null"}],'
+        '"final_answer":"string|null"}'
+    )
+
+
+def build_routing_prompt(
+    session: AgentSession,
+    state: FactCheckSessionState,
+    routing_options: list,
+) -> str:
+    """Build the routing-phase prompt: decide which node to go to next.
+
+    routing_options is a list of BlueprintTransition-like objects with .if_ and .to fields.
+    The special target 'finalize' signals that the loop should end.
+    """
+    check_status_lines = [
+        f"- {check_id}: {status.value}"
+        + (f" — {state.required_check_reasons[check_id]}" if check_id in state.required_check_reasons else "")
+        for check_id, status in state.required_check_status.items()
+    ]
+    options_lines = [f"- if {opt.if_} → {opt.to}" for opt in routing_options]
+    synthesis_section = f"Synthesis output:\n{state.last_synthesis}\n\n" if state.last_synthesis else ""
+    return (
+        f"Routing decision for node: {state.current_node_id}\n\n"
+        f"{synthesis_section}"
+        f"Accepted evidence summaries:\n{_render_planner_evidence_summaries(state)}\n\n"
+        f"Required check status:\n{chr(10).join(check_status_lines) if check_status_lines else 'None'}\n\n"
+        f"Available routing options:\n{chr(10).join(options_lines)}\n\n"
+        "Choose next_node_id from the options above. "
+        "Use 'finalize' to end the loop and provide a final answer.\n\n"
+        "Return strict JSON only:\n"
+        '{"next_node_id":"string","rationale":"string",'
+        '"final_answer":"string|null","check_updates":[{"id":"string","status":"supported|refuted|unclear","reason":"string"}]}'
     )
 
 

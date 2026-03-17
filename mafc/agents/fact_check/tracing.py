@@ -7,7 +7,7 @@ from typing import Any
 
 from mafc.agents.agent import AgentResult
 from mafc.agents.common import AgentSession
-from mafc.agents.fact_check.models import FactCheckSessionState, PlannerDecision
+from mafc.agents.fact_check.models import FactCheckSessionState, PlannerDecision, RoutingDecision
 from mafc.agents.tracing import (
     BaseTraceRecorder,
     sanitize_filename,
@@ -157,11 +157,13 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
             "ended_at": None,
             "node_before": node_before,
             "node_after": node_before,
-            "planner_messages": [],
+            "execution_type": None,  # "action_node" | "synthesis_node" | "gate_node"
+            "planner_messages": [],  # action node execution call
             "planner_response": None,
             "decision": None,
             "check_updates": [],
             "delegated_tasks": [],
+            "routing": None,  # {type, target_node_id, messages?, response?, decision?}
             "new_errors": [],
             "evidence_count_before": evidence_count,
             "evidence_count_after": evidence_count,
@@ -203,8 +205,51 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
         record = self._current_iteration()
         serialized = _serialize_dataclass(decision)
         record["decision"] = serialized
-        record["check_updates"] = serialized.get("check_updates", [])
         self.record_event("planner_decision", serialized, iteration=iteration)
+
+    def record_execution_type(self, execution_type: str, iteration: int) -> None:
+        """Record which node type was executed in this iteration."""
+        self._current_iteration()["execution_type"] = execution_type
+        self.record_event("execution_type", {"execution_type": execution_type}, iteration=iteration)
+
+    def record_auto_routing(self, target_node_id: str, iteration: int) -> None:
+        """Record a single-transition auto-advance (no LLM call needed)."""
+        self._current_iteration()["routing"] = {
+            "type": "auto",
+            "target_node_id": target_node_id,
+        }
+        self.record_event(
+            "routing_auto",
+            {"target_node_id": target_node_id},
+            iteration=iteration,
+        )
+
+    def record_routing_call(
+        self,
+        *,
+        messages: list[Message],
+        response_text: str,
+        routing: RoutingDecision,
+        iteration: int,
+    ) -> None:
+        """Record an LLM routing call and its decision."""
+        serialized_routing = _serialize_dataclass(routing)
+        self._current_iteration()["routing"] = {
+            "type": "llm",
+            "target_node_id": routing.next_node_id,
+            "messages": [serialize_message(m) for m in messages],
+            "response": response_text,
+            "decision": serialized_routing,
+        }
+        self.record_event(
+            "routing_llm",
+            {
+                "messages": [serialize_message(m) for m in messages],
+                "response": response_text,
+                "decision": serialized_routing,
+            },
+            iteration=iteration,
+        )
 
     def record_node_transition(
         self,

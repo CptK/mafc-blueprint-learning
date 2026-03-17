@@ -145,12 +145,19 @@ export function renderDetail(node) {
     const errors = payload.new_errors || [];
     const decision = payload.decision || {};
     const checkUpdates = payload.check_updates || [];
+    const routing = payload.routing || null;
+    const routingDecision = (routing && routing.decision) || {};
+    const allCheckUpdates = [
+      ...checkUpdates,
+      ...((routingDecision.check_updates) || []),
+    ];
 
     return `
       <h3>Iteration ${escapeHtml(String(payload.iteration ?? "?"))}</h3>
 
       <p>
         ${duration ? `<strong>Duration:</strong> ${escapeHtml(duration)} &nbsp;|&nbsp; ` : ""}
+        ${payload.execution_type ? `<strong>Type:</strong> ${escapeHtml(payload.execution_type)} &nbsp;|&nbsp; ` : ""}
         <strong>Node:</strong> ${escapeHtml(payload.node_before || "?")} → ${escapeHtml(payload.node_after || "?")}
         &nbsp;|&nbsp; <strong>Evidence:</strong> ${payload.evidence_count_before} → ${payload.evidence_count_after} (+${evidenceDelta})
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
@@ -158,18 +165,24 @@ export function renderDetail(node) {
 
       ${decision.decision_type ? `
         <div class="detail-section">
-          <strong>Decision:</strong> ${escapeHtml(decision.decision_type)}
-          ${decision.target_node_id ? ` → ${escapeHtml(decision.target_node_id)}` : ""}
+          <strong>Execution decision:</strong> ${escapeHtml(decision.decision_type)}
           ${decision.rationale ? `<p>${escapeHtml(decision.rationale)}</p>` : ""}
         </div>` : ""}
 
-      ${checkUpdates.length ? `
+      ${routing ? `
+        <div class="detail-section">
+          <strong>Routing:</strong> ${escapeHtml(routing.type || "unknown")} → ${escapeHtml(routing.target_node_id || "?")}
+          ${routingDecision.rationale ? `<p>${escapeHtml(routingDecision.rationale)}</p>` : ""}
+        </div>` : ""}
+
+      ${allCheckUpdates.length ? `
         <div class="detail-section">
           <strong>Check updates</strong>
-          <ul>${checkUpdates.map((u) => `<li><strong>${escapeHtml(u.id || "")}</strong>: ${escapeHtml(u.status || "")} — ${escapeHtml(u.reason || "")}</li>`).join("")}</ul>
+          <ul>${allCheckUpdates.map((u) => `<li><strong>${escapeHtml(u.id || "")}</strong>: ${escapeHtml(u.status || "")} — ${escapeHtml(u.reason || "")}</li>`).join("")}</ul>
         </div>` : ""}
 
       ${decision.final_answer ? renderCollapsibleText("Final Answer", decision.final_answer) : ""}
+      ${routingDecision.final_answer ? renderCollapsibleText("Final Answer (routing)", routingDecision.final_answer) : ""}
 
       ${errors.length ? `
         <div class="detail-section">
@@ -179,12 +192,22 @@ export function renderDetail(node) {
 
       ${(payload.planner_messages || []).map((msg, i) =>
         renderCollapsibleMultimodalPrompt(
-          `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
+          `Execution prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
           msg.content
         )
       ).join("")}
 
-      ${renderCollapsibleText("Planner Response", payload.planner_response)}
+      ${renderCollapsibleText("Execution response", payload.planner_response)}
+
+      ${routing && routing.type === "llm" ? `
+        ${((routing.messages) || []).map((msg, i) =>
+          renderCollapsibleMultimodalPrompt(
+            `Routing prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
+            msg.content
+          )
+        ).join("")}
+        ${renderCollapsibleText("Routing response", routing.response)}
+      ` : ""}
     `;
   }
 

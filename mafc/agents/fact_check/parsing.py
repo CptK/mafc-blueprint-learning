@@ -10,6 +10,7 @@ from mafc.agents.fact_check.models import (
     PlannerCheckUpdate,
     PlannerDecision,
     PlannerDecisionType,
+    RoutingDecision,
 )
 from mafc.utils.parsing import extract_json_object
 
@@ -37,27 +38,37 @@ class DelegationTaskPayload(BaseModel):
 
 
 class PlannerDecisionPayload(BaseModel):
-    """Validated JSON payload for one planner step decision."""
+    """Validated JSON payload for the execution phase of an action node."""
 
     model_config = ConfigDict(extra="forbid")
 
     decision_type: PlannerDecisionType
     rationale: str
     tasks: list[DelegationTaskPayload] = []
-    instruction: str | None = None
-    target_node_id: str | None = None
     final_answer: str | None = None
+
+
+class RoutingDecisionPayload(BaseModel):
+    """Validated JSON payload for the routing phase."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    next_node_id: str
+    rationale: str
     check_updates: list[PlannerCheckUpdatePayload] = []
+    final_answer: str | None = None
+
+
+def _strip_fences(text: str) -> str:
+    if text.startswith("```"):
+        lines = [line for line in text.splitlines() if not line.startswith("```")]
+        return "\n".join(lines).strip()
+    return text
 
 
 def parse_planner_decision(response_text: str) -> PlannerDecision:
-    """Parse planner output into a strongly typed orchestration decision."""
-    text = response_text.strip()
-    if text.startswith("```"):
-        lines = [line for line in text.splitlines() if not line.startswith("```")]
-        text = "\n".join(lines).strip()
-
-    payload = json.loads(extract_json_object(text))
+    """Parse action-node planner output into a strongly typed decision."""
+    payload = json.loads(extract_json_object(_strip_fences(response_text.strip())))
     parsed = PlannerDecisionPayload.model_validate(payload)
     return PlannerDecision(
         decision_type=parsed.decision_type,
@@ -72,13 +83,7 @@ def parse_planner_decision(response_text: str) -> PlannerDecision:
             )
             for item in parsed.tasks
         ],
-        instruction=parsed.instruction,
-        target_node_id=parsed.target_node_id,
         final_answer=parsed.final_answer,
-        check_updates=[
-            PlannerCheckUpdate(id=item.id, status=item.status, reason=item.reason)
-            for item in parsed.check_updates
-        ],
     )
 
 
@@ -86,5 +91,28 @@ def try_parse_planner_decision(response_text: str) -> PlannerDecision | None:
     """Return a parsed planner decision or None when the response is invalid."""
     try:
         return parse_planner_decision(response_text)
+    except (json.JSONDecodeError, ValidationError, ValueError):
+        return None
+
+
+def parse_routing_decision(response_text: str) -> RoutingDecision:
+    """Parse routing-phase output into a strongly typed routing decision."""
+    payload = json.loads(extract_json_object(_strip_fences(response_text.strip())))
+    parsed = RoutingDecisionPayload.model_validate(payload)
+    return RoutingDecision(
+        next_node_id=parsed.next_node_id,
+        rationale=parsed.rationale,
+        check_updates=[
+            PlannerCheckUpdate(id=item.id, status=item.status, reason=item.reason)
+            for item in parsed.check_updates
+        ],
+        final_answer=parsed.final_answer,
+    )
+
+
+def try_parse_routing_decision(response_text: str) -> RoutingDecision | None:
+    """Return a parsed routing decision or None when the response is invalid."""
+    try:
+        return parse_routing_decision(response_text)
     except (json.JSONDecodeError, ValidationError, ValueError):
         return None

@@ -17,12 +17,10 @@ class CheckStatus(str, Enum):
 
 
 class PlannerDecisionType(str, Enum):
-    """Actions the blueprint-guided planner may request next."""
+    """Actions the blueprint-guided planner may request at an action node."""
 
     DELEGATE = "delegate"
-    SYNTHESIZE = "synthesize"
     FINALIZE = "finalize"
-    ADVANCE_NODE = "advance_node"
 
 
 @dataclass
@@ -47,15 +45,22 @@ class PlannerCheckUpdate:
 
 @dataclass
 class PlannerDecision:
-    """Structured planner output for one orchestration iteration."""
+    """Structured planner output for the execution phase of an action node."""
 
     decision_type: PlannerDecisionType
     rationale: str
     tasks: list[DelegationTask] = field(default_factory=list)
-    instruction: str | None = None
-    target_node_id: str | None = None
     final_answer: str | None = None
+
+
+@dataclass
+class RoutingDecision:
+    """Structured output for the routing phase: where to go after node execution."""
+
+    next_node_id: str  # a valid node ID in the blueprint graph, or "finalize"
+    rationale: str
     check_updates: list[PlannerCheckUpdate] = field(default_factory=list)
+    final_answer: str | None = None
 
 
 @dataclass
@@ -87,3 +92,4 @@ class FactCheckSessionState:
     delegated_tasks: dict[str, DelegatedTaskRecord] = field(default_factory=dict)
     evidences: list[Evidence] = field(default_factory=list)
     final_answer: str | None = None
+    last_synthesis: str | None = None

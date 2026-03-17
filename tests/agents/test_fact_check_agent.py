@@ -111,10 +111,17 @@ def _make_registry(tmp_path, include_media: bool = True) -> BlueprintRegistry:
 name: default
 description: Catch-all fallback blueprint.
 policy_constraints:
-  max_iterations: 2
+  max_iterations: 4
 verification_graph:
-  start_node: synth
+  start_node: initial_search
   nodes:
+    - id: initial_search
+      type: actions
+      actions:
+        - action: web_search_agent
+      transition:
+        - if: done
+          to: synth
     - id: synth
       type: synthesis
       transition: []
@@ -170,6 +177,7 @@ def test_fact_check_agent_bootstraps_with_full_blueprint_and_later_reminder(tmp_
     )
     planner = SequencedModel(
         outputs=[
+            # Iteration 1: action node execution for iter1_search — delegate
             """
 {
   "decision_type": "delegate",
@@ -180,17 +188,16 @@ def test_fact_check_agent_bootstraps_with_full_blueprint_and_later_reminder(tmp_
       "agent_type": "media",
       "instruction": "Check where this image was taken."
     }
-  ],
-  "target_node_id": "verdict_gate",
-  "check_updates": []
+  ]
 }
 """.strip(),
+            # Iteration 2: LLM routing for verdict_gate — finalize
             """
 {
-  "decision_type": "finalize",
-  "rationale": "Enough evidence was collected.",
+  "next_node_id": "finalize",
+  "rationale": "Media evidence supports the Athens location.",
   "final_answer": "The image is consistent with Athens.",
-  "check_updates": [{"id":"location_checked","status":"supported","reason":"Media evidence supports the location."}]
+  "check_updates": [{"id": "location_checked", "status": "supported", "reason": "Media evidence supports the location."}]
 }
 """.strip(),
         ]
@@ -217,7 +224,7 @@ def test_fact_check_agent_bootstraps_with_full_blueprint_and_later_reminder(tmp_
     assert "Blueprint graph:" in planner.calls[0]
     assert "Available sub-agents:" in planner.calls[0]
     assert "media: Fake worker for image://athens" in planner.calls[0]
-    assert "Blueprint reminder:" in planner.calls[1]
+    assert "Routing decision for node:" in planner.calls[1]
     assert "media_location" in planner.calls[1]
     assert "media_delegation_allowed: True" in planner.calls[0]
     assert "Accepted evidence summaries:" in planner.calls[1]
@@ -234,6 +241,7 @@ def test_fact_check_agent_can_delegate_web_search_and_finalize_with_synthesis(tm
     )
     planner = SequencedModel(
         outputs=[
+            # Iteration 1: action node execution for initial_search — delegate
             """
 {
   "decision_type": "delegate",
@@ -244,19 +252,12 @@ def test_fact_check_agent_can_delegate_web_search_and_finalize_with_synthesis(tm
       "agent_type": "web_search",
       "instruction": "Search for corroborating sources about the claim."
     }
-  ],
-  "target_node_id": "synth",
-  "check_updates": []
+  ]
 }
 """.strip(),
-            """
-{
-  "decision_type": "finalize",
-  "rationale": "Sufficient evidence gathered.",
-  "instruction": "Summarize the retrieved sources.",
-  "check_updates": []
-}
-""".strip(),
+            # Iteration 2: synthesis node auto-synthesis
+            "Claim is disputed based on web sources.",
+            # _finalize_run: final synthesis
             "Web evidence suggests the claim is unverified.",
         ]
     )
@@ -294,6 +295,7 @@ def test_fact_check_agent_writes_structured_execution_trace(tmp_path) -> None:
     )
     planner = SequencedModel(
         outputs=[
+            # Iteration 1: action node execution for iter1_search — delegate
             """
 {
   "decision_type": "delegate",
@@ -304,17 +306,16 @@ def test_fact_check_agent_writes_structured_execution_trace(tmp_path) -> None:
       "agent_type": "media",
       "instruction": "Check where this image was taken."
     }
-  ],
-  "target_node_id": "verdict_gate",
-  "check_updates": []
+  ]
 }
 """.strip(),
+            # Iteration 2: LLM routing for verdict_gate — finalize
             """
 {
-  "decision_type": "finalize",
-  "rationale": "Enough evidence was collected.",
+  "next_node_id": "finalize",
+  "rationale": "Evidence is sufficient.",
   "final_answer": "The image is consistent with Athens.",
-  "check_updates": [{"id":"location_checked","status":"supported","reason":"Media evidence supports the location."}]
+  "check_updates": []
 }
 """.strip(),
         ]
@@ -354,7 +355,7 @@ def test_fact_check_agent_writes_structured_execution_trace(tmp_path) -> None:
     assert (
         payload["iterations"][0]["delegated_tasks"][0]["result"]["evidences"][0]["source"] == "image://athens"
     )
-    assert payload["iterations"][1]["decision"]["decision_type"] == "finalize"
+    assert payload["iterations"][1]["routing"]["target_node_id"] == "finalize"
     assert payload["summary"]["result"]["text"] == "The image is consistent with Athens."
     assert any(event["event_type"] == "planner_prompt" for event in payload["events"])
     assert {"source": "run", "target": "iteration:1", "type": "next"} in payload["flow"]["edges"]
@@ -376,6 +377,7 @@ def test_fact_check_agent_embeds_web_search_child_trace(tmp_path) -> None:
     )
     planner = SequencedModel(
         outputs=[
+            # Iteration 1: action node execution for initial_search — delegate
             """
 {
   "decision_type": "delegate",
@@ -386,19 +388,13 @@ def test_fact_check_agent_embeds_web_search_child_trace(tmp_path) -> None:
       "agent_type": "web_search",
       "instruction": "Search for corroborating sources about the claim."
     }
-  ],
-  "target_node_id": "synth",
-  "check_updates": []
+  ]
 }
 """.strip(),
-            """
-{
-  "decision_type": "finalize",
-  "rationale": "Sufficient evidence gathered.",
-  "final_answer": "Multiple sources were consulted.",
-  "check_updates": []
-}
-""".strip(),
+            # Iteration 2: synthesis node auto-synthesis
+            "Evidence collected.",
+            # _finalize_run: final synthesis
+            "Multiple sources were consulted.",
         ]
     )
     child_planner = SequencedModel(outputs=['{"queries":["q1"],"done":true}'])
@@ -448,6 +444,7 @@ def test_fact_check_agent_can_dispatch_to_multiple_workers_for_one_decision(tmp_
     )
     planner = SequencedModel(
         outputs=[
+            # Iteration 1: action node execution for initial_search — delegate 2 tasks
             """
 {
   "decision_type": "delegate",
@@ -463,19 +460,13 @@ def test_fact_check_agent_can_dispatch_to_multiple_workers_for_one_decision(tmp_
       "agent_type": "web_search",
       "instruction": "Search for counterevidence about the claim."
     }
-  ],
-  "target_node_id": "synth",
-  "check_updates": []
+  ]
 }
 """.strip(),
-            """
-{
-  "decision_type": "finalize",
-  "rationale": "Enough evidence gathered.",
-  "final_answer": "Multiple sources were consulted.",
-  "check_updates": []
-}
-""".strip(),
+            # Iteration 2: synthesis node auto-synthesis
+            "Multiple sources checked.",
+            # _finalize_run: final synthesis
+            "Multiple sources were consulted.",
         ]
     )
     web_search_agent_a = FakeWorkerAgent("First source.", "https://example.com/a")
@@ -512,41 +503,31 @@ def test_fact_check_agent_reuses_child_session_for_follow_up_task(tmp_path) -> N
     )
     planner = SequencedModel(
         outputs=[
+            # Iteration 1: action node — dispatch both tasks in one delegation
             """
 {
   "decision_type": "delegate",
-  "rationale": "Start with media analysis.",
+  "rationale": "Start with media analysis and immediately follow up.",
   "tasks": [
     {
       "task_id": "media_origin",
       "agent_type": "media",
       "instruction": "Investigate the image origin."
-    }
-  ],
-  "target_node_id": "verdict_gate",
-  "check_updates": []
-}
-""".strip(),
-            """
-{
-  "decision_type": "delegate",
-  "rationale": "Ask a follow-up on the same task line.",
-  "tasks": [
+    },
     {
       "task_id": "media_origin_follow_up",
       "agent_type": "media",
       "instruction": "Follow up on the earliest publication date.",
       "follow_up_to": "media_origin"
     }
-  ],
-  "target_node_id": "verdict_gate",
-  "check_updates": []
+  ]
 }
 """.strip(),
+            # Iteration 2: LLM routing for verdict_gate — finalize
             """
 {
-  "decision_type": "finalize",
-  "rationale": "Enough evidence was collected.",
+  "next_node_id": "finalize",
+  "rationale": "Evidence is sufficient.",
   "final_answer": "The image appears to predate the claimed event.",
   "check_updates": []
 }
@@ -582,6 +563,7 @@ def test_fact_check_agent_allows_staying_when_budget_has_layer_slack(tmp_path) -
     )
     planner = SequencedModel(
         outputs=[
+            # Iteration 1: action node — delegate
             """
 {
   "decision_type": "delegate",
@@ -592,14 +574,14 @@ def test_fact_check_agent_allows_staying_when_budget_has_layer_slack(tmp_path) -
       "agent_type": "media",
       "instruction": "Investigate the image."
     }
-  ],
-  "check_updates": []
+  ]
 }
 """.strip(),
+            # Iteration 2: LLM routing for verdict_gate — finalize
             """
 {
-  "decision_type": "finalize",
-  "rationale": "Enough evidence was collected.",
+  "next_node_id": "finalize",
+  "rationale": "Evidence collected.",
   "final_answer": "Stayed once, then finalized.",
   "check_updates": []
 }
@@ -622,7 +604,7 @@ def test_fact_check_agent_allows_staying_when_budget_has_layer_slack(tmp_path) -
 
     assert result.result is not None
     assert "stay_allowed: True" in planner.calls[0]
-    assert "current node: iter1_search" in planner.calls[1]
+    assert "Routing decision for node:" in planner.calls[1]
 
 
 def test_fact_check_agent_forces_next_layer_when_budget_has_no_slack(tmp_path) -> None:
@@ -681,6 +663,7 @@ verification_graph:
     )
     planner = SequencedModel(
         outputs=[
+            # Iteration 1: layer0 action node — delegate
             """
 {
   "decision_type": "delegate",
@@ -691,18 +674,13 @@ verification_graph:
       "agent_type": "web_search",
       "instruction": "Find evidence."
     }
-  ],
-  "check_updates": []
+  ]
 }
 """.strip(),
-            """
-{
-  "decision_type": "finalize",
-  "rationale": "Finalize after forced advancement.",
-  "final_answer": "Forced advancement worked.",
-  "check_updates": []
-}
-""".strip(),
+            # Iteration 2: layer1 synthesis node — auto-synthesis
+            "Evidence gathered from web.",
+            # _finalize_run: final synthesis
+            "Forced advancement worked.",
         ]
     )
     agent = FactCheckAgent(
@@ -719,6 +697,5 @@ verification_graph:
     result = agent.run(session)
 
     assert result.result is not None
-    assert any("auto-advancing to 'layer1'" in error for error in result.errors)
     assert "stay_allowed: False" in planner.calls[0]
-    assert "current node: layer1" in planner.calls[1]
+    assert "concise fact-check synthesis" in planner.calls[1]

@@ -14,16 +14,24 @@ from mafc.agents.fact_check.models import (
     FactCheckSessionState,
     PlannerDecisionType,
 )
-from mafc.agents.fact_check.parsing import try_parse_planner_decision
+from mafc.agents.fact_check.parsing import try_parse_planner_decision, try_parse_routing_decision
 from mafc.agents.fact_check.prompts import (
+    build_action_node_prompt,
     build_final_synthesis_prompt,
-    build_iteration_prompt,
+    build_routing_prompt,
     build_system_prompt,
     render_available_sub_agents,
 )
+from mafc.blueprints.models import (
+    Blueprint,
+    BlueprintActionNode,
+    BlueprintGateNode,
+    BlueprintNode,
+    BlueprintSynthesisNode,
+    BlueprintTransition,
+)
 from mafc.agents.fact_check.tracing import FactCheckTraceRecorder
 from mafc.common.trace import TraceScope
-from mafc.blueprints.models import Blueprint
 from mafc.blueprints.topology import analyze_blueprint_topology
 from mafc.blueprints.selector import BlueprintSelector
 from mafc.common.claim import Claim
@@ -177,19 +185,13 @@ class FactCheckAgent(Agent):
             evidences=list(evidences),
         )
 
-    def _build_planner_messages(self, session: AgentSession, state: FactCheckSessionState) -> list[Message]:
-        """Build planner messages with a strategy system message and a user-state message."""
+    def _system_message(self, state: FactCheckSessionState) -> Message:
+        """Build the system message containing the full blueprint and current position."""
         available_sub_agents = render_available_sub_agents(self._available_sub_agent_descriptions())
-        return [
-            Message(
-                role=MessageRole.SYSTEM,
-                content=Prompt(text=build_system_prompt(state, available_sub_agents)),
-            ),
-            Message(
-                role=MessageRole.USER,
-                content=Prompt(text=build_iteration_prompt(session, state)),
-            ),
-        ]
+        return Message(
+            role=MessageRole.SYSTEM,
+            content=Prompt(text=build_system_prompt(state, available_sub_agents)),
+        )
 
     def _available_sub_agent_descriptions(self) -> dict[str, str]:
         """Return one planner-facing capability description per configured agent type."""
@@ -209,7 +211,7 @@ class FactCheckAgent(Agent):
         errors: list[str],
         trace: FactCheckTraceRecorder,
     ) -> bool:
-        """Execute one planner/delegation iteration and return whether the loop should stop."""
+        """Execute one iteration: node execution phase followed by routing phase."""
         if self._should_stop:
             message = "Agent execution stopped early by stop signal."
             errors.append(message)
@@ -220,98 +222,229 @@ class FactCheckAgent(Agent):
         errors_before = len(errors)
         node_before = state.current_node_id
         trace.start_iteration(iteration, node_before, len(state.evidences))
-        planner_messages = self._build_planner_messages(session, state)
-        trace.record_planner_messages(planner_messages, iteration)
-        logger.info(f"[FactCheckAgent] Iteration {iteration} planner messages:")
-        for msg in planner_messages:
-            logger.info(f"- {msg.role.value} message:\n{msg.content}\n")
-        _planner_resp = self.model.generate(planner_messages)
-        planner_response = _planner_resp.text.strip()
-        trace.add_usage(_planner_resp, self.model.name)
-        trace.record_planner_response(planner_response, iteration)
-        logger.info(f"[FactCheckAgent] Iteration {iteration} planner response:\n{planner_response}")
-        decision = try_parse_planner_decision(planner_response)
-        if decision is None:
-            message = f"Planner returned invalid output in iteration {iteration}."
-            errors.append(message)
-            trace.record_error(phase="planner_parse", message=message, iteration=iteration)
-            trace.finish_iteration(
-                iteration=iteration,
-                evidence_count_after=len(state.evidences),
-                new_errors=errors[errors_before:],
-            )
-            return True
 
-        trace.record_decision(decision, iteration)
-        self._apply_check_updates(state, decision.check_updates)
-        self._apply_node_progression(state, decision, errors)
+        current_node = self._get_current_node(state)
+
+        # Phase 1: execute the current node
+        should_stop = self._execute_node(session, claim, state, current_node, errors, trace)
+
+        # Phase 2: resolve the next node (skipped if execution already finalized)
+        if not should_stop:
+            should_stop = self._resolve_next_node(session, state, current_node, errors, trace)
+
         trace.record_node_transition(
             iteration=iteration,
             from_node=node_before,
             to_node=state.current_node_id,
-            requested_target=decision.target_node_id,
+            requested_target=None,
         )
-        state.action_history.append(f"{decision.decision_type.value}: {decision.rationale}")
-
-        if decision.decision_type == PlannerDecisionType.DELEGATE:
-            self._delegate_tasks(
-                session=session,
-                claim=claim,
-                state=state,
-                tasks=decision.tasks,
-                errors=errors,
-                trace=trace,
-            )
-            trace.finish_iteration(
-                iteration=iteration,
-                evidence_count_after=len(state.evidences),
-                new_errors=errors[errors_before:],
-            )
-            return False
-
-        if decision.decision_type == PlannerDecisionType.SYNTHESIZE:
-            state.final_answer = self._synthesize_findings(
-                session,
-                state,
-                decision.instruction,
-                trace=trace,
-                stage="iteration_synthesize",
-            )
-            trace.finish_iteration(
-                iteration=iteration,
-                evidence_count_after=len(state.evidences),
-                new_errors=errors[errors_before:],
-            )
-            return False
-
-        if decision.decision_type == PlannerDecisionType.FINALIZE:
-            state.final_answer = decision.final_answer or self._synthesize_findings(
-                session,
-                state,
-                decision.instruction,
-                trace=trace,
-                stage="iteration_finalize",
-            )
-            if decision.final_answer:
-                trace.record_synthesis(
-                    iteration=iteration,
-                    stage="planner_finalize",
-                    instruction=decision.instruction,
-                    answer=state.final_answer,
-                    evidence_count=len(state.evidences),
-                )
-            trace.finish_iteration(
-                iteration=iteration,
-                evidence_count_after=len(state.evidences),
-                new_errors=errors[errors_before:],
-            )
-            return True
-
         trace.finish_iteration(
             iteration=iteration,
             evidence_count_after=len(state.evidences),
             new_errors=errors[errors_before:],
         )
+        return should_stop
+
+    def _get_current_node(self, state: FactCheckSessionState) -> BlueprintNode:
+        """Return the blueprint node matching the current state position."""
+        return next(
+            node
+            for node in state.selected_blueprint.verification_graph.nodes
+            if node.id == state.current_node_id
+        )
+
+    def _execute_node(
+        self,
+        session: AgentSession,
+        claim: Claim,
+        state: FactCheckSessionState,
+        current_node: BlueprintNode,
+        errors: list[str],
+        trace: FactCheckTraceRecorder,
+    ) -> bool:
+        """Dispatch to the node-type-specific execution handler."""
+        if isinstance(current_node, BlueprintActionNode):
+            trace.record_execution_type("action_node", state.iteration)
+            return self._execute_action_node(session, claim, state, current_node, errors, trace)
+        if isinstance(current_node, BlueprintSynthesisNode):
+            trace.record_execution_type("synthesis_node", state.iteration)
+            self._execute_synthesis_node(session, state, trace)
+            return False
+        if isinstance(current_node, BlueprintGateNode):
+            trace.record_execution_type("gate_node", state.iteration)
+            return False  # gate nodes have no execution — routing handles everything
+        return False
+
+    def _execute_action_node(
+        self,
+        session: AgentSession,
+        claim: Claim,
+        state: FactCheckSessionState,
+        current_node: BlueprintActionNode,
+        errors: list[str],
+        trace: FactCheckTraceRecorder,
+    ) -> bool:
+        """Run the LLM execution call for an action node and dispatch delegated tasks."""
+        messages = [
+            self._system_message(state),
+            Message(role=MessageRole.USER, content=Prompt(text=build_action_node_prompt(session, state))),
+        ]
+        trace.record_planner_messages(messages, state.iteration)
+        logger.info(f"[FactCheckAgent] Iteration {state.iteration} action node messages:")
+        for msg in messages:
+            logger.info(f"- {msg.role.value} message:\n{msg.content}\n")
+
+        _resp = self.model.generate(messages)
+        response_text = _resp.text.strip()
+        trace.add_usage(_resp, self.model.name)
+        trace.record_planner_response(response_text, state.iteration)
+        logger.info(f"[FactCheckAgent] Iteration {state.iteration} action node response:\n{response_text}")
+
+        decision = try_parse_planner_decision(response_text)
+        if decision is None:
+            message = f"Action node planner returned invalid output in iteration {state.iteration}."
+            errors.append(message)
+            trace.record_error(phase="action_planner_parse", message=message, iteration=state.iteration)
+            return True
+
+        trace.record_decision(decision, state.iteration)
+        state.action_history.append(f"{decision.decision_type.value}: {decision.rationale}")
+
+        if decision.decision_type == PlannerDecisionType.FINALIZE:
+            state.final_answer = decision.final_answer or self._synthesize_findings(
+                session, state, None, trace=trace, stage="action_finalize"
+            )
+            return True
+
+        # DELEGATE
+        self._delegate_tasks(session, claim, state, decision.tasks, errors, trace)
+        return False
+
+    def _execute_synthesis_node(
+        self,
+        session: AgentSession,
+        state: FactCheckSessionState,
+        trace: FactCheckTraceRecorder,
+    ) -> None:
+        """Auto-execute synthesis and store the result for use in the routing phase."""
+        synthesis = self._synthesize_findings(session, state, None, trace=trace, stage="synthesis_node")
+        state.last_synthesis = synthesis
+
+    def _resolve_next_node(
+        self,
+        session: AgentSession,
+        state: FactCheckSessionState,
+        current_node: BlueprintNode,
+        errors: list[str],
+        trace: FactCheckTraceRecorder,
+    ) -> bool:
+        """Determine the next node: auto-advance if only one option, else ask the LLM."""
+        options = self._get_routing_options(current_node)
+
+        if not options:
+            # No outgoing transitions — end of graph
+            trace.record_auto_routing("finalize", state.iteration)
+            return True
+
+        if len(options) == 1:
+            # Single path — advance without an LLM call
+            target = options[0].to
+            trace.record_auto_routing(target, state.iteration)
+            if target == "finalize":
+                return True
+            state.current_node_id = target
+            state.node_history.append(target)
+            state.last_synthesis = None
+            return False
+
+        # Multiple paths — ask the LLM
+        return self._llm_routing_call(session, state, options, errors, trace)
+
+    def _get_routing_options(self, node: BlueprintNode) -> list[BlueprintTransition]:
+        """Return the routing options for any node type as a uniform list of transitions.
+
+        For gate nodes the support/refute/if_fail rules are converted into synthetic
+        transitions so the routing phase can treat all node types uniformly.
+        """
+        if isinstance(node, BlueprintGateNode):
+            options: list[BlueprintTransition] = []
+            if node.rules.support_conditions:
+                options.append(
+                    BlueprintTransition(
+                        if_="supported: " + "; ".join(node.rules.support_conditions),
+                        to="finalize",
+                    )
+                )
+            if node.rules.refute_conditions:
+                options.append(
+                    BlueprintTransition(
+                        if_="refuted: " + "; ".join(node.rules.refute_conditions),
+                        to="finalize",
+                    )
+                )
+            fail_target = "finalize" if node.rules.if_fail == "return unknown" else node.rules.if_fail
+            options.append(
+                BlueprintTransition(
+                    if_="inconclusive / conditions not met",
+                    to=fail_target,
+                )
+            )
+            return options
+        return list(getattr(node, "transition", []))
+
+    def _llm_routing_call(
+        self,
+        session: AgentSession,
+        state: FactCheckSessionState,
+        options: list[BlueprintTransition],
+        errors: list[str],
+        trace: FactCheckTraceRecorder,
+    ) -> bool:
+        """Ask the LLM to choose among multiple routing options and advance the node."""
+        messages = [
+            self._system_message(state),
+            Message(
+                role=MessageRole.USER, content=Prompt(text=build_routing_prompt(session, state, options))
+            ),
+        ]
+        _resp = self.model.generate(messages)
+        response_text = _resp.text.strip()
+        trace.add_usage(_resp, self.model.name)
+        logger.info(f"[FactCheckAgent] Iteration {state.iteration} routing response:\n{response_text}")
+
+        routing = try_parse_routing_decision(response_text)
+        if routing is None:
+            message = f"Routing decision could not be parsed in iteration {state.iteration}."
+            errors.append(message)
+            trace.record_error(phase="routing_parse", message=message, iteration=state.iteration)
+            return True
+
+        trace.record_routing_call(
+            messages=messages,
+            response_text=response_text,
+            routing=routing,
+            iteration=state.iteration,
+        )
+        self._apply_check_updates(state, routing.check_updates)
+
+        if routing.next_node_id == "finalize":
+            state.final_answer = routing.final_answer or self._synthesize_findings(
+                session, state, None, trace=trace, stage="routing_finalize"
+            )
+            return True
+
+        valid_targets = {opt.to for opt in options if opt.to != "finalize"}
+        if routing.next_node_id not in valid_targets:
+            message = (
+                f"Routing selected unknown node '{routing.next_node_id}' in iteration {state.iteration}."
+            )
+            errors.append(message)
+            trace.record_error(phase="routing_invalid_target", message=message, iteration=state.iteration)
+            return True
+
+        state.current_node_id = routing.next_node_id
+        state.node_history.append(routing.next_node_id)
+        state.last_synthesis = None
         return False
 
     def _apply_check_updates(self, state: FactCheckSessionState, check_updates) -> None:
@@ -321,62 +454,6 @@ class FactCheckAgent(Agent):
                 continue
             state.required_check_status[update.id] = update.status
             state.required_check_reasons[update.id] = update.reason
-
-    def _apply_node_progression(self, state: FactCheckSessionState, decision, errors: list[str]) -> None:
-        """Apply planner-selected node movement while enforcing layer-budget constraints."""
-        current_layer = state.node_layers[state.current_node_id]
-        remaining_layers = max(state.max_layer - current_layer, 0)
-        remaining_budget = max(
-            state.selected_blueprint.policy_constraints.max_iterations - state.iteration + 1, 0
-        )
-        stay_allowed = remaining_budget > remaining_layers
-        allowed_next_nodes = {
-            node.id
-            for node in state.selected_blueprint.verification_graph.nodes
-            if state.node_layers[node.id] == current_layer + 1
-        }
-
-        requested_target = decision.target_node_id
-        if requested_target is None:
-            if stay_allowed or not allowed_next_nodes:
-                return
-            chosen_target = sorted(allowed_next_nodes)[0]
-            errors.append(
-                f"Planner attempted to stay on node '{state.current_node_id}' without remaining layer slack; "
-                f"auto-advancing to '{chosen_target}'."
-            )
-            state.current_node_id = chosen_target
-            state.node_history.append(chosen_target)
-            return
-
-        requested_layer = state.node_layers.get(requested_target)
-        if requested_layer is None:
-            errors.append(f"Planner selected unknown target node '{requested_target}'.")
-            return
-
-        if requested_layer == current_layer:
-            if stay_allowed or not allowed_next_nodes:
-                state.current_node_id = requested_target
-                state.node_history.append(requested_target)
-                return
-            chosen_target = sorted(allowed_next_nodes)[0]
-            errors.append(
-                f"Planner attempted to stay on node '{requested_target}' without remaining layer slack; "
-                f"auto-advancing to '{chosen_target}'."
-            )
-            state.current_node_id = chosen_target
-            state.node_history.append(chosen_target)
-            return
-
-        if requested_layer == current_layer + 1 and requested_target in allowed_next_nodes:
-            state.current_node_id = requested_target
-            state.node_history.append(requested_target)
-            return
-
-        errors.append(
-            f"Planner selected invalid target node '{requested_target}' from layer {current_layer}. "
-            f"Allowed next nodes: {sorted(allowed_next_nodes)}."
-        )
 
     def _delegate_tasks(
         self,
