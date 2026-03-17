@@ -16,10 +16,9 @@ from mafc.agents.fact_check.models import (
 )
 from mafc.agents.fact_check.parsing import try_parse_planner_decision
 from mafc.agents.fact_check.prompts import (
-    build_blueprint_reminder,
     build_final_synthesis_prompt,
-    build_initial_system_prompt,
     build_iteration_prompt,
+    build_system_prompt,
     render_available_sub_agents,
 )
 from mafc.agents.fact_check.tracing import FactCheckTraceRecorder
@@ -181,22 +180,10 @@ class FactCheckAgent(Agent):
     def _build_planner_messages(self, session: AgentSession, state: FactCheckSessionState) -> list[Message]:
         """Build planner messages with a strategy system message and a user-state message."""
         available_sub_agents = render_available_sub_agents(self._available_sub_agent_descriptions())
-        if not state.system_context_initialized:
-            state.system_context_initialized = True
-            return [
-                Message(
-                    role=MessageRole.SYSTEM,
-                    content=Prompt(text=build_initial_system_prompt(state, available_sub_agents)),
-                ),
-                Message(
-                    role=MessageRole.USER,
-                    content=Prompt(text=build_iteration_prompt(session, state)),
-                ),
-            ]
         return [
             Message(
                 role=MessageRole.SYSTEM,
-                content=Prompt(text=build_blueprint_reminder(state, available_sub_agents)),
+                content=Prompt(text=build_system_prompt(state, available_sub_agents)),
             ),
             Message(
                 role=MessageRole.USER,

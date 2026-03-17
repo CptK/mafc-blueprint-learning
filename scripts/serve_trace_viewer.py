@@ -76,7 +76,7 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path.startswith("/api/blueprints/"):
-            name = path[len("/api/blueprints/"):]
+            name = path[len("/api/blueprints/") :]
             self._serve_blueprint_by_name(name)
             return
 
@@ -132,7 +132,9 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
         for bp_path in sorted(bp_dir.glob("*.yaml")):
             try:
                 data = yaml.safe_load(bp_path.read_text(encoding="utf-8"))
-                items.append({"name": data.get("name", bp_path.stem), "description": data.get("description", "")})
+                items.append(
+                    {"name": data.get("name", bp_path.stem), "description": data.get("description", "")}
+                )
             except Exception:
                 pass
         self._send_json(items)

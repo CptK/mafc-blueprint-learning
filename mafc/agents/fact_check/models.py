@@ -87,4 +87,3 @@ class FactCheckSessionState:
     delegated_tasks: dict[str, DelegatedTaskRecord] = field(default_factory=dict)
     evidences: list[Evidence] = field(default_factory=list)
     final_answer: str | None = None
-    system_context_initialized: bool = False

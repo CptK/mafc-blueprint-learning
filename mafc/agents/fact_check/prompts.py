@@ -22,13 +22,21 @@ def build_planner_system_instructions() -> str:
     )
 
 
-def build_initial_system_prompt(state: FactCheckSessionState, available_sub_agents: str) -> str:
-    """Build the first-turn blueprint-guided orchestration instructions."""
-    blueprint = state.selected_blueprint
-    required_checks = _render_required_checks(state)
-    graph = _render_full_graph(state)
-    policy = blueprint.policy_constraints
+def build_system_prompt(state: FactCheckSessionState, available_sub_agents: str) -> str:
+    """Build the system prompt for one orchestration iteration.
 
+    Always includes the full blueprint (graph, checks, policy) and the current
+    runtime state (position, budget, open checks) so the planner has complete
+    forward visibility regardless of which iteration it is.
+    """
+    blueprint = state.selected_blueprint
+    policy = blueprint.policy_constraints
+    progression = _progression_summary(state)
+    open_checks = [
+        check_id
+        for check_id, check_status in state.required_check_status.items()
+        if check_status.value in {"unchecked", "unclear"}
+    ]
     return (
         f"{build_planner_system_instructions()}\n\n"
         f"Available sub-agents:\n{available_sub_agents}\n\n"
@@ -40,35 +48,16 @@ def build_initial_system_prompt(state: FactCheckSessionState, available_sub_agen
         f"- require_counterevidence_search: {policy.require_counterevidence_search}\n\n"
         f"Blueprint layers:\n"
         f"- max_layer: {state.max_layer}\n\n"
-        f"Required checks:\n{required_checks}\n\n"
-        f"Blueprint graph:\n{graph}"
-    )
-
-
-def build_blueprint_reminder(state: FactCheckSessionState, available_sub_agents: str) -> str:
-    """Build a compact later-turn reminder of the selected blueprint and open work."""
-    blueprint = state.selected_blueprint
-    open_checks = [
-        check_id
-        for check_id, check_status in state.required_check_status.items()
-        if check_status.value in {"unchecked", "unclear"}
-    ]
-    policy = blueprint.policy_constraints
-    progression = _progression_summary(state)
-    return (
-        f"{build_planner_system_instructions()}\n\n"
-        "Blueprint reminder:\n"
-        f"- available sub-agents:\n{available_sub_agents}\n"
-        f"- name: {blueprint.name}\n"
-        f"- description: {blueprint.description}\n"
+        f"Required checks:\n{_render_required_checks(state)}\n\n"
+        f"Blueprint graph:\n{_render_full_graph(state)}\n\n"
+        f"Current position:\n"
         f"- current node: {state.current_node_id}\n"
         f"- current layer: {state.node_layers[state.current_node_id]}\n"
-        f"- unresolved required checks: {', '.join(open_checks) if open_checks else 'None'}\n"
-        f"- delegated tasks: {_render_delegated_tasks(state)}\n"
         f"- remaining budget: {max(policy.max_iterations - state.iteration, 0)}\n"
-        f"- require_counterevidence_search: {policy.require_counterevidence_search}\n"
         f"- stay_allowed: {progression['stay_allowed']}\n"
-        f"- allowed_next_nodes: {', '.join(progression['allowed_next_nodes']) if progression['allowed_next_nodes'] else 'None'}"
+        f"- allowed_next_nodes: {_render_allowed_transitions(state, progression['allowed_next_nodes'])}\n"
+        f"- unresolved required checks: {', '.join(open_checks) if open_checks else 'None'}\n"
+        f"- delegated tasks: {_render_delegated_tasks(state)}"
     )
 
 
@@ -83,7 +72,9 @@ def build_iteration_prompt(
     )
     progression = _progression_summary(state)
     check_status_lines = [
-        f"- {check_id}: {status.value}" for check_id, status in state.required_check_status.items()
+        f"- {check_id}: {status.value}"
+        + (f" — {state.required_check_reasons[check_id]}" if check_id in state.required_check_reasons else "")
+        for check_id, status in state.required_check_status.items()
     ]
     current_node_lines = [
         f"- id: {current_node.id}",
@@ -124,7 +115,7 @@ def build_iteration_prompt(
         f"- remaining_layers: {progression['remaining_layers']}\n"
         f"- remaining_budget: {progression['remaining_budget']}\n"
         f"- stay_allowed: {progression['stay_allowed']}\n"
-        f"- allowed_next_nodes: {', '.join(progression['allowed_next_nodes']) if progression['allowed_next_nodes'] else 'None'}\n\n"
+        f"- allowed_next_nodes: {_render_allowed_transitions(state, progression['allowed_next_nodes'])}\n\n"
         f"Accepted evidence summaries:\n{_render_planner_evidence_summaries(state)}\n\n"
         f"Action history:\n"
         f"{chr(10).join(f'- {item}' for item in state.action_history) if state.action_history else 'None'}\n\n"
@@ -225,6 +216,27 @@ def _progression_summary(state: FactCheckSessionState) -> dict[str, int | bool |
         "stay_allowed": remaining_budget > remaining_layers,
         "allowed_next_nodes": allowed_next_nodes,
     }
+
+
+def _render_allowed_transitions(state: FactCheckSessionState, allowed_next_nodes: list[str]) -> str:
+    """Render allowed next nodes annotated with the transition condition that leads to each."""
+    if not allowed_next_nodes:
+        return "None"
+    current_node = next(
+        (
+            node
+            for node in state.selected_blueprint.verification_graph.nodes
+            if node.id == state.current_node_id
+        ),
+        None,
+    )
+    transitions = getattr(current_node, "transition", None) or [] if current_node is not None else []
+    condition_by_target = {t.to: t.if_ for t in transitions}
+    parts = []
+    for node_id in allowed_next_nodes:
+        condition = condition_by_target.get(node_id)
+        parts.append(f"{node_id} (if: {condition})" if condition else node_id)
+    return ", ".join(parts)
 
 
 def render_available_sub_agents(agent_descriptions: dict[str, str]) -> str:
