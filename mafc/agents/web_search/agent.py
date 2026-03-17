@@ -347,15 +347,22 @@ class WebSearchAgent(Agent):
                 evidence_count=len(session.evidences),
             )
         if result_text is None or not str(result_text).strip():
-            self._mark_failed(session)
-            return AgentResult(
-                session=session,
-                result=None,
-                evidences=list(session.evidences),
-                errors=errors,
-                status=session.status,
-                trace=trace.trace if trace is not None else None,
-            )
+            evidence_lines = []
+            for ev in session.evidences:
+                summary = str(ev.takeaways).strip() if ev.takeaways is not None else str(ev.raw).strip()
+                if summary:
+                    evidence_lines.append(f"Source: {ev.source}\n{summary}")
+            if not evidence_lines:
+                self._mark_failed(session)
+                return AgentResult(
+                    session=session,
+                    result=None,
+                    evidences=list(session.evidences),
+                    errors=errors,
+                    status=session.status,
+                    trace=trace.trace if trace is not None else None,
+                )
+            result_text = MultimodalSequence("\n\n".join(evidence_lines))
 
         result_message = self.make_result_message(session, result_text, list(session.evidences))
         session.messages.append(result_message)
