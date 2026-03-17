@@ -52,8 +52,23 @@ class OpenAIAPI(API):
             max_completion_tokens=kwargs.get("max_response_length", 2048),
         )
 
+        content = response.choices[0].message.content
+        if not content:
+            usage = response.usage
+            input_tokens = usage.prompt_tokens if usage else None
+            output_tokens = usage.completion_tokens if usage else None
+            details = getattr(usage, "completion_tokens_details", None) if usage else None
+            reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
+            refusal = getattr(response.choices[0].message, "refusal", None)
+            finish_reason = getattr(response.choices[0], "finish_reason", None)
+            logger.error(
+                f"[OpenAI] Empty response from model '{self.model}': "
+                f"finish_reason={finish_reason!r}, refusal={refusal!r}, "
+                f"input_tokens={input_tokens}, output_tokens={output_tokens}, reasoning_tokens={reasoning_tokens}, max_response_length={kwargs.get('max_response_length', 2048)}"
+            )
+            content = "Failed to generate a response."
         return APIResponse(
-            text=response.choices[0].message.content or "Failed to generate a response.",
+            text=content,
             input_token_count=response.usage.prompt_tokens if response.usage else None,
             output_token_count=response.usage.completion_tokens if response.usage else None,
             total_token_count=response.usage.total_tokens if response.usage else None,
