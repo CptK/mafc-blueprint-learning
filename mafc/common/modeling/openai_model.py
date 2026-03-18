@@ -1,6 +1,7 @@
 from ezmm import Image, Video
 from openai import OpenAI
 import openai
+import threading
 import tiktoken
 import numpy as np
 import os
@@ -14,7 +15,15 @@ from mafc.common.modeling.prompt import Prompt
 from mafc.common.modeling.utils import messages_with_videos_as_frames
 from mafc.common.logger import logger
 
-encoding = tiktoken.get_encoding("cl100k_base")
+_tiktoken_lock = threading.Lock()
+_encoding: tiktoken.Encoding | None = None
+
+
+def _get_encoding() -> tiktoken.Encoding:
+    global _encoding
+    if _encoding is None:
+        _encoding = tiktoken.get_encoding("cl100k_base")
+    return _encoding
 
 
 class OpenAIAPI(API):
@@ -126,7 +135,8 @@ class OpenAIModel(Model):
 
 
 def count_tokens(prompt: MultimodalSequence | str) -> int:
-    n_text_tokens = len(encoding.encode(str(prompt), disallowed_special=()))
+    with _tiktoken_lock:
+        n_text_tokens = len(_get_encoding().encode(str(prompt), disallowed_special=()))
     n_image_tokens = 0
     if isinstance(prompt, MultimodalSequence) and prompt.has_images():
         for image in prompt.images:
@@ -160,14 +170,14 @@ def format_input(content: MultimodalSequence, context_window: int) -> list[dict]
             break
 
         if isinstance(block, str):
-            tokens = encoding.encode(block, disallowed_special=())
-            if len(tokens) > remaining:
-                # Truncate text to remaining tokens
-                tokens = tokens[:remaining]
-                block = encoding.decode(tokens)
-                remaining = 0
-            else:
-                remaining -= len(tokens)
+            with _tiktoken_lock:
+                tokens = _get_encoding().encode(block, disallowed_special=())
+                if len(tokens) > remaining:
+                    tokens = tokens[:remaining]
+                    block = _get_encoding().decode(tokens)
+                    remaining = 0
+                else:
+                    remaining -= len(tokens)
             content_formatted.append({"type": "text", "text": block})
 
         elif isinstance(block, Image):
