@@ -25,7 +25,15 @@ def build_planner_system_instructions() -> str:
         "the prior session's full evidence and context, making it efficient for follow-up questions "
         "that build on earlier findings.\n"
         "- Leave follow_up_to null to start a fresh session with no prior context.\n"
-        "- Use follow_up_to when refining or extending a prior investigation. Use a fresh session for independent new angles."
+        "- Use follow_up_to when refining or extending a prior investigation. Use a fresh session for independent new angles.\n\n"
+        "Media delegation rules:\n"
+        "- The media agent handles exactly one media item per task.\n"
+        "- To target a specific item, copy its reference tag from the 'images' or 'videos' line "
+        "in the claim modalities and place it at the start of the instruction. "
+        "The reference has the form <media_type:N> where media_type is the type of media (e.g. 'image' or 'video') "
+        "and N is the index (e.g. the actual tag shown in the prompt).\n"
+        "- If the claim has multiple images or videos and you want to investigate more than one, "
+        "spawn a separate media task for each item with its own reference tag and instruction."
     )
 
 
@@ -96,15 +104,18 @@ def build_action_node_prompt(
                 line += f"\n    query_guidance: {action.query_guidance}"
             action_lines.append(line)
 
-    claim_has_image = bool(session.claim.images) if session.claim is not None else bool(session.goal.images)
-    claim_has_video = bool(session.claim.videos) if session.claim is not None else bool(session.goal.videos)
+    media_source = session.claim if session.claim is not None else session.goal
+    n_images = len(media_source.images)
+    n_videos = len(media_source.videos)
+    image_tags = ", ".join(img.reference[1:-1] for img in media_source.images) if n_images else "none"
+    video_tags = ", ".join(vid.reference[1:-1] for vid in media_source.videos) if n_videos else "none"
     return (
         f"Claim:\n{session.claim.describe() if session.claim is not None else str(session.goal).strip()}\n\n"
         f"Iteration: {state.iteration} / remaining budget: {max(blueprint.policy_constraints.max_iterations - state.iteration, 0)}\n"
         f"Claim modalities:\n"
-        f"- has_image: {claim_has_image}\n"
-        f"- has_video: {claim_has_video}\n"
-        f"- media_delegation_allowed: {claim_has_image or claim_has_video}\n\n"
+        f"- images: {n_images} ({image_tags})\n"
+        f"- videos: {n_videos} ({video_tags})\n"
+        f"- media_delegation_allowed: {n_images > 0 or n_videos > 0}\n\n"
         f"Current node: {current_node.id}\n"
         f"Suggested actions:\n{chr(10).join(action_lines) if action_lines else '  None'}\n\n"
         f"Accepted evidence summaries:\n{_render_planner_evidence_summaries(state)}\n\n"

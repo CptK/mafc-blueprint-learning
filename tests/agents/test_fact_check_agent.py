@@ -227,6 +227,7 @@ def test_fact_check_agent_bootstraps_with_full_blueprint_and_later_reminder(tmp_
     assert "Routing decision for node:" in planner.calls[1]
     assert "media_location" in planner.calls[1]
     assert "media_delegation_allowed: True" in planner.calls[0]
+    assert image.reference in planner.calls[0]
     assert "Accepted evidence summaries:" in planner.calls[1]
     assert "Likely Athens based on landmarks." in planner.calls[1]
     assert "The image is consistent with Athens." in str(result.result)
@@ -699,3 +700,162 @@ verification_graph:
     assert result.result is not None
     assert "stay_allowed: False" in planner.calls[0]
     assert "concise fact-check synthesis" in planner.calls[1]
+
+
+def test_fact_check_agent_prompt_shows_actual_image_references(tmp_path) -> None:
+    registry = _make_registry(tmp_path)
+    selector = BlueprintSelector(
+        model=SequencedModel(outputs=[]),
+        registry=registry,
+        default_blueprint_name="default",
+    )
+    planner = SequencedModel(
+        outputs=[
+            json.dumps(
+                {
+                    "decision_type": "delegate",
+                    "rationale": "Analyze both images.",
+                    "tasks": [
+                        {"task_id": "media_0", "agent_type": "media", "instruction": "Investigate."},
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "next_node_id": "finalize",
+                    "rationale": "Done.",
+                    "final_answer": "Both images analyzed.",
+                    "check_updates": [{"id": "location_checked", "status": "supported", "reason": "done"}],
+                }
+            ),
+        ]
+    )
+    image_a = _registered_image()
+    image_b = Image(file_path=ASSETS_DIR / "Greece.jpeg")
+    item_registry.add_item(image_b)
+    media_agent = FakeWorkerAgent("Evidence.", "image://result")
+    agent = FactCheckAgent(
+        model=planner,
+        blueprint_selector=selector,
+        delegation_agents={"media": [media_agent]},
+    )
+    claim = Claim("Check these images.", image_a, image_b)
+    session = AgentSession(id="fact-check:refs", goal=Prompt(text="Fact-check claim"), claim=claim)
+
+    agent.run(session)
+
+    assert image_a.reference in planner.calls[0]
+    assert image_b.reference in planner.calls[0]
+    assert "images: 2" in planner.calls[0]
+
+
+def test_fact_check_agent_hallucinates_media_tag_fails_task_gracefully(tmp_path) -> None:
+    registry = _make_registry(tmp_path)
+    selector = BlueprintSelector(
+        model=SequencedModel(outputs=[]),
+        registry=registry,
+        default_blueprint_name="default",
+    )
+    planner = SequencedModel(
+        outputs=[
+            # Iter 1: delegate with a hallucinated image reference that does not exist
+            json.dumps(
+                {
+                    "decision_type": "delegate",
+                    "rationale": "Analyze the image.",
+                    "tasks": [
+                        {
+                            "task_id": "media_loc",
+                            "agent_type": "media",
+                            "instruction": "<image:99999999> Where is this?",
+                        },
+                    ],
+                }
+            ),
+            # verdict_gate has two routing options → LLM routing call
+            json.dumps(
+                {
+                    "next_node_id": "finalize",
+                    "rationale": "No media evidence; cannot determine location.",
+                    "final_answer": "Location could not be determined.",
+                    "check_updates": [],
+                }
+            ),
+        ]
+    )
+    media_agent = FakeWorkerAgent("unused", "image://unused")
+    agent = FactCheckAgent(
+        model=planner,
+        blueprint_selector=selector,
+        delegation_agents={"media": [media_agent]},
+    )
+    image = _registered_image()
+    session = AgentSession(
+        id="fact-check:bad-tag",
+        goal=Prompt(text="Fact-check claim"),
+        claim=Claim("This image shows Athens.", image),
+    )
+
+    result = agent.run(session)
+
+    assert result.session.status == AgentStatus.COMPLETED
+    assert len(media_agent.calls) == 0
+    assert any("Failed to build session for task 'media_loc'" in e for e in result.errors)
+
+
+def test_fact_check_agent_media_child_session_receives_tagged_image(tmp_path) -> None:
+    registry = _make_registry(tmp_path)
+    selector = BlueprintSelector(
+        model=SequencedModel(outputs=[]),
+        registry=registry,
+        default_blueprint_name="default",
+    )
+    image_a = _registered_image()
+    image_b = Image(file_path=ASSETS_DIR / "Greece.jpeg")
+    item_registry.add_item(image_b)
+    planner = SequencedModel(
+        outputs=[
+            # Instruct to analyze image_b specifically using its actual ezmm reference
+            json.dumps(
+                {
+                    "decision_type": "delegate",
+                    "rationale": "Analyze the second image.",
+                    "tasks": [
+                        {
+                            "task_id": "media_b",
+                            "agent_type": "media",
+                            "instruction": f"{image_b.reference} Where is this?",
+                        },
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "next_node_id": "finalize",
+                    "rationale": "Got media evidence.",
+                    "final_answer": "Second image analyzed.",
+                    "check_updates": [{"id": "location_checked", "status": "supported", "reason": "done"}],
+                }
+            ),
+        ]
+    )
+    media_agent = FakeWorkerAgent("Evidence from second image.", "image://b")
+    agent = FactCheckAgent(
+        model=planner,
+        blueprint_selector=selector,
+        delegation_agents={"media": [media_agent]},
+    )
+    claim = Claim("Check these images.", image_a, image_b)
+    session = AgentSession(
+        id="fact-check:img-tag",
+        goal=Prompt(text="Fact-check claim"),
+        claim=claim,
+    )
+
+    result = agent.run(session)
+
+    assert result.result is not None
+    assert len(media_agent.calls) == 1
+    child_goal = media_agent.calls[0].goal
+    assert len(child_goal.images) == 1
+    assert child_goal.images[0].reference == image_b.reference

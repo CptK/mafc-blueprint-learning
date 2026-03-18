@@ -513,15 +513,21 @@ class FactCheckAgent(Agent):
                         "iteration": state.iteration,
                     },
                 )
-            child_session = self._build_child_session(
-                parent_session=session,
-                claim=claim,
-                state=state,
-                task_id=task.task_id,
-                agent_type=normalized_agent_type,
-                instruction=task.instruction,
-                follow_up_to=task.follow_up_to,
-            )
+            try:
+                child_session = self._build_child_session(
+                    parent_session=session,
+                    claim=claim,
+                    state=state,
+                    task_id=task.task_id,
+                    agent_type=normalized_agent_type,
+                    instruction=task.instruction,
+                    follow_up_to=task.follow_up_to,
+                )
+            except ValueError as exc:
+                message = f"Failed to build session for task '{task.task_id}': {exc}"
+                errors.append(message)
+                trace.record_error(phase="delegate_tasks", message=message, iteration=state.iteration)
+                continue
             state.delegated_tasks[task.task_id] = DelegatedTaskRecord(
                 task_id=task.task_id,
                 agent_type=normalized_agent_type,
@@ -606,7 +612,7 @@ class FactCheckAgent(Agent):
             child_session_id = f"{parent_session.id}:{agent_type}:{task_id}:{state.iteration}"
 
         if agent_type == "media":
-            goal = MultimodalSequence(instruction or str(claim), *claim.data[1:])
+            goal = MultimodalSequence(instruction or str(claim))
             return AgentSession(
                 id=child_session_id,
                 goal=goal,
