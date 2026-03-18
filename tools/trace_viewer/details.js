@@ -267,7 +267,7 @@ export function renderDetail(node) {
           <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
         </div>` : ""}
 
-      ${renderCollapsibleText("Instruction", payload.instruction)}
+      ${renderCollapsibleTextWithMedia("Instruction", payload.instruction)}
       ${renderCollapsibleMultimodal("Result", result.result)}
     `;
   }
@@ -568,6 +568,27 @@ function renderCollapsibleText(label, value) {
     <details>
       <summary>${escapeHtml(label)}</summary>
       <pre>${escapeHtml(value)}</pre>
+    </details>
+  `;
+}
+
+function renderCollapsibleTextWithMedia(label, text) {
+  if (!text) return "";
+  const images = [];
+  const videos = [];
+  const re = /<(image|video):(\d+)>/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const ref = m[0];
+    if (m[1] === "image" && !images.includes(ref)) images.push(ref);
+    if (m[1] === "video" && !videos.includes(ref)) videos.push(ref);
+  }
+  const mediaHtml = renderMediaGrid(images, videos);
+  return `
+    <details>
+      <summary>${escapeHtml(label)}</summary>
+      ${mediaHtml}
+      <pre>${escapeHtml(text)}</pre>
     </details>
   `;
 }
