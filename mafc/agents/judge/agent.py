@@ -15,6 +15,7 @@ from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.common.trace import TraceScope
+from mafc.utils.media import deduplicate_media
 from mafc.utils.parsing import extract_json_object
 
 
@@ -205,7 +206,7 @@ class JudgeAgent(Agent):
         )
         return [
             Message(role=MessageRole.SYSTEM, content=Prompt(text=system_text)),
-            Message(role=MessageRole.USER, content=Prompt(text=user_text)),
+            Message(role=MessageRole.USER, content=deduplicate_media(Prompt(text=user_text))),
         ]
 
     def _parse_response(self, response_text: str) -> JudgeDecisionPayload | None:

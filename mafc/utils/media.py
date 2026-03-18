@@ -1,6 +1,41 @@
 from __future__ import annotations
 
-from ezmm.common.items import Image, Video
+from ezmm import MultimodalSequence
+from ezmm.common.items import Image, Item, Video
+
+
+def deduplicate_media(seq: MultimodalSequence) -> MultimodalSequence:
+    """Return a new MultimodalSequence with duplicate media items removed.
+
+    Two items are considered duplicates if they share the same ezmm item id
+    (same kind + registry id) or the same SHA-256 file hash. The first
+    occurrence of each item is kept; subsequent duplicates are dropped.
+    Non-media elements (strings) are always kept as-is.
+    """
+    seen_item_ids: set[tuple[str, int]] = set()
+    seen_hashes: set[str] = set()
+    new_data: list[str | Item] = []
+
+    for element in seq.data:
+        if not isinstance(element, Item):
+            new_data.append(element)
+            continue
+
+        item_key = (element.kind, element.id)
+        if item_key in seen_item_ids:
+            continue
+
+        item_hash = element.sha256
+        if item_hash in seen_hashes:
+            continue
+
+        seen_item_ids.add(item_key)
+        seen_hashes.add(item_hash)
+        new_data.append(element)
+
+    result = MultimodalSequence.__new__(MultimodalSequence)
+    result.data = new_data
+    return result
 
 
 def parse_media_relevance(

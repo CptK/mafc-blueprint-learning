@@ -17,7 +17,7 @@ from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
 from mafc.common.modeling.model import Model, Response
 from mafc.utils.parsing import extract_json_object, is_failed_model_text
-from mafc.utils.media import build_media_json_instruction, parse_media_relevance
+from mafc.utils.media import build_media_json_instruction, deduplicate_media, parse_media_relevance
 
 from mafc.agents.web_search.models import IterationOutcome, SearchPlanStep, StepQueryPlan, SearchTool
 from mafc.agents.web_search.planner import plan_step
@@ -179,7 +179,7 @@ class WebSearchAgent(Agent):
             f"Task:\n{instruction}\n\n"
             f"Accepted evidence:\n{chr(10).join(evidence_blocks)}"
         )
-        content = MultimodalSequence(synthesis_prompt, *all_media)
+        content = deduplicate_media(MultimodalSequence(synthesis_prompt, *all_media))
         try:
             resp = self.summarization_model.generate([Message(role=MessageRole.USER, content=content)])
             synthesis, relevant_media = _parse_synthesis_response(resp.text, all_media)
