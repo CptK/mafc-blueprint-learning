@@ -9,8 +9,10 @@ from ezmm.common.items import Image, Video
 from mafc.agents.agent import Agent, AgentResult
 from mafc.agents.common import AgentSession
 from mafc.agents.media.planner import plan_media_tools
+from mafc.agents.media.utils import build_evidences_from_tool_result
 from mafc.agents.media.tracing import MediaTraceRecorder
 from mafc.common.trace import TraceScope
+from mafc.utils.media import extract_media_items
 from mafc.utils.parsing import extract_json_object
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
@@ -21,7 +23,6 @@ from mafc.tools.geolocate.geolocate import Geolocate, Geolocator
 from mafc.tools.tool import Tool
 from mafc.tools.tool_result import ToolResult
 from mafc.tools.web_search.google_search import GoogleSearchPlatform
-from mafc.tools.web_search.google_vision import GoogleRisResults
 from mafc.tools.web_search.reverse_image_search import ReverseImageSearch, ReverseImageSearchTool
 
 
@@ -53,6 +54,45 @@ class MediaAgent(Agent):
 
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
         self._mark_running(session)
+        trace = self._setup_trace(session, trace_scope)
+
+        instruction = str(session.goal).strip()
+        prior_context = self.build_prior_context(session)
+
+        if self._should_stop:
+            return self._abort(session, trace, "stop_signal", "Agent was stopped before execution started.")
+        if not instruction:
+            return self._abort(session, trace, "empty_instruction", "Task prompt is empty.")
+
+        errors: list[str] = []
+        media_items = extract_media_items(session.goal)
+        trace.record_media_items([item.reference for item in media_items])
+        if not media_items:
+            return self._abort(
+                session, trace, "no_media_items", "Task does not contain any image or video item."
+            )
+        if len(media_items) > 1:
+            errors.append("Task contains multiple media items. Only the first item is processed for now.")
+
+        self._collect_tool_evidences(session, instruction, prior_context, media_items[0], errors, trace)
+
+        if not session.evidences:
+            return self._fail(session, trace, errors, evidences=[])
+
+        synthesis, relevant_evidences, synthesis_resp = self._synthesize_with_relevant_evidences(
+            instruction, session.evidences
+        )
+        if synthesis_resp is not None:
+            trace.add_usage(synthesis_resp, self.summarization_model.name)
+        if synthesis.strip():
+            trace.record_synthesis(synthesis, len(session.evidences))
+
+        if not synthesis.strip():
+            return self._fail(session, trace, errors, evidences=list(relevant_evidences))
+
+        return self._succeed(session, trace, synthesis, relevant_evidences, errors)
+
+    def _setup_trace(self, session: AgentSession, trace_scope) -> MediaTraceRecorder:
         scope = (
             trace_scope.child_scope("media_run", key=session.id, metadata={"agent": self.name})
             if trace_scope is not None
@@ -64,98 +104,57 @@ class MediaAgent(Agent):
                 metadata={"agent": self.name},
             )
         )
-        trace = MediaTraceRecorder(self.trace_dir, session, self.name, trace_scope=scope)
+        return MediaTraceRecorder(self.trace_dir, session, self.name, trace_scope=scope)
 
-        instruction = str(session.goal).strip()
-        prior_context = self.build_prior_context(session)
-        if self._should_stop:
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                errors=["Agent was stopped before execution started."],
-                status=session.status,
-            )
-            trace.record_error("stop_signal", result.errors[0])
-            trace.finalize(session=session, result=result, errors=result.errors)
-            result.trace = trace.trace
-            return result
-        if not instruction:
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                errors=["Task prompt is empty."],
-                status=session.status,
-            )
-            trace.record_error("empty_instruction", result.errors[0])
-            trace.finalize(session=session, result=result, errors=result.errors)
-            result.trace = trace.trace
-            return result
+    def _abort(
+        self, session: AgentSession, trace: MediaTraceRecorder, error_key: str, error_msg: str
+    ) -> AgentResult:
+        """Fail due to a precondition not being met. Records a trace error."""
+        self._mark_failed(session)
+        result = AgentResult(session=session, result=None, errors=[error_msg], status=session.status)
+        trace.record_error(error_key, error_msg)
+        trace.finalize(session=session, result=result, errors=result.errors)
+        result.trace = trace.trace
+        return result
 
-        errors: list[str] = []
-        media_items = self._extract_media_items(session.goal)
-        trace.record_media_items([item.reference for item in media_items])
-        if not media_items:
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                errors=["Task does not contain any image or video item."],
-                status=session.status,
-            )
-            trace.record_error("no_media_items", result.errors[0])
-            trace.finalize(session=session, result=result, errors=result.errors)
-            result.trace = trace.trace
-            return result
-        if len(media_items) > 1:
-            errors.append("Task contains multiple media items. Only the first item is processed for now.")
+    def _fail(
+        self, session: AgentSession, trace: MediaTraceRecorder, errors: list[str], evidences: list[Evidence]
+    ) -> AgentResult:
+        """Fail after execution has started (no evidences or empty synthesis)."""
+        self._mark_failed(session)
+        result = AgentResult(
+            session=session, result=None, evidences=evidences, errors=errors, status=session.status
+        )
+        trace.finalize(session=session, result=result, errors=errors)
+        result.trace = trace.trace
+        return result
 
-        media_item = media_items[0]
+    def _collect_tool_evidences(
+        self,
+        session: AgentSession,
+        instruction: str,
+        prior_context: str,
+        media_item: Image | Video,
+        errors: list[str],
+        trace: MediaTraceRecorder,
+    ) -> None:
         for tool_name, tool_result in self._run_selected_tools(
             instruction, prior_context, media_item, errors, trace
         ):
             trace.record_tool_result(tool_name, tool_result)
-            for evidence in self._build_evidences_from_tool_result(tool_result, media_item.reference):
+            for evidence in build_evidences_from_tool_result(tool_result, media_item.reference):
                 if evidence not in session.evidences:
                     session.evidences.append(evidence)
-
         trace.record_evidences(session.evidences)
 
-        if not session.evidences:
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                evidences=[],
-                errors=errors,
-                status=session.status,
-            )
-            trace.finalize(session=session, result=result, errors=errors)
-            result.trace = trace.trace
-            return result
-
-        synthesis, relevant_evidences, synthesis_resp = self._synthesize_with_relevant_evidences(
-            instruction, session.evidences
-        )
-        if synthesis_resp is not None:
-            trace.add_usage(synthesis_resp, self.summarization_model.name)
-        if synthesis.strip():
-            trace.record_synthesis(synthesis, len(session.evidences))
-
-        if not synthesis.strip():
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                evidences=list(relevant_evidences),
-                errors=errors,
-                status=session.status,
-            )
-            trace.finalize(session=session, result=result, errors=errors)
-            result.trace = trace.trace
-            return result
-
+    def _succeed(
+        self,
+        session: AgentSession,
+        trace: MediaTraceRecorder,
+        synthesis: str,
+        relevant_evidences: list[Evidence],
+        errors: list[str],
+    ) -> AgentResult:
         result_text = MultimodalSequence(synthesis)
         result_message = self.make_result_message(session, result_text, list(relevant_evidences))
         session.messages.append(result_message)
@@ -261,12 +260,6 @@ class MediaAgent(Agent):
             relevant_evidences = list(evidence_id_to_item.values())
         return answer.strip(), relevant_evidences
 
-    def _extract_media_items(self, goal: MultimodalSequence) -> list[Image | Video]:
-        items: list[Image | Video] = []
-        items.extend(goal.images)
-        items.extend(goal.videos)
-        return items
-
     def _run_selected_tools(
         self,
         instruction: str,
@@ -299,41 +292,3 @@ class MediaAgent(Agent):
             elif tool_name == "geolocate":
                 results.append((tool_name, self.geolocator.perform(Geolocate(media_item.reference))))
         return results
-
-    def _build_evidences_from_tool_result(
-        self, tool_result: ToolResult, media_reference: str
-    ) -> list[Evidence]:
-        raw = tool_result.raw
-        takeaways = tool_result.takeaways
-
-        # RIS: promote each matched source into its own evidence item.
-        if isinstance(raw, GoogleRisResults) and raw.sources:
-            logger.info(
-                "Raw tool output contains multiple sources. Promoting each source into its own evidence item."
-            )
-            evidences: list[Evidence] = []
-            for source in raw.sources:
-                summary_parts = []
-                if takeaways is not None:
-                    summary_parts.append(str(takeaways))
-                summary = "\n".join(part for part in summary_parts if part.strip())
-                evidences.append(
-                    Evidence(
-                        raw=MultimodalSequence(str(source)),
-                        action=tool_result.action,
-                        source=source.reference,
-                        takeaways=MultimodalSequence(summary) if summary else None,
-                    )
-                )
-            if evidences:
-                return evidences
-
-        # Geolocation or fallback: one evidence item per tool run.
-        return [
-            Evidence(
-                raw=MultimodalSequence(str(raw)),
-                action=tool_result.action,
-                source=media_reference,
-                takeaways=takeaways,
-            )
-        ]
