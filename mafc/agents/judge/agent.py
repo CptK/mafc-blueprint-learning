@@ -54,6 +54,46 @@ class JudgeAgent(Agent):
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
         """Judge the claim label using only accepted evidence."""
         self._mark_running(session)
+        trace = self._setup_trace(session, trace_scope)
+        trace.record_class_definitions({str(k): v for k, v in self.class_definitions.items()})
+
+        if session.claim is None:
+            return self._abort(session, trace, "missing_claim", "Judge session requires a claim.")
+        if not session.evidences:
+            return self._abort(
+                session, trace, "missing_evidence", "Judge session requires accepted evidence."
+            )
+
+        messages = self._build_messages(session.claim, session.evidences)
+        trace.record_prompt_messages(messages)
+        _judge_resp = self.model.generate(messages)
+        response_text = _judge_resp.text.strip()
+        trace.add_usage(_judge_resp, self.model.name)
+        trace.record_model_response(response_text)
+
+        parsed = self._parse_with_repair(response_text, trace)
+        if parsed is None:
+            return self._abort(
+                session,
+                trace,
+                "parse_response",
+                "Judge returned invalid output.",
+                evidences=list(session.evidences),
+            )
+
+        label = self._labels_by_value.get(parsed.label)
+        if label is None:
+            return self._abort(
+                session,
+                trace,
+                "unknown_label",
+                f"Judge returned unknown label '{parsed.label}'.",
+                evidences=list(session.evidences),
+            )
+
+        return self._succeed(session, trace, parsed, label)
+
+    def _setup_trace(self, session: AgentSession, trace_scope) -> JudgeTraceRecorder:
         scope = (
             trace_scope.child_scope("judge_run", key=session.id, metadata={"agent": self.name})
             if trace_scope is not None
@@ -65,90 +105,62 @@ class JudgeAgent(Agent):
                 metadata={"agent": self.name},
             )
         )
-        trace = JudgeTraceRecorder(self.trace_dir, session, self.name, trace_scope=scope)
-        trace.record_class_definitions({str(k): v for k, v in self.class_definitions.items()})
+        return JudgeTraceRecorder(self.trace_dir, session, self.name, trace_scope=scope)
 
-        claim = session.claim
-        if claim is None:
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                errors=["Judge session requires a claim."],
-                status=session.status,
-            )
-            trace.record_error("missing_claim", result.errors[0])
-            trace.finalize(session=session, result=result, errors=result.errors)
-            result.trace = trace.trace
-            return result
-        if not session.evidences:
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                errors=["Judge session requires accepted evidence."],
-                status=session.status,
-            )
-            trace.record_error("missing_evidence", result.errors[0])
-            trace.finalize(session=session, result=result, errors=result.errors)
-            result.trace = trace.trace
-            return result
+    def _abort(
+        self,
+        session: AgentSession,
+        trace: JudgeTraceRecorder,
+        error_key: str,
+        error_msg: str,
+        evidences: list[Evidence] | None = None,
+    ) -> AgentResult:
+        """Fail and record a trace error. Used for all judge failure paths."""
+        self._mark_failed(session)
+        result = AgentResult(
+            session=session,
+            result=None,
+            evidences=evidences or [],
+            errors=[error_msg],
+            status=session.status,
+        )
+        trace.record_error(error_key, error_msg)
+        trace.finalize(session=session, result=result, errors=result.errors)
+        result.trace = trace.trace
+        return result
 
-        messages = self._build_messages(claim, session.evidences)
-        trace.record_prompt_messages(messages)
-        _judge_resp = self.model.generate(messages)
-        response_text = _judge_resp.text.strip()
-        trace.add_usage(_judge_resp, self.model.name)
-        trace.record_model_response(response_text)
-
+    def _parse_with_repair(
+        self, response_text: str, trace: JudgeTraceRecorder
+    ) -> JudgeDecisionPayload | None:
+        """Parse the model response; attempt a repair call if the first parse fails."""
         parsed = self._parse_response(response_text)
-        if parsed is None:
-            repair_prompt = (
-                "Convert the following judge response to strict JSON with schema:\n"
-                '{"label": "one allowed label", "justification": "short grounded justification"}\n'
-                f"Allowed labels: {', '.join(str(k) for k in self.class_definitions)}\n"
-                "Only return JSON.\n\n"
-                f"Response:\n{response_text}"
-            )
-            repair_messages = [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
-            _repair_resp = self.model.generate(repair_messages)
-            repair_response = _repair_resp.text.strip()
-            trace.add_usage(_repair_resp, self.model.name)
-            trace.record_repair(prompt=repair_prompt, response_text=repair_response)
-            parsed = self._parse_response(repair_response)
+        if parsed is not None:
+            return parsed
+        repair_prompt = (
+            "Convert the following judge response to strict JSON with schema:\n"
+            '{"label": "one allowed label", "justification": "short grounded justification"}\n'
+            f"Allowed labels: {', '.join(str(k) for k in self.class_definitions)}\n"
+            "Only return JSON.\n\n"
+            f"Response:\n{response_text}"
+        )
+        repair_messages = [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
+        _repair_resp = self.model.generate(repair_messages)
+        repair_response = _repair_resp.text.strip()
+        trace.add_usage(_repair_resp, self.model.name)
+        trace.record_repair(prompt=repair_prompt, response_text=repair_response)
+        return self._parse_response(repair_response)
 
-        if parsed is None:
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                evidences=list(session.evidences),
-                errors=["Judge returned invalid output."],
-                status=session.status,
-            )
-            trace.record_error("parse_response", result.errors[0])
-            trace.finalize(session=session, result=result, errors=result.errors)
-            result.trace = trace.trace
-            return result
-
-        label = self._labels_by_value.get(parsed.label)
-        if label is None:
-            self._mark_failed(session)
-            result = AgentResult(
-                session=session,
-                result=None,
-                evidences=list(session.evidences),
-                errors=[f"Judge returned unknown label '{parsed.label}'."],
-                status=session.status,
-            )
-            trace.record_error("unknown_label", result.errors[0])
-            trace.finalize(session=session, result=result, errors=result.errors)
-            result.trace = trace.trace
-            return result
-
+    def _succeed(
+        self,
+        session: AgentSession,
+        trace: JudgeTraceRecorder,
+        parsed: JudgeDecisionPayload,
+        label: BaseLabel,
+    ) -> AgentResult:
+        assert session.claim is not None
         trace.record_decision(parsed.label, parsed.justification)
-        claim.verdict = label
-        claim.justification = MultimodalSequence(parsed.justification)
+        session.claim.verdict = label
+        session.claim.justification = MultimodalSequence(parsed.justification)
         result_text = MultimodalSequence(f"Label: {label.value}\nJustification: {parsed.justification}")
         result_message = self.make_result_message(session, result_text, list(session.evidences))
         session.messages.append(result_message)
