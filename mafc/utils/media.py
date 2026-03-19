@@ -4,6 +4,13 @@ from ezmm import MultimodalSequence
 from ezmm.common.items import Image, Item, Video
 
 
+def extract_media_items(goal: MultimodalSequence) -> list[Image | Video]:
+    items: list[Image | Video] = []
+    items.extend(goal.images)
+    items.extend(goal.videos)
+    return items
+
+
 def deduplicate_media(seq: MultimodalSequence) -> MultimodalSequence:
     """Return a new MultimodalSequence with duplicate media items removed.
 
