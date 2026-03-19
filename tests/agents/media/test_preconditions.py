@@ -65,8 +65,8 @@ def test_no_media_items_aborts() -> None:
     assert out.result is None
     assert out.session.status == AgentStatus.FAILED
     assert any("image or video" in e for e in out.errors)
-    assert ris_tool.actions == []
-    assert geolocator.actions == []
+    assert ris_tool.performed == []
+    assert geolocator.performed == []
 
 
 def test_multiple_media_items_appends_warning_and_processes_first() -> None:
@@ -87,7 +87,7 @@ def test_multiple_media_items_appends_warning_and_processes_first() -> None:
     assert out.session.status == AgentStatus.COMPLETED
     assert any("multiple media" in e.lower() for e in out.errors)
     # Only the first item (image) was passed to the geolocator
-    assert all(a.media == image for a in geolocator.actions)
+    assert all(a.media == image for a in geolocator.performed)
 
 
 def test_no_evidences_collected_returns_failed_status() -> None:

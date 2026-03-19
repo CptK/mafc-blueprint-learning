@@ -40,8 +40,8 @@ def test_runs_geolocate_for_location_question() -> None:
 
     assert out.result is not None
     assert out.session.status == AgentStatus.COMPLETED
-    assert len(ris_tool.actions) == 0
-    assert len(geolocator.actions) == 1
+    assert len(ris_tool.performed) == 0
+    assert len(geolocator.performed) == 1
     assert len(out.evidences) == 1
     assert out.evidences[0].source == image.reference
     assert "Greece" in str(out.result)
@@ -64,8 +64,8 @@ def test_runs_ris_for_publication_question() -> None:
     out = agent.run(make_session(MultimodalSequence("Where was this image published?", image)))
 
     assert out.result is not None
-    assert len(ris_tool.actions) == 1
-    assert len(geolocator.actions) == 0
+    assert len(ris_tool.performed) == 1
+    assert len(geolocator.performed) == 0
     assert len(out.evidences) == 1
     assert out.evidences[0].source == "https://example.com/a"
 
@@ -87,9 +87,9 @@ def test_runs_both_tools_for_video_questions() -> None:
     )
 
     assert out.result is not None
-    assert len(ris_tool.actions) == 1
-    assert len(geolocator.actions) == 1
-    assert geolocator.actions[0].media == video
+    assert len(ris_tool.performed) == 1
+    assert len(geolocator.performed) == 1
+    assert geolocator.performed[0].media == video
     assert not out.errors
     assert "Greece" in str(out.result)
 
@@ -109,8 +109,8 @@ def test_parses_tool_plan_embedded_in_text() -> None:
     out = agent.run(make_session(MultimodalSequence("Where was this image taken?", image)))
 
     assert out.result is not None
-    assert len(ris_tool.actions) == 0
-    assert len(geolocator.actions) == 1
+    assert len(ris_tool.performed) == 0
+    assert len(geolocator.performed) == 1
     assert out.errors == []
 
 
@@ -130,8 +130,8 @@ def test_repairs_non_json_tool_plan() -> None:
     out = agent.run(make_session(MultimodalSequence("Where was this image taken?", image)))
 
     assert out.result is not None
-    assert len(ris_tool.actions) == 0
-    assert len(geolocator.actions) == 1
+    assert len(ris_tool.performed) == 0
+    assert len(geolocator.performed) == 1
     assert out.errors == []
 
 
@@ -153,8 +153,8 @@ def test_falls_back_to_both_tools_when_plan_parsing_fails() -> None:
     out = agent.run(make_session(MultimodalSequence("Investigate this image.", image)))
 
     assert out.result is not None
-    assert len(ris_tool.actions) == 1
-    assert len(geolocator.actions) == 1
+    assert len(ris_tool.performed) == 1
+    assert len(geolocator.performed) == 1
     assert any("Media planner output could not be parsed" in e for e in out.errors)
 
 
