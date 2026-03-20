@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import cast
+
 from mafc.agents.common import AgentSession
 from mafc.agents.fact_check.models import FactCheckSessionState
 from mafc.agents.web_search.actions import InspectWebSource
+from mafc.blueprints.models import BlueprintActionNode, BlueprintGateNode
 
 
 def build_planner_system_instructions() -> str:
@@ -70,7 +73,7 @@ def build_system_prompt(state: FactCheckSessionState, available_sub_agents: str)
         f"- current layer: {state.node_layers[state.current_node_id]}\n"
         f"- remaining budget: {max(policy.max_iterations - state.iteration, 0)}\n"
         f"- stay_allowed: {progression['stay_allowed']}\n"
-        f"- allowed_next_nodes: {_render_allowed_transitions(state, progression['allowed_next_nodes'])}\n"
+        f"- allowed_next_nodes: {_render_allowed_transitions(state, cast(list[str], progression['allowed_next_nodes']))}\n"
         f"- unresolved required checks: {', '.join(open_checks) if open_checks else 'None'}\n"
         f"- delegated tasks: {_render_delegated_tasks(state)}"
     )
@@ -95,7 +98,7 @@ def build_action_node_prompt(
         for check_id, status in state.required_check_status.items()
     ]
     action_lines = []
-    if hasattr(current_node, "actions") and current_node.actions:
+    if isinstance(current_node, BlueprintActionNode) and current_node.actions:
         for action in current_node.actions:
             line = f"  - {action.action}"
             if action.intent:
@@ -197,14 +200,14 @@ def _render_full_graph(state: FactCheckSessionState) -> str:
     lines: list[str] = []
     for node in state.selected_blueprint.verification_graph.nodes:
         lines.append(f"- node {node.id} ({node.type})")
-        if hasattr(node, "actions") and node.actions:
+        if isinstance(node, BlueprintActionNode) and node.actions:
             lines.append("  actions: " + ", ".join(action.action for action in node.actions))
-        if hasattr(node, "transition") and node.transition:
+        if not isinstance(node, BlueprintGateNode) and node.transition:
             lines.append(
                 "  transitions: "
                 + " | ".join(f"{transition.if_} -> {transition.to}" for transition in node.transition)
             )
-        if hasattr(node, "rules"):
+        if isinstance(node, BlueprintGateNode):
             lines.append(
                 "  rules: "
                 f"support={node.rules.support_conditions}, "

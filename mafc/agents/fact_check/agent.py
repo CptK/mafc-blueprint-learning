@@ -11,7 +11,9 @@ from mafc.agents.common import AgentSession
 from mafc.agents.fact_check.models import (
     CheckStatus,
     DelegatedTaskRecord,
+    DelegationTask,
     FactCheckSessionState,
+    PlannerCheckUpdate,
     PlannerDecisionType,
 )
 from mafc.agents.fact_check.parsing import try_parse_planner_decision, try_parse_routing_decision
@@ -73,7 +75,9 @@ class FactCheckAgent(Agent):
             "web_search_agent": "web_search",
         }
 
-    def run(self, session: AgentSession, trace_scope=None, true_label: str | None = None) -> AgentResult:
+    def run(
+        self, session: AgentSession, trace_scope: TraceScope | None = None, true_label: str | None = None
+    ) -> AgentResult:
         """Run the blueprint-guided orchestration loop for one session."""
         self._mark_running(session)
         root_scope = trace_scope or TraceScope.root(
@@ -265,7 +269,7 @@ class FactCheckAgent(Agent):
         """Dispatch to the node-type-specific execution handler."""
         if isinstance(current_node, BlueprintActionNode):
             trace.record_execution_type("action_node", state.iteration)
-            return self._execute_action_node(session, claim, state, current_node, errors, trace)
+            return self._execute_action_node(session, claim, state, errors, trace)
         if isinstance(current_node, BlueprintSynthesisNode):
             trace.record_execution_type("synthesis_node", state.iteration)
             self._execute_synthesis_node(session, state, trace)
@@ -280,7 +284,6 @@ class FactCheckAgent(Agent):
         session: AgentSession,
         claim: Claim,
         state: FactCheckSessionState,
-        current_node: BlueprintActionNode,
         errors: list[str],
         trace: FactCheckTraceRecorder,
     ) -> bool:
@@ -370,23 +373,20 @@ class FactCheckAgent(Agent):
             options: list[BlueprintTransition] = []
             if node.rules.support_conditions:
                 options.append(
-                    BlueprintTransition(
-                        if_="supported: " + "; ".join(node.rules.support_conditions),
-                        to="finalize",
+                    BlueprintTransition.model_validate(
+                        {"if": "supported: " + "; ".join(node.rules.support_conditions), "to": "finalize"}
                     )
                 )
             if node.rules.refute_conditions:
                 options.append(
-                    BlueprintTransition(
-                        if_="refuted: " + "; ".join(node.rules.refute_conditions),
-                        to="finalize",
+                    BlueprintTransition.model_validate(
+                        {"if": "refuted: " + "; ".join(node.rules.refute_conditions), "to": "finalize"}
                     )
                 )
             fail_target = "finalize" if node.rules.if_fail == "return unknown" else node.rules.if_fail
             options.append(
-                BlueprintTransition(
-                    if_="inconclusive / conditions not met",
-                    to=fail_target,
+                BlueprintTransition.model_validate(
+                    {"if": "inconclusive / conditions not met", "to": fail_target}
                 )
             )
             return options
@@ -447,7 +447,9 @@ class FactCheckAgent(Agent):
         state.last_synthesis = None
         return False
 
-    def _apply_check_updates(self, state: FactCheckSessionState, check_updates) -> None:
+    def _apply_check_updates(
+        self, state: FactCheckSessionState, check_updates: list[PlannerCheckUpdate]
+    ) -> None:
         """Merge planner-provided required-check updates into the session state."""
         for update in check_updates:
             if update.id not in state.required_check_status:
@@ -460,7 +462,7 @@ class FactCheckAgent(Agent):
         session: AgentSession,
         claim: Claim,
         state: FactCheckSessionState,
-        tasks,
+        tasks: list[DelegationTask],
         errors: list[str],
         trace: FactCheckTraceRecorder,
     ) -> None:
@@ -471,7 +473,7 @@ class FactCheckAgent(Agent):
             trace.record_error(phase="delegate_tasks", message=message, iteration=state.iteration)
             return
 
-        delegated_calls: list[tuple[str, Agent, AgentSession]] = []
+        delegated_calls: list[tuple[str, Agent, AgentSession, TraceScope | None]] = []
         for task in tasks:
             normalized_agent_type = self._normalize_agent_type(task.agent_type)
             logger.debug(
@@ -492,7 +494,7 @@ class FactCheckAgent(Agent):
                 and hasattr(worker_agent, "trace_dir")
                 and getattr(worker_agent, "trace_dir") is None
             ):
-                worker_agent.trace_dir = trace.trace_dir
+                setattr(worker_agent, "trace_dir", trace.trace_dir)
             task_scope = None
             if trace.scope is not None:
                 task_scope = trace.scope.child_scope(
@@ -629,7 +631,9 @@ class FactCheckAgent(Agent):
             evidences=list(state.evidences),
         )
 
-    def _run_worker_agent(self, worker_agent, child_session: AgentSession, trace_scope) -> AgentResult:
+    def _run_worker_agent(
+        self, worker_agent: Agent, child_session: AgentSession, trace_scope: TraceScope | None
+    ) -> AgentResult:
         run_signature = inspect.signature(worker_agent.run)
         if "trace_scope" in run_signature.parameters:
             return worker_agent.run(child_session, trace_scope=trace_scope)
