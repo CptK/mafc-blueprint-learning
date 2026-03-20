@@ -87,12 +87,11 @@ class MediaTraceRecorder(BaseTraceRecorder):
                 "by_model": {},
             },
         }
-        if self.enabled:
-            assert self.trace_dir is not None
-            self.trace_dir.mkdir(parents=True, exist_ok=True)
-            self.path = get_media_trace_path(self.trace_dir, session.id)
+        self._finalize_init(session)
 
-        self.record_event("run_started", {"session_id": session.id})
+    def _make_path(self, session_id: str) -> Path:
+        assert self.trace_dir is not None
+        return get_media_trace_path(self.trace_dir, session_id)
 
     def record_media_items(self, media_references: list[str]) -> None:
         self.trace["media_items"] = list(media_references)

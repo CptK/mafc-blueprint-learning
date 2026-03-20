@@ -14,7 +14,6 @@ from mafc.common.label import BaseLabel
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
-from mafc.common.trace import TraceScope
 from mafc.utils.media import deduplicate_media
 from mafc.utils.parsing import extract_json_object, strip_json_fences, try_parse_with_repair
 
@@ -94,17 +93,7 @@ class JudgeAgent(Agent):
         return self._succeed(session, trace, parsed, label)
 
     def _setup_trace(self, session: AgentSession, trace_scope) -> JudgeTraceRecorder:
-        scope = (
-            trace_scope.child_scope("judge_run", key=session.id, metadata={"agent": self.name})
-            if trace_scope is not None
-            else TraceScope.root(
-                scope_type="judge_run",
-                trace_id=session.id,
-                trace_dir=self.trace_dir,
-                key=session.id,
-                metadata={"agent": self.name},
-            )
-        )
+        scope = self._build_trace_scope("judge_run", session, trace_scope)
         return JudgeTraceRecorder(self.trace_dir, session, self.name, trace_scope=scope)
 
     def _abort(

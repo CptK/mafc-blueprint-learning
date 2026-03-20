@@ -63,12 +63,11 @@ class JudgeTraceRecorder(BaseTraceRecorder):
                 "by_model": {},
             },
         }
-        if self.enabled:
-            assert self.trace_dir is not None
-            self.trace_dir.mkdir(parents=True, exist_ok=True)
-            self.path = get_judge_trace_path(self.trace_dir, session.id)
+        self._finalize_init(session)
 
-        self.record_event("run_started", {"session_id": session.id})
+    def _make_path(self, session_id: str) -> Path:
+        assert self.trace_dir is not None
+        return get_judge_trace_path(self.trace_dir, session_id)
 
     def record_class_definitions(self, class_definitions: dict[str, str]) -> None:
         self.trace["class_definitions"] = {str(k): v for k, v in class_definitions.items()}

@@ -79,12 +79,7 @@ class WebSearchTraceRecorder(BaseTraceRecorder):
                 "by_model": {},
             },
         }
-        if self.enabled:
-            assert self.trace_dir is not None
-            self.trace_dir.mkdir(parents=True, exist_ok=True)
-            self.path = get_web_search_trace_path(self.trace_dir, session.id)
-
-        self.record_event("run_started", {"session_id": session.id})
+        self._finalize_init(session)
 
     # Override to include ``step`` in the event dict.
     def record_event(self, event_type: str, payload: dict[str, Any], *, step: int | None = None) -> None:  # type: ignore[override]
@@ -314,6 +309,10 @@ class WebSearchTraceRecorder(BaseTraceRecorder):
         )
         self._write_usage_stats()
         self._persist()
+
+    def _make_path(self, session_id: str) -> Path:
+        assert self.trace_dir is not None
+        return get_web_search_trace_path(self.trace_dir, session_id)
 
     def _current_iteration(self) -> dict[str, Any]:
         assert self._current_iteration_index is not None, "No iteration is currently active."

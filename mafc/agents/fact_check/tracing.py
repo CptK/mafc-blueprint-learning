@@ -84,14 +84,12 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
                 "runtime_seconds": None,
             },
         }
-        if self.enabled:
-            assert self.trace_dir is not None
-            self.trace_dir.mkdir(parents=True, exist_ok=True)
-            filename = f"{sanitize_filename(session.id, 'fact_check_trace')}.fact_check_trace.json"
-            self.path = self.trace_dir / filename
-
         self._add_flow_node("run", "run", f"Run {session.id}", None)
-        self.record_event("run_started", {"session_id": session.id})
+        self._finalize_init(session)
+
+    def _make_path(self, session_id: str) -> Path:
+        assert self.trace_dir is not None
+        return self.trace_dir / f"{sanitize_filename(session_id, 'fact_check_trace')}.fact_check_trace.json"
 
     # Override record_event to include ``iteration`` and ``flow_node_id``.
     def record_event(  # type: ignore[override]

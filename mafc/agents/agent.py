@@ -110,6 +110,20 @@ class Agent(ABC):
             evidences=list(evidences),
         )
 
+    def _build_trace_scope(self, scope_type: str, session: AgentSession, trace_scope):
+        """Return a child scope when trace_scope is provided, otherwise create a root scope."""
+        from mafc.common.trace import TraceScope
+
+        if trace_scope is not None:
+            return trace_scope.child_scope(scope_type, key=session.id, metadata={"agent": self.name})
+        return TraceScope.root(
+            scope_type=scope_type,
+            trace_id=session.id,
+            trace_dir=getattr(self, "trace_dir", None),
+            key=session.id,
+            metadata={"agent": self.name},
+        )
+
     def stop(self):
         """Signal the agent to stop execution.
 

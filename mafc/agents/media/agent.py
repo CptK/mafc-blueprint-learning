@@ -11,7 +11,6 @@ from mafc.agents.common import AgentSession
 from mafc.agents.media.planner import plan_media_tools
 from mafc.agents.media.utils import build_evidences_from_tool_result
 from mafc.agents.media.tracing import MediaTraceRecorder
-from mafc.common.trace import TraceScope
 from mafc.utils.media import extract_media_items
 from mafc.utils.parsing import extract_json_object, strip_json_fences
 from mafc.common.evidence import Evidence
@@ -93,17 +92,7 @@ class MediaAgent(Agent):
         return self._succeed(session, trace, synthesis, relevant_evidences, errors)
 
     def _setup_trace(self, session: AgentSession, trace_scope) -> MediaTraceRecorder:
-        scope = (
-            trace_scope.child_scope("media_run", key=session.id, metadata={"agent": self.name})
-            if trace_scope is not None
-            else TraceScope.root(
-                scope_type="media_run",
-                trace_id=session.id,
-                trace_dir=self.trace_dir,
-                key=session.id,
-                metadata={"agent": self.name},
-            )
-        )
+        scope = self._build_trace_scope("media_run", session, trace_scope)
         return MediaTraceRecorder(self.trace_dir, session, self.name, trace_scope=scope)
 
     def _abort(

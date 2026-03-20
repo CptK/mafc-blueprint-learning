@@ -27,7 +27,6 @@ from mafc.agents.web_search.retrieval import (
     select_sources_for_retrieval,
 )
 from mafc.agents.web_search.tracing import WebSearchTraceRecorder
-from mafc.common.trace import TraceScope
 
 
 def _parse_synthesis_response(
@@ -79,21 +78,7 @@ class WebSearchAgent(Agent):
         self.trace_dir = trace_dir
 
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
-        scope = (
-            trace_scope.child_scope(
-                "web_search_run",
-                key=session.id,
-                metadata={"agent": self.name},
-            )
-            if trace_scope is not None
-            else TraceScope.root(
-                scope_type="web_search_run",
-                trace_id=session.id,
-                trace_dir=self.trace_dir,
-                key=session.id,
-                metadata={"agent": self.name},
-            )
-        )
+        scope = self._build_trace_scope("web_search_run", session, trace_scope)
         trace = WebSearchTraceRecorder(self.trace_dir, session, self.name, trace_scope=scope)
         instruction, prior_context, errors, seen_queries, early_result = self._initialize_run(session)
         if early_result:

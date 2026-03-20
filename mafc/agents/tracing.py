@@ -105,9 +105,9 @@ class BaseTraceRecorder:
 
     Subclasses must:
     - Call ``super().__init__(trace_dir, session, trace_scope)``
-    - Build ``self.trace`` after calling super
-    - Set ``self.path`` for the agent-specific file path
-    - Call ``self.record_event("run_started", ...)`` at the end of their ``__init__``
+    - Build ``self.trace`` after calling super (must include an ``"events"`` list)
+    - Override ``_make_path(session_id)`` to return the agent-specific file path
+    - Call ``self._finalize_init(session)`` at the end of their ``__init__``
     - Call ``self._write_usage_stats()`` and ``self._persist()`` at the end of ``finalize()``
     """
 
@@ -196,3 +196,23 @@ class BaseTraceRecorder:
             self.scope.set_summary(self.trace)
         if self.write_file and self.path is not None:
             self.path.write_text(json.dumps(self.trace, indent=2, ensure_ascii=True), encoding="utf-8")
+
+    # ------------------------------------------------------------------
+    # Init helpers
+    # ------------------------------------------------------------------
+
+    def _make_path(self, session_id: str) -> Path | None:
+        """Return the file path for this trace. Override in each concrete recorder."""
+        return None
+
+    def _finalize_init(self, session: AgentSession) -> None:
+        """Finish recorder setup after ``self.trace`` has been assigned.
+
+        Sets up the trace directory and file path, then fires the ``run_started`` event.
+        Call this at the end of each concrete recorder's ``__init__``.
+        """
+        if self.enabled:
+            assert self.trace_dir is not None
+            self.trace_dir.mkdir(parents=True, exist_ok=True)
+            self.path = self._make_path(session.id)
+        self.record_event("run_started", {"session_id": session.id})
