@@ -8,6 +8,14 @@ from mafc.common.modeling.model import Model
 from mafc.tools.tool import Tool
 
 
+def format_evidence_block(evidence: Evidence) -> str | None:
+    """Format one evidence item as '- Source: ...\\n  Summary: ...'."""
+    summary = str(evidence.takeaways).strip() if evidence.takeaways is not None else str(evidence.raw).strip()
+    if not summary:
+        return None
+    return f"- Source: {evidence.source}\n  Summary: {summary}"
+
+
 @dataclass
 class AgentResult:
     session: AgentSession
@@ -80,12 +88,7 @@ class Agent(ABC):
 
     def format_evidence_context(self, evidence: Evidence) -> str | None:
         """Format one prior evidence item for planner-visible context."""
-        summary = (
-            str(evidence.takeaways).strip() if evidence.takeaways is not None else str(evidence.raw).strip()
-        )
-        if not summary:
-            return None
-        return f"- Source: {evidence.source}\n  Summary: {summary}"
+        return format_evidence_block(evidence)
 
     def make_result_message(
         self,

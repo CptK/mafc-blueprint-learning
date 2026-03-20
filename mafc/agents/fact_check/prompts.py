@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
+from mafc.agents.agent import format_evidence_block
 from mafc.agents.common import AgentSession
 from mafc.agents.fact_check.models import FactCheckSessionState
 from mafc.agents.web_search.actions import InspectWebSource
@@ -167,13 +168,9 @@ def build_routing_prompt(
 
 def build_final_synthesis_prompt(session: AgentSession, state: FactCheckSessionState) -> str:
     """Build a final synthesis prompt when the planner did not provide a final answer."""
-    evidence_lines = []
-    for evidence in state.evidences:
-        summary = (
-            str(evidence.takeaways).strip() if evidence.takeaways is not None else str(evidence.raw).strip()
-        )
-        if summary:
-            evidence_lines.append(f"- Source: {evidence.source}\n  Summary: {summary}")
+    evidence_lines = [
+        block for evidence in state.evidences if (block := format_evidence_block(evidence)) is not None
+    ]
 
     check_lines = [
         f"- {check_id}: {status.value}" for check_id, status in state.required_check_status.items()

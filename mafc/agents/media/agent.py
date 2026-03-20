@@ -13,7 +13,7 @@ from mafc.agents.media.utils import build_evidences_from_tool_result
 from mafc.agents.media.tracing import MediaTraceRecorder
 from mafc.common.trace import TraceScope
 from mafc.utils.media import extract_media_items
-from mafc.utils.parsing import extract_json_object
+from mafc.utils.parsing import extract_json_object, strip_json_fences
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
@@ -224,11 +224,7 @@ class MediaAgent(Agent):
     def _parse_synthesis_response(
         self, response_text: str, evidence_id_to_item: dict[str, Evidence]
     ) -> tuple[str, list[Evidence]] | None:
-        text = response_text.strip()
-        if text.startswith("```"):
-            lines = [line for line in text.splitlines() if not line.startswith("```")]
-            text = "\n".join(lines).strip()
-        text = extract_json_object(text)
+        text = extract_json_object(strip_json_fences(response_text.strip()))
         try:
             payload = json.loads(text)
         except json.JSONDecodeError as exc:

@@ -22,7 +22,7 @@ from mafc.agents.web_search.models import (
     QuerySearchResult,
     SearchTool,
 )
-from mafc.utils.parsing import extract_json_object, is_failed_model_text
+from mafc.utils.parsing import extract_json_object, is_failed_model_text, strip_json_fences
 from mafc.agents.web_search.synthesis import summarize_observation
 from mafc.agents.web_search.tracing import WebSearchTraceRecorder
 
@@ -267,11 +267,7 @@ def filter_sources_with_model(
 
 def parse_selected_urls(response_text: str, max_selected: int) -> list[str]:
     """Parse selected URL list from model output."""
-    text = response_text.strip()
-    if text.startswith("```"):
-        lines = [line for line in text.splitlines() if not line.startswith("```")]
-        text = "\n".join(lines).strip()
-    text = extract_json_object(text)
+    text = extract_json_object(strip_json_fences(response_text.strip()))
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:

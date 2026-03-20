@@ -8,7 +8,12 @@ from mafc.common.modeling.prompt import Prompt
 
 from mafc.agents.web_search.models import SearchPlanStep
 from mafc.agents.web_search.tracing import WebSearchTraceRecorder
-from mafc.utils.parsing import extract_json_object, is_failed_model_text
+from mafc.utils.parsing import (
+    extract_json_object,
+    is_failed_model_text,
+    strip_json_fences,
+    try_parse_with_repair,
+)
 
 
 def plan_step(
@@ -48,26 +53,21 @@ def plan_step(
         logger.info(f"Planner response:\n{response}")
         if is_failed_model_text(response):
             return None
-        parsed = parse_plan(agent, response)
-        if parsed is not None:
-            return parsed
-
-        repair_prompt = (
+        repair_prefix = (
             "Convert the following planner response to strict JSON with schema:\n"
             '{"queries": ["..."], "done": false}\n'
-            "Only return JSON.\n\n"
-            f"Response:\n{response}"
+            "Only return JSON."
         )
-        repair_messages = [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
-        _repair_resp = agent.model.generate(repair_messages)
-        repaired = _repair_resp.text
-        if trace is not None:
-            trace.add_usage(_repair_resp, agent.model.name)
-        if trace is not None and step is not None:
-            trace.record_planner_repair(prompt=repair_prompt, response_text=repaired, step=step)
-        if is_failed_model_text(repaired):
-            return None
-        return parse_plan(agent, repaired)
+        parsed, repair_text = try_parse_with_repair(
+            response, lambda text: parse_plan(agent, text), agent.model, repair_prefix, trace
+        )
+        if trace is not None and step is not None and repair_text is not None:
+            trace.record_planner_repair(
+                prompt=f"{repair_prefix}\n\nResponse:\n{response}",
+                response_text=repair_text,
+                step=step,
+            )
+        return parsed
     except Exception as exc:
         logger.error(f"Planner call failed: {exc}")
         errors.append(f"Planner call failed: {exc}")
@@ -78,11 +78,7 @@ def plan_step(
 
 def parse_plan(agent, response_text: str) -> SearchPlanStep | None:
     """Parse planner output into a validated `SearchPlanStep` object."""
-    text = response_text.strip()
-    if text.startswith("```"):
-        lines = [line for line in text.splitlines() if not line.startswith("```")]
-        text = "\n".join(lines).strip()
-    text = extract_json_object(text)
+    text = extract_json_object(strip_json_fences(response_text.strip()))
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:

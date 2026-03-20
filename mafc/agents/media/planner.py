@@ -5,7 +5,12 @@ from typing import cast
 
 from mafc.agents.media.models import MediaToolName, MediaToolPlan
 from mafc.agents.media.tracing import MediaTraceRecorder
-from mafc.utils.parsing import extract_json_object, is_failed_model_text
+from mafc.utils.parsing import (
+    extract_json_object,
+    is_failed_model_text,
+    strip_json_fences,
+    try_parse_with_repair,
+)
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
@@ -49,25 +54,15 @@ def plan_media_tools(
         logger.info(f"Media planner response:\n{response}")
         if is_failed_model_text(response):
             return None, planner_messages, response
-        parsed = parse_media_tool_plan(agent, response)
-        if parsed is not None:
-            return parsed, planner_messages, response
-
-        repair_prompt = (
+        repair_prefix = (
             "Convert the following planner response to strict JSON with schema:\n"
             '{"tools": ["reverse_image_search"]}\n'
-            "Only return JSON.\n\n"
-            f"Response:\n{response}"
+            "Only return JSON."
         )
-        _repair_resp = agent.model.generate(
-            [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
+        parsed, _ = try_parse_with_repair(
+            response, lambda text: parse_media_tool_plan(agent, text), agent.model, repair_prefix, trace
         )
-        repaired = _repair_resp.text
-        if trace is not None:
-            trace.add_usage(_repair_resp, agent.model.name)
-        if is_failed_model_text(repaired):
-            return None, planner_messages, response
-        return parse_media_tool_plan(agent, repaired), planner_messages, response
+        return parsed, planner_messages, response
     except Exception as exc:
         logger.error(f"Media planner call failed: {exc}")
         errors.append(f"Media planner call failed: {exc}")
@@ -76,11 +71,7 @@ def plan_media_tools(
 
 def parse_media_tool_plan(agent, response_text: str) -> MediaToolPlan | None:
     """Parse planner output into a validated media tool plan."""
-    text = response_text.strip()
-    if text.startswith("```"):
-        lines = [line for line in text.splitlines() if not line.startswith("```")]
-        text = "\n".join(lines).strip()
-    text = extract_json_object(text)
+    text = extract_json_object(strip_json_fences(response_text.strip()))
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:

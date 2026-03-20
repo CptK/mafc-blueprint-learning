@@ -12,7 +12,7 @@ from mafc.agents.fact_check.models import (
     PlannerDecisionType,
     RoutingDecision,
 )
-from mafc.utils.parsing import extract_json_object
+from mafc.utils.parsing import extract_json_object, strip_json_fences
 
 
 class PlannerCheckUpdatePayload(BaseModel):
@@ -59,16 +59,9 @@ class RoutingDecisionPayload(BaseModel):
     final_answer: str | None = None
 
 
-def _strip_fences(text: str) -> str:
-    if text.startswith("```"):
-        lines = [line for line in text.splitlines() if not line.startswith("```")]
-        return "\n".join(lines).strip()
-    return text
-
-
 def parse_planner_decision(response_text: str) -> PlannerDecision:
     """Parse action-node planner output into a strongly typed decision."""
-    payload = json.loads(extract_json_object(_strip_fences(response_text.strip())))
+    payload = json.loads(extract_json_object(strip_json_fences(response_text.strip())))
     parsed = PlannerDecisionPayload.model_validate(payload)
     return PlannerDecision(
         decision_type=parsed.decision_type,
@@ -97,7 +90,7 @@ def try_parse_planner_decision(response_text: str) -> PlannerDecision | None:
 
 def parse_routing_decision(response_text: str) -> RoutingDecision:
     """Parse routing-phase output into a strongly typed routing decision."""
-    payload = json.loads(extract_json_object(_strip_fences(response_text.strip())))
+    payload = json.loads(extract_json_object(strip_json_fences(response_text.strip())))
     parsed = RoutingDecisionPayload.model_validate(payload)
     return RoutingDecision(
         next_node_id=parsed.next_node_id,

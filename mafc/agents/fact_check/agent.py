@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ezmm import MultimodalSequence
 
-from mafc.agents.agent import Agent, AgentResult
+from mafc.agents.agent import Agent, AgentResult, format_evidence_block
 from mafc.agents.common import AgentSession
 from mafc.agents.fact_check.models import (
     CheckStatus,
@@ -144,15 +144,9 @@ class FactCheckAgent(Agent):
 
     def synthesize_from_evidences(self, instruction: str, evidences: list[Evidence]) -> str:
         """Synthesize an answer from evidence using the top-level model."""
-        evidence_lines = []
-        for evidence in evidences:
-            summary = (
-                str(evidence.takeaways).strip()
-                if evidence.takeaways is not None
-                else str(evidence.raw).strip()
-            )
-            if summary:
-                evidence_lines.append(f"- Source: {evidence.source}\n  Summary: {summary}")
+        evidence_lines = [
+            block for evidence in evidences if (block := format_evidence_block(evidence)) is not None
+        ]
         if not evidence_lines:
             return ""
 

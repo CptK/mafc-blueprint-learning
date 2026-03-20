@@ -5,7 +5,7 @@ from pathlib import Path
 from ezmm import MultimodalSequence
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from mafc.agents.agent import Agent, AgentResult
+from mafc.agents.agent import Agent, AgentResult, format_evidence_block
 from mafc.agents.common import AgentSession
 from mafc.agents.judge.tracing import JudgeTraceRecorder
 from mafc.common.claim import Claim
@@ -16,7 +16,7 @@ from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.common.trace import TraceScope
 from mafc.utils.media import deduplicate_media
-from mafc.utils.parsing import extract_json_object
+from mafc.utils.parsing import extract_json_object, strip_json_fences, try_parse_with_repair
 
 
 class JudgeDecisionPayload(BaseModel):
@@ -133,22 +133,21 @@ class JudgeAgent(Agent):
         self, response_text: str, trace: JudgeTraceRecorder
     ) -> JudgeDecisionPayload | None:
         """Parse the model response; attempt a repair call if the first parse fails."""
-        parsed = self._parse_response(response_text)
-        if parsed is not None:
-            return parsed
-        repair_prompt = (
+        repair_prefix = (
             "Convert the following judge response to strict JSON with schema:\n"
             '{"label": "one allowed label", "justification": "short grounded justification"}\n'
             f"Allowed labels: {', '.join(str(k) for k in self.class_definitions)}\n"
-            "Only return JSON.\n\n"
-            f"Response:\n{response_text}"
+            "Only return JSON."
         )
-        repair_messages = [Message(role=MessageRole.USER, content=Prompt(text=repair_prompt))]
-        _repair_resp = self.model.generate(repair_messages)
-        repair_response = _repair_resp.text.strip()
-        trace.add_usage(_repair_resp, self.model.name)
-        trace.record_repair(prompt=repair_prompt, response_text=repair_response)
-        return self._parse_response(repair_response)
+        parsed, repair_text = try_parse_with_repair(
+            response_text, self._parse_response, self.model, repair_prefix, trace
+        )
+        if repair_text is not None:
+            trace.record_repair(
+                prompt=f"{repair_prefix}\n\nResponse:\n{response_text}",
+                response_text=repair_text,
+            )
+        return parsed
 
     def _succeed(
         self,
@@ -190,15 +189,9 @@ class JudgeAgent(Agent):
         label_lines = [
             f"- {label.value}: {definition}" for label, definition in self.class_definitions.items()
         ]
-        evidence_lines = []
-        for evidence in evidences:
-            summary = (
-                str(evidence.takeaways).strip()
-                if evidence.takeaways is not None
-                else str(evidence.raw).strip()
-            )
-            if summary:
-                evidence_lines.append(f"- Source: {evidence.source}\n  Summary: {summary}")
+        evidence_lines = [
+            block for evidence in evidences if (block := format_evidence_block(evidence)) is not None
+        ]
 
         system_text = (
             "You are a benchmark judging agent.\n"
@@ -223,11 +216,9 @@ class JudgeAgent(Agent):
 
     def _parse_response(self, response_text: str) -> JudgeDecisionPayload | None:
         """Parse the judge model response into a validated label decision."""
-        text = response_text.strip()
-        if text.startswith("```"):
-            lines = [line for line in text.splitlines() if not line.startswith("```")]
-            text = "\n".join(lines).strip()
         try:
-            return JudgeDecisionPayload.model_validate(json.loads(extract_json_object(text)))
+            return JudgeDecisionPayload.model_validate(
+                json.loads(extract_json_object(strip_json_fences(response_text.strip())))
+            )
         except (json.JSONDecodeError, ValidationError, ValueError):
             return None
