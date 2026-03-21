@@ -11,6 +11,7 @@ import sqlite3
 import urllib.parse
 from pathlib import Path
 import socketserver
+from typing import Any
 
 import yaml
 
@@ -50,7 +51,7 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
     viewer_dir: Path | None = None
     blueprints_dir: Path | None = None
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(self.viewer_dir), **kwargs)
 
     def do_GET(self) -> None:
@@ -81,7 +82,10 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path in ("/blueprints", "/blueprints/"):
-            self._serve_static_file(self.__class__.viewer_dir / "blueprints.html")
+            if self.__class__.viewer_dir is not None:
+                self._serve_static_file(self.__class__.viewer_dir / "blueprints.html")
+            else:
+                self.send_error(503, "Viewer directory not configured")
             return
 
         super().do_GET()
