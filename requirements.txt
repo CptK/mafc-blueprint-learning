@@ -18,3 +18,4 @@ pytest-cov
 scrapeMM
 google-cloud-vision
 pyyaml
+mypy
