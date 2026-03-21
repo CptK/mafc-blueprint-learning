@@ -99,7 +99,7 @@ def test_perform_samples_video_frame_and_logs_warning(monkeypatch) -> None:
             return [frame.getvalue()]
 
     action = object.__new__(Geolocate)
-    action.media = FakeVideo()
+    action.media = cast(Any, FakeVideo())
 
     warnings: list[str] = []
     captured = {}

@@ -1,4 +1,5 @@
 from abc import ABC
+from typing import cast
 from datetime import date, datetime
 from enum import Enum
 import hashlib
@@ -144,7 +145,8 @@ class RemoteSearchPlatform(SearchPlatform):
             response = self.cur.execute(stmt, (self._cache_key(query),))
             result = response.fetchone()
         if result is not None:
-            return pickle.loads(result[0])
+            return cast(SearchResults, pickle.loads(result[0]))
+        return None
 
     def _cache_key(self, query: Query) -> str:
         """Builds a deterministic key for cross-process cache reuse."""

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import cast
+from typing import Sequence, cast
 
 from ezmm import MultimodalSequence
 from ezmm.common.items import Image, Video
@@ -264,7 +264,7 @@ class MediaAgent(Agent):
             errors.append(
                 "Media planner output could not be parsed. Falling back to running reverse image search and geolocation."
             )
-            selected_tools = ["reverse_image_search", "geolocate"]
+            selected_tools: Sequence[str] = ["reverse_image_search", "geolocate"]
         else:
             selected_tools = plan.tools
         if trace is not None:

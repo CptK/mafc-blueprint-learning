@@ -31,7 +31,7 @@ class TraceScope:
         metadata: dict[str, Any] | None = None,
     ) -> TraceScope:
         state = _TraceState(trace_id=trace_id, trace_dir=Path(trace_dir) if trace_dir is not None else None)
-        node = {
+        node: dict[str, Any] = {
             "scope_type": scope_type,
             "key": key,
             "metadata": metadata or {},
@@ -48,7 +48,7 @@ class TraceScope:
         key: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> TraceScope:
-        child = {
+        child: dict[str, Any] = {
             "scope_type": scope_type,
             "key": key,
             "metadata": metadata or {},

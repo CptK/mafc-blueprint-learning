@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mafc.agents.agent import AgentResult
 from mafc.agents.common import AgentSession
@@ -316,4 +316,4 @@ class WebSearchTraceRecorder(BaseTraceRecorder):
 
     def _current_iteration(self) -> dict[str, Any]:
         assert self._current_iteration_index is not None, "No iteration is currently active."
-        return self.trace["iterations"][self._current_iteration_index]
+        return cast(dict[str, Any], self.trace["iterations"][self._current_iteration_index])

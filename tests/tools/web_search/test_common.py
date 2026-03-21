@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 import pytest
 from ezmm import MultimodalSequence, Video
+from typing import cast
 
 from mafc.tools.web_search.common import Query, SearchMode, SearchResults, Source, WebSource
 
@@ -37,7 +38,7 @@ def test_query_helpers_and_time_properties() -> None:
 
 
 def test_query_accepts_video_media() -> None:
-    query = Query(media=Video(binary_data=b"video-bytes"))
+    query = Query(media=cast(Video, Video(binary_data=b"video-bytes")))
 
     assert query.has_media() is True
     assert query.has_image() is False

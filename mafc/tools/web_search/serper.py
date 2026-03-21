@@ -65,6 +65,7 @@ class SerperAPI:
         assert query, "Query must not be None."
         assert query.text, "Query text must not be None."
 
+        tbs: str | None
         if query.end_date is not None:
             end_date = query.end_date.strftime("%m/%d/%Y")
             tbs = f"cdr:1,cd_min:1/1/1900,cd_max:{end_date}"
@@ -101,7 +102,7 @@ class SerperAPI:
             "q": search_term,
             **{key: value for key, value in kwargs.items() if value is not None},
         }
-        response, num_tries, sleep_time = None, 0, 0
+        response, num_tries, sleep_time = None, 0, 0.0
 
         while not response and num_tries < max_retries:
             num_tries += 1
@@ -122,7 +123,7 @@ class SerperAPI:
 
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
                 sleep_time = min(sleep_time * 2, 600)
-                sleep_time = random.uniform(1, 10) if not sleep_time else sleep_time
+                sleep_time = random.uniform(1, 10) if not sleep_time else float(sleep_time)
                 logger.warning(f"Unable to reach Serper API: {exc}. " f"Retrying after {sleep_time} seconds.")
                 time.sleep(sleep_time)
 
@@ -130,7 +131,7 @@ class SerperAPI:
             raise ValueError("Failed to get a response from Serper API.")
 
         response.raise_for_status()
-        search_results = response.json()
+        search_results: dict[Any, Any] = response.json()
         return search_results
 
     def _parse_results(
@@ -144,7 +145,7 @@ class SerperAPI:
 
     def _parse_sources(self, response: dict, query: Query) -> list[WebSource]:
         # TODO: Process sitelinks
-        sources = []
+        sources: list[WebSource] = []
         result_key = "images" if query.has_media() else "organic"
         result_bucket = response.get(result_key)
         if not result_bucket:
@@ -200,6 +201,7 @@ def _parse_answer_box(response: dict) -> str | None:
         if snippet_highlighted := answer_box.get("snippetHighlighted"):
             answer.append(str(snippet_highlighted))
         return "\n".join(answer)
+    return None
 
 
 def _parse_knowledge_graph(response: dict) -> str | None:
@@ -216,6 +218,7 @@ def _parse_knowledge_graph(response: dict) -> str | None:
             for attribute, value in attributes.items():
                 knowledge_graph.append(f"{attribute}: {value}")
         return "\n".join(knowledge_graph)
+    return None
 
 
 def filter_unique_results_by_domain(results):

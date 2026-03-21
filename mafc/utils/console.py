@@ -72,7 +72,7 @@ def num2text(num):
         return "%.0fM" % millions
 
 
-def sec2hhmmss(s: float) -> Optional[str]:
+def sec2hhmmss(s: float | None) -> Optional[str]:
     if s is None:
         return None
     m = s // 60
@@ -80,7 +80,7 @@ def sec2hhmmss(s: float) -> Optional[str]:
     return "%d:%02d:%02d h" % (h, m % 60, s % 60)
 
 
-def sec2mmss(s: float) -> Optional[str]:
+def sec2mmss(s: float | None) -> Optional[str]:
     if s is None:
         return None
     m = s // 60

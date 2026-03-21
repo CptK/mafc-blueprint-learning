@@ -8,7 +8,8 @@ from ezmm import Image, Video
 from mafc.common.logger import logger
 from mafc.common.claim import Claim
 from mafc.eval.benchmark import Benchmark
-from mafc.eval.veritas.types import ClaimEntry
+from mafc.common.label import BaseLabel
+from mafc.eval.veritas.types import ClaimEntry, MediaScore
 from mafc.eval.types import BenchmarkSample
 from mafc.eval.veritas.labels import (
     Veritas3Label,
@@ -165,14 +166,14 @@ class VeriTaS(Benchmark[BenchmarkSample]):
 
     def _get_justification(self, claim_entry: ClaimEntry) -> dict:
         """Extract justification/ground truth info from claim entry."""
-        integrity_obj = claim_entry.get("integrity", {})
+        integrity_obj: float | MediaScore | None = claim_entry.get("integrity")
         integrity_score = integrity_obj.get("score") if isinstance(integrity_obj, dict) else integrity_obj
 
         # Build media verdicts from the new format
         media_verdicts = []
         for media_item in claim_entry.get("media", []):
-            authenticity = media_item.get("authenticity", {})
-            contextualization = media_item.get("contextualization", {})
+            authenticity: float | MediaScore | None = media_item.get("authenticity")
+            contextualization: float | MediaScore | None = media_item.get("contextualization")
             media_verdicts.append(
                 {
                     "media_id": media_item.get("id"),
@@ -264,12 +265,12 @@ class VeriTaS(Benchmark[BenchmarkSample]):
 
         logger.info(f"[VeriTaS] Successfully loaded {len(data)} claims")
         logger.info("[VeriTaS] Label distribution:")
-        label_counts = {}
+        label_counts: dict[BaseLabel, int] = {}
         for item in data:
-            label = item.label
-            label_counts[label] = label_counts.get(label, 0) + 1
-        for label, count in label_counts.items():
-            logger.info(f"[VeriTaS]   {label.value}: {count}")
+            lbl = item.label
+            label_counts[lbl] = label_counts.get(lbl, 0) + 1
+        for lbl, count in label_counts.items():
+            logger.info(f"[VeriTaS]   {lbl.value}: {count}")
         if skipped_claims:
             logger.warning(f"[VeriTaS] Skipped {skipped_claims} claim(s) due to media/claim parsing errors.")
 

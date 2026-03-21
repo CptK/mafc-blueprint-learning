@@ -367,7 +367,8 @@ class Logger:
         if self._current_fact_check_id is None:
             return self.experiment_dir or Path()
         elif self.experiment_dir is not None:
-            return self.experiment_dir / "fact-checks" / self._current_fact_check_id
+            fact_check_id: str = self._current_fact_check_id
+            return Path(self.experiment_dir) / "fact-checks" / fact_check_id
         else:
             return Path()
 

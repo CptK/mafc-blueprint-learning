@@ -27,7 +27,7 @@ class Action(ABC):
         """Memorizes the parameters provided to the __init__() method of the action.
         Used for the string representation of the action, needed in the Report.
         Always call this first in the __init__() method of an action."""
-        init_signature = inspect.signature(self.__init__)
+        init_signature = inspect.signature(type(self).__init__)
 
         # Only save non-None parameters
         init_parameters = dict()

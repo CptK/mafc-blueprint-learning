@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mafc.agents.agent import AgentResult
 from mafc.agents.common import AgentSession
@@ -26,7 +26,7 @@ _RAW_TRUNCATE_CHARS = 20000
 
 
 def _serialize_dataclass(value: Any) -> Any:
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
     return value
 
@@ -468,7 +468,7 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
 
     def _current_iteration(self) -> dict[str, Any]:
         assert self._current_iteration_index is not None, "No iteration is currently active."
-        return self.trace["iterations"][self._current_iteration_index]
+        return cast(dict[str, Any], self.trace["iterations"][self._current_iteration_index])
 
     def _add_flow_node(self, node_id: str, node_type: str, label: str, iteration: int | None) -> None:
         nodes: list[dict[str, Any]] = self.trace["flow"]["nodes"]

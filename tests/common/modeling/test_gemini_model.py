@@ -1,6 +1,6 @@
 import base64
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from ezmm import Image
@@ -47,7 +47,7 @@ def test_gemini_format_input_text(monkeypatch) -> None:
     monkeypatch.setattr("mafc.common.modeling.gemini_model.Video", type("FakeVideo", (), {}))
     monkeypatch.setattr("mafc.common.modeling.gemini_model.Part", lambda **kwargs: kwargs)
     out = format_input(cast(Prompt, FakePromptBlocks(["hello"])), context_window=100)
-    assert out == [{"text": "hello"}]
+    assert cast(list[Any], out) == [{"text": "hello"}]
 
 
 def test_gemini_format_input_image_video_and_budget(monkeypatch) -> None:
@@ -68,7 +68,7 @@ def test_gemini_format_input_image_video_and_budget(monkeypatch) -> None:
     monkeypatch.setattr("mafc.common.modeling.gemini_model.count_image_tokens_estimate", lambda image: 1)
 
     out = format_input(cast(Prompt, FakePromptBlocks([FakeImage(), FakeVideo()])), context_window=5)
-    assert out == [{"inline_data": {"mime_type": "image/jpeg", "data": b"abc"}}]
+    assert cast(list[Any], out) == [{"inline_data": {"mime_type": "image/jpeg", "data": b"abc"}}]
 
     monkeypatch.setattr("mafc.common.modeling.gemini_model.count_image_tokens_estimate", lambda image: 99)
     out2 = format_input(cast(Prompt, FakePromptBlocks([FakeImage()])), context_window=1)

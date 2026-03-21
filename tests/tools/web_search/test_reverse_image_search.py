@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 from ezmm import Image
 from ezmm.common.registry import item_registry
 
 from mafc.tools.web_search.common import Query
-from mafc.tools.web_search.google_vision import GoogleRisResults
+from mafc.tools.web_search.google_vision import GoogleRisResults, GoogleVisionAPI
 from mafc.tools.web_search.reverse_image_search import ReverseImageSearch, ReverseImageSearchTool
 
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 
 
-class FakeVisionAPI:
+class FakeVisionAPI(GoogleVisionAPI):
     def __init__(self, result: GoogleRisResults):
+        # Skip GoogleVisionAPI.__init__ to avoid real API connection
         self.result = result
         self.queries: list[Query] = []
 
@@ -27,7 +29,7 @@ def test_reverse_image_search_tool_performs_registered_media_lookup() -> None:
     item_registry.add_item(image)
     expected = GoogleRisResults(
         sources=[],
-        query=Query(text="seed", media=object()),
+        query=Query(text="seed", media=cast(Any, object())),
         entities={"Mountain": 0.8},
         best_guess_labels=["Alps"],
     )
@@ -48,7 +50,7 @@ def test_reverse_image_search_tool_returns_empty_result_for_missing_media() -> N
         api=FakeVisionAPI(
             GoogleRisResults(
                 sources=[],
-                query=Query(text="seed", media=object()),
+                query=Query(text="seed", media=cast(Any, object())),
                 entities={},
                 best_guess_labels=[],
             )
@@ -57,6 +59,7 @@ def test_reverse_image_search_tool_returns_empty_result_for_missing_media() -> N
 
     out = tool.perform(ReverseImageSearch("<image:999999>"))
 
+    assert isinstance(out.raw, GoogleRisResults)
     raw = out.raw
     assert raw.sources == []
     assert raw.entities == {}
@@ -69,7 +72,7 @@ def test_reverse_image_search_tool_returns_none_summary_for_empty_results() -> N
     item_registry.add_item(image)
     empty_result = GoogleRisResults(
         sources=[],
-        query=Query(text="seed", media=object()),
+        query=Query(text="seed", media=cast(Any, object())),
         entities={},
         best_guess_labels=[],
     )

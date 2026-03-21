@@ -86,9 +86,9 @@ def _evaluate_condition(features: Mapping[str, Any], condition: Any) -> bool:
     operator = condition.op
 
     if operator == "==":
-        return actual == expected
+        return bool(actual == expected)
     if operator == "!=":
-        return actual != expected
+        return bool(actual != expected)
     if operator == ">":
         return actual is not None and actual > expected
     if operator == ">=":
