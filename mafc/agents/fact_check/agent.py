@@ -404,7 +404,7 @@ class FactCheckAgent(Agent):
         _resp = self.model.generate(messages)
         response_text = _resp.text.strip()
         trace.add_usage(_resp, self.model.name)
-        logger.info(f"[FactCheckAgent] Iteration {state.iteration} routing response:\n{response_text}")
+        logger.debug(f"[FactCheckAgent] Iteration {state.iteration} routing response:\n{response_text}")
 
         routing = try_parse_routing_decision(response_text)
         if routing is None:
