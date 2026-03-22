@@ -1,5 +1,5 @@
 import { EDGE_STYLES, WEB_LAYOUT } from "./constants.js";
-import { summarizeText, wrapText } from "./utils.js";
+import { summarizeText, wrapText, humanizeToolName } from "./utils.js";
 
 export function buildViewModel(trace) {
   const nodes = [];
@@ -7,74 +7,9 @@ export function buildViewModel(trace) {
   const nodeById = {};
   let currentMainY = 80;
 
-  if (trace.agent === "MediaAgent") {
-    const runId = "media-root";
-    pushNode(makeNode(runId, "childrun", "MediaAgent", buildRunSubtitle(trace), trace, null, false, WEB_LAYOUT.mainX, currentMainY));
-    const mediaLayout = addMediaTraceGraph(runId, trace, "root", WEB_LAYOUT.childX, currentMainY + 120);
-    if (trace.summary && trace.summary.result && trace.summary.result.result) {
-      pushNode(
-        makeNode(
-          "media-result",
-          "result",
-          "Result",
-          summarizeText(trace.summary.result.result.text || "", 120),
-          trace.summary.result,
-          null,
-          false,
-          WEB_LAYOUT.mainX,
-          mediaLayout.bottomY + 180
-        )
-      );
-      edges.push(makeEdge(mediaLayout.lastNodeId || runId, "media-result", "finalizes"));
-    }
-    return { nodes, edges, nodeById };
-  }
-
-  if (trace.agent === "JudgeAgent") {
-    const runId = "judge-root";
-    pushNode(makeNode(runId, "childrun", "JudgeAgent", buildRunSubtitle(trace), trace, null, false, WEB_LAYOUT.mainX, currentMainY));
-    const judgeLayout = addJudgeTraceGraph(runId, trace, "root", WEB_LAYOUT.childX, currentMainY + 120);
-    if (trace.summary && trace.summary.result && trace.summary.result.result) {
-      pushNode(
-        makeNode(
-          "judge-result",
-          "result",
-          "Result",
-          summarizeText(trace.summary.result.result.text || "", 120),
-          trace.summary.result,
-          null,
-          false,
-          WEB_LAYOUT.mainX,
-          judgeLayout.bottomY + 180
-        )
-      );
-      edges.push(makeEdge(judgeLayout.lastNodeId || runId, "judge-result", "finalizes"));
-    }
-    return { nodes, edges, nodeById };
-  }
-
-  if (trace.agent === "WebSearchAgent") {
-    const runId = "websearch-root";
-    pushNode(makeNode(runId, "childrun", "WebSearchAgent", buildRunSubtitle(trace), trace, null, false, WEB_LAYOUT.mainX, currentMainY));
-    const webLayout = addWebTraceGraph(runId, trace, "root", WEB_LAYOUT.childX, currentMainY + 120);
-    if (trace.summary && trace.summary.result && trace.summary.result.result) {
-      pushNode(
-        makeNode(
-          "websearch-result",
-          "result",
-          "Result",
-          summarizeText(trace.summary.result.result.text || "", 120),
-          trace.summary.result,
-          null,
-          false,
-          WEB_LAYOUT.mainX,
-          webLayout.bottomY + 180
-        )
-      );
-      edges.push(makeEdge(webLayout.lastNodeId || runId, "websearch-result", "finalizes"));
-    }
-    return { nodes, edges, nodeById };
-  }
+  if (trace.agent === "MediaAgent") return buildStandaloneAgentView("MediaAgent", addMediaTraceGraph);
+  if (trace.agent === "JudgeAgent") return buildStandaloneAgentView("JudgeAgent", addJudgeTraceGraph);
+  if (trace.agent === "WebSearchAgent") return buildStandaloneAgentView("WebSearchAgent", addWebTraceGraph);
 
   pushNode(makeNode("claim", "claim", "Claim", summarizeText(trace.claim && trace.claim.text, 180), trace.claim || {}, null, false, WEB_LAYOUT.mainX, currentMainY));
   currentMainY += WEB_LAYOUT.rowGap;
@@ -176,17 +111,7 @@ export function buildViewModel(trace) {
       }
     });
     // Center the task subtree below the iteration node
-    if (nodes.length > taskNodesStart) {
-      const taskGroupNodes = nodes.slice(taskNodesStart);
-      const minX = Math.min(...taskGroupNodes.map(n => n.x)) - 120;
-      const maxX = Math.max(...taskGroupNodes.map(n => n.x)) + 120;
-      const offsetX = WEB_LAYOUT.mainX - (minX + maxX) / 2;
-      for (let i = taskNodesStart; i < nodes.length; i++) {
-        const shifted = { ...nodes[i], x: nodes[i].x + offsetX };
-        nodes[i] = shifted;
-        nodeById[shifted.id] = shifted;
-      }
-    }
+    centerNodesAt(nodes, nodeById, taskNodesStart, WEB_LAYOUT.mainX);
     // Align all sub-agent return nodes to the same Y so edges to the next
     // iteration all depart from the same horizontal level and never cross
     if (subAgentReturnNodes.length > 1) {
@@ -554,17 +479,7 @@ export function buildViewModel(trace) {
     });
 
     // Center the entire block so its bounding box center aligns with baseX
-    if (nodes.length > webNodesStart) {
-      const blockNodes = nodes.slice(webNodesStart);
-      const minX = Math.min(...blockNodes.map(n => n.x)) - 120;
-      const maxX = Math.max(...blockNodes.map(n => n.x)) + 120;
-      const offsetX = baseX - (minX + maxX) / 2;
-      for (let i = webNodesStart; i < nodes.length; i++) {
-        const shifted = { ...nodes[i], x: nodes[i].x + offsetX };
-        nodes[i] = shifted;
-        nodeById[shifted.id] = shifted;
-      }
-    }
+    centerNodesAt(nodes, nodeById, webNodesStart, baseX);
 
     return { lastNodeId, bottomY };
   }
@@ -609,12 +524,7 @@ export function buildViewModel(trace) {
       toolNodeIds.push(toolNodeId);
 
       const sources = toolResult.sources || [];
-      const toolLabel =
-        toolResult.tool === "reverse_image_search"
-          ? "Reverse Image Search"
-          : toolResult.tool === "geolocate"
-          ? "Geolocate"
-          : toolResult.tool || "Tool";
+      const toolLabel = humanizeToolName(toolResult.tool);
       const toolSubtitle =
         sources.length > 0 ? `${sources.length} source${sources.length === 1 ? "" : "s"}` : "no sources";
 
@@ -734,6 +644,31 @@ export function buildViewModel(trace) {
     return { lastNodeId: decisionId, bottomY: baseY };
   }
 
+  function buildStandaloneAgentView(agentName, addGraphFn) {
+    const prefix = agentName.replace("Agent", "").toLowerCase();
+    const runId = `${prefix}-root`;
+    pushNode(makeNode(runId, "childrun", agentName, buildRunSubtitle(trace), trace, null, false, WEB_LAYOUT.mainX, currentMainY));
+    const layout = addGraphFn(runId, trace, "root", WEB_LAYOUT.childX, currentMainY + 120);
+    if (trace.summary && trace.summary.result && trace.summary.result.result) {
+      const resultId = `${prefix}-result`;
+      pushNode(
+        makeNode(
+          resultId,
+          "result",
+          "Result",
+          summarizeText(trace.summary.result.result.text || "", 120),
+          trace.summary.result,
+          null,
+          false,
+          WEB_LAYOUT.mainX,
+          layout.bottomY + 180
+        )
+      );
+      edges.push(makeEdge(layout.lastNodeId || runId, resultId, "finalizes"));
+    }
+    return { nodes, edges, nodeById };
+  }
+
   function flattenSelectedSources(selectedSources) {
     const flat = [];
     selectedSources.forEach((entry) => {
@@ -751,6 +686,19 @@ export function buildViewModel(trace) {
     const count = Array.isArray(retrievals) ? retrievals.length : 0;
     const rows = Math.ceil(count / WEB_LAYOUT.urlColumns);
     return containerY + 110 + Math.max(0, rows - 1) * WEB_LAYOUT.urlGap;
+  }
+}
+
+function centerNodesAt(nodes, nodeById, startIndex, targetX) {
+  if (nodes.length <= startIndex) return;
+  const groupNodes = nodes.slice(startIndex);
+  const minX = Math.min(...groupNodes.map((n) => n.x)) - 120;
+  const maxX = Math.max(...groupNodes.map((n) => n.x)) + 120;
+  const offsetX = targetX - (minX + maxX) / 2;
+  for (let i = startIndex; i < nodes.length; i++) {
+    const shifted = { ...nodes[i], x: nodes[i].x + offsetX };
+    nodes[i] = shifted;
+    nodeById[shifted.id] = shifted;
   }
 }
 

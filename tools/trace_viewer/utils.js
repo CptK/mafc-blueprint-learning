@@ -43,6 +43,12 @@ export function wrapText(value, maxCharsPerLine, maxLines) {
   return lines.slice(0, maxLines);
 }
 
+export function humanizeToolName(tool) {
+  if (tool === "reverse_image_search") return "Reverse Image Search";
+  if (tool === "geolocate") return "Geolocate";
+  return tool || "Tool";
+}
+
 export function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")

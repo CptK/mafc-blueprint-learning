@@ -1,4 +1,4 @@
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, humanizeToolName } from "./utils.js";
 
 export function renderDetail(node) {
   const payload = node.payload || {};
@@ -120,16 +120,13 @@ export function renderDetail(node) {
         ${flags.length ? ` &nbsp;|&nbsp; ${flags.map(escapeHtml).join(", ")}` : ""}
       </p>
 
-      ${errors.length ? `
-        <div class="detail-section">
-          <strong>Errors</strong>
-          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
-        </div>` : ""}
+      ${renderErrorList(errors)}
 
       ${(payload.planner_messages || []).map((msg, i) =>
-        renderCollapsibleMultimodalPrompt(
+        renderCollapsibleMultimodal(
           `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-          msg.content
+          msg.content,
+          { textFirst: true }
         )
       ).join("")}
 
@@ -184,16 +181,13 @@ export function renderDetail(node) {
       ${decision.final_answer ? renderCollapsibleText("Final Answer", decision.final_answer) : ""}
       ${routingDecision.final_answer ? renderCollapsibleText("Final Answer (routing)", routingDecision.final_answer) : ""}
 
-      ${errors.length ? `
-        <div class="detail-section">
-          <strong>Errors</strong>
-          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
-        </div>` : ""}
+      ${renderErrorList(errors)}
 
       ${(payload.planner_messages || []).map((msg, i) =>
-        renderCollapsibleMultimodalPrompt(
+        renderCollapsibleMultimodal(
           `Execution prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-          msg.content
+          msg.content,
+          { textFirst: true }
         )
       ).join("")}
 
@@ -201,9 +195,10 @@ export function renderDetail(node) {
 
       ${routing && routing.type === "llm" ? `
         ${((routing.messages) || []).map((msg, i) =>
-          renderCollapsibleMultimodalPrompt(
+          renderCollapsibleMultimodal(
             `Routing prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-            msg.content
+            msg.content,
+            { textFirst: true }
           )
         ).join("")}
         ${renderCollapsibleText("Routing response", routing.response)}
@@ -228,11 +223,7 @@ export function renderDetail(node) {
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
       </p>
 
-      ${errors.length ? `
-        <div class="detail-section">
-          <strong>Errors</strong>
-          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
-        </div>` : ""}
+      ${renderErrorList(errors)}
 
       ${seenQueries.length ? `
         <div class="detail-section">
@@ -261,11 +252,7 @@ export function renderDetail(node) {
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
       </p>
 
-      ${errors.length ? `
-        <div class="detail-section">
-          <strong>Errors</strong>
-          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
-        </div>` : ""}
+      ${renderErrorList(errors)}
 
       ${renderCollapsibleTextWithMedia("Instruction", payload.instruction)}
       ${renderCollapsibleMultimodal("Result", result.result)}
@@ -282,11 +269,7 @@ export function renderDetail(node) {
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
       </p>
 
-      ${errors.length ? `
-        <div class="detail-section">
-          <strong>Errors</strong>
-          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
-        </div>` : ""}
+      ${renderErrorList(errors)}
 
       ${renderCollapsibleMultimodal("Summary", payload.result || (payload.answer ? { text: payload.answer } : null))}
 
@@ -311,9 +294,10 @@ export function renderDetail(node) {
       <p><strong>Planned tools:</strong> ${escapeHtml((payload.planned_tools || []).join(", ") || "none")}</p>
 
       ${(payload.planner_messages || []).map((msg, i) =>
-        renderCollapsibleMultimodalPrompt(
+        renderCollapsibleMultimodal(
           `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-          msg.content
+          msg.content,
+          { textFirst: true }
         )
       ).join("")}
 
@@ -323,12 +307,7 @@ export function renderDetail(node) {
 
   if (detailType === "media_tool_result") {
     const sources = payload.sources || [];
-    const toolLabel =
-      payload.tool === "reverse_image_search"
-        ? "Reverse Image Search"
-        : payload.tool === "geolocate"
-        ? "Geolocate"
-        : escapeHtml(payload.tool || "Tool");
+    const toolLabel = escapeHtml(humanizeToolName(payload.tool));
     return `
       <h3>${toolLabel}</h3>
       <p><strong>Sources found:</strong> ${sources.length}</p>
@@ -373,18 +352,15 @@ export function renderDetail(node) {
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
       </p>
 
-      ${errors.length ? `
-        <div class="detail-section">
-          <strong>Errors</strong>
-          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
-        </div>` : ""}
+      ${renderErrorList(errors)}
 
       ${justification ? renderCollapsibleText("Justification", justification) : ""}
 
       ${(payload.prompt_messages || []).map((msg, i) =>
-        renderCollapsibleMultimodalPrompt(
+        renderCollapsibleMultimodal(
           `Prompt — ${escapeHtml(msg.role || `message ${i + 1}`)}`,
-          msg.content
+          msg.content,
+          { textFirst: true }
         )
       ).join("")}
 
@@ -404,11 +380,7 @@ export function renderDetail(node) {
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
       </p>
 
-      ${errors.length ? `
-        <div class="detail-section">
-          <strong>Errors</strong>
-          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
-        </div>` : ""}
+      ${renderErrorList(errors)}
 
       ${renderCollapsibleMultimodal("Answer", payload.result || (payload.answer ? { text: payload.answer } : null))}
     `;
@@ -470,11 +442,7 @@ export function renderDetail(node) {
         </table>
       </div>
 
-      ${errors.length ? `
-        <div class="detail-section">
-          <strong>Errors</strong>
-          <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
-        </div>` : ""}
+      ${renderErrorList(errors)}
     `;
   }
 
@@ -615,32 +583,26 @@ function renderMediaGrid(images, videos) {
   }).join("")}</div>`;
 }
 
-function renderCollapsibleMultimodal(label, value) {
-  const text = (value && value.text) || "";
-  const images = (value && value.images) || [];
-  const videos = (value && value.videos) || [];
-  if (!text && !images.length && !videos.length) return "";
-  const mediaHtml = renderMediaGrid(images, videos);
+function renderErrorList(errors) {
+  if (!errors.length) return "";
   return `
-    <details>
-      <summary>${escapeHtml(label)}</summary>
-      ${mediaHtml}
-      ${text ? `<pre>${escapeHtml(text)}</pre>` : ""}
-    </details>
-  `;
+    <div class="detail-section">
+      <strong>Errors</strong>
+      <ul>${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>
+    </div>`;
 }
 
-function renderCollapsibleMultimodalPrompt(label, value) {
+function renderCollapsibleMultimodal(label, value, { textFirst = false } = {}) {
   const text = (value && value.text) || "";
   const images = (value && value.images) || [];
   const videos = (value && value.videos) || [];
   if (!text && !images.length && !videos.length) return "";
   const mediaHtml = renderMediaGrid(images, videos);
+  const textHtml = text ? `<pre>${escapeHtml(text)}</pre>` : "";
   return `
     <details>
       <summary>${escapeHtml(label)}</summary>
-      ${text ? `<pre>${escapeHtml(text)}</pre>` : ""}
-      ${mediaHtml}
+      ${textFirst ? textHtml + mediaHtml : mediaHtml + textHtml}
     </details>
   `;
 }

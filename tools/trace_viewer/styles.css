@@ -385,6 +385,161 @@ details summary {
   margin-right: 2px;
 }
 
+/* ── Blueprint viewer ──────────────────────────────────────── */
+
+.bp-section {
+  margin-bottom: 20px;
+}
+.bp-section h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.check-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.check-list li {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.check-id {
+  font-family: monospace;
+  font-size: 11px;
+  background: var(--event);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+.condition-row {
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 10px;
+  margin-bottom: 4px;
+}
+.condition-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.termination-row {
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+}
+.termination-row:last-child {
+  border-bottom: none;
+}
+.termination-if {
+  color: var(--muted);
+  flex: 1;
+}
+.termination-return {
+  font-weight: 600;
+  color: var(--accent);
+}
+.node-actions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.node-action-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.node-action-name {
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.node-action-field {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+.node-action-field strong {
+  color: var(--ink);
+}
+.gate-conditions {
+  margin-top: 6px;
+}
+.gate-conditions p {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.condition-chip {
+  display: inline-block;
+  font-family: monospace;
+  font-size: 11px;
+  background: var(--result);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin: 2px 2px 0 0;
+}
+.condition-chip.refute {
+  background: var(--task);
+}
+.bp-description {
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+  color: var(--ink);
+}
+select.bp-select {
+  appearance: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 32px 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236c675d' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.node-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.node-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.85);
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+
 @media (max-width: 1100px) {
   .app {
     grid-template-columns: 1fr;

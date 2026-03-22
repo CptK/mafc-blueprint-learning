@@ -1,4 +1,6 @@
 import { escapeHtml } from "./utils.js";
+import { getCssVar } from "./constants.js";
+import { setupDividerDrag } from "./ui.js";
 
 cytoscape.use(cytoscapeDagre);
 
@@ -12,13 +14,8 @@ const dividerEl = document.getElementById("divider");
 
 let cy = null;
 let currentBlueprint = null;
-let isDraggingDivider = false;
 
 // ── Node colours (mirrors trace viewer CSS vars) ─────────────────────────────
-
-function getCssVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
 
 const NODE_COLORS = {
   actions: () => getCssVar("--task"),
@@ -63,39 +60,9 @@ selectEl.addEventListener("change", async () => {
   }
 });
 
-// ── Divider drag (same logic as trace viewer) ────────────────────────────────
+// ── Divider drag ──────────────────────────────────────────────────────────────
 
-dividerEl.addEventListener("pointerdown", (event) => {
-  if (window.innerWidth <= 1100) return;
-  isDraggingDivider = true;
-  dividerEl.classList.add("dragging");
-  dividerEl.setPointerCapture(event.pointerId);
-  document.body.style.userSelect = "none";
-});
-
-dividerEl.addEventListener("pointermove", (event) => {
-  if (!isDraggingDivider || window.innerWidth <= 1100) return;
-  const bounds = appEl.getBoundingClientRect();
-  const minMainWidth = 360;
-  const minSidebarWidth = 280;
-  const dividerWidth = 12;
-  const maxSidebarWidth = Math.max(minSidebarWidth, bounds.width - minMainWidth - dividerWidth);
-  const rawSidebarWidth = bounds.right - event.clientX;
-  const sidebarWidth = Math.min(maxSidebarWidth, Math.max(minSidebarWidth, rawSidebarWidth));
-  appEl.style.gridTemplateColumns = `minmax(${minMainWidth}px, 1fr) ${dividerWidth}px minmax(${minSidebarWidth}px, ${sidebarWidth}px)`;
-  if (cy) { cy.resize(); cy.fit(undefined, 50); }
-});
-
-dividerEl.addEventListener("pointerup", stopDividerDrag);
-dividerEl.addEventListener("pointercancel", stopDividerDrag);
-window.addEventListener("pointerup", stopDividerDrag);
-
-function stopDividerDrag() {
-  if (!isDraggingDivider) return;
-  isDraggingDivider = false;
-  dividerEl.classList.remove("dragging");
-  document.body.style.userSelect = "";
-}
+setupDividerDrag(dividerEl, appEl, () => cy);
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
