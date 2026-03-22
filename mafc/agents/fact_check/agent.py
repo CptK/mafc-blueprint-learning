@@ -287,15 +287,15 @@ class FactCheckAgent(Agent):
             Message(role=MessageRole.USER, content=Prompt(text=build_action_node_prompt(session, state))),
         ]
         trace.record_planner_messages(messages, state.iteration)
-        logger.info(f"[FactCheckAgent] Iteration {state.iteration} action node messages:")
+        logger.debug(f"[FactCheckAgent] Iteration {state.iteration} action node messages:")
         for msg in messages:
-            logger.info(f"- {msg.role.value} message:\n{msg.content}\n")
+            logger.debug(f"- {msg.role.value} message:\n{msg.content}\n")
 
         _resp = self.model.generate(messages)
         response_text = _resp.text.strip()
         trace.add_usage(_resp, self.model.name)
         trace.record_planner_response(response_text, state.iteration)
-        logger.info(f"[FactCheckAgent] Iteration {state.iteration} action node response:\n{response_text}")
+        logger.debug(f"[FactCheckAgent] Iteration {state.iteration} action node response:\n{response_text}")
 
         decision = try_parse_planner_decision(response_text)
         if decision is None:
