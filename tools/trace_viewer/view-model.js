@@ -119,7 +119,10 @@ export function buildViewModel(trace) {
       .filter(Boolean)
       .join(" | ");
     pushNode(makeNode(iterationId, "iteration", `Iteration ${iteration.iteration}`, subtitle, iteration, null, false, WEB_LAYOUT.mainX, currentMainY));
-    edges.push(makeEdge(previousMainNodeId, iterationId, "next"));
+    if (pendingReturnEdges.length === 0) {
+      // No sub-agents from previous iteration — connect directly
+      edges.push(makeEdge(previousMainNodeId, iterationId, "next"));
+    }
     for (const returnNodeId of pendingReturnEdges) {
       edges.push(makeEdge(returnNodeId, iterationId, "returns"));
     }
@@ -128,11 +131,28 @@ export function buildViewModel(trace) {
 
     const tasks = iteration.delegated_tasks || [];
     let localBottomY = currentMainY;
-    let nextTaskX = WEB_LAYOUT.taskX;
+
+    // Pre-compute each task column's half-width so centered blocks don't overlap
+    const taskHalfWidths = tasks.map(task => {
+      if (task.child_trace && (!task.child_trace.agent || task.child_trace.agent === "WebSearchAgent")) {
+        const maxQueries = (task.child_trace.iterations || []).reduce(
+          (max, it) => Math.max(max, (it.search_results || []).length), 0
+        );
+        return ((Math.max(maxQueries, 1) - 1) * WEB_LAYOUT.queryGap + 240) / 2;
+      }
+      return 120; // half of node width
+    });
+    let colStartX = WEB_LAYOUT.taskX;
+    const taskCenters = tasks.map((task, i) => {
+      const center = colStartX + taskHalfWidths[i];
+      colStartX = center + taskHalfWidths[i] + WEB_LAYOUT.taskColumnGap;
+      return center;
+    });
+
     const taskNodesStart = nodes.length;
     tasks.forEach((task, index) => {
       const taskId = `task-${iteration.iteration}-${task.task_id}`;
-      const taskX = nextTaskX;
+      const taskX = taskCenters[index];
       const taskY = currentMainY + WEB_LAYOUT.rowGap;
       const taskSubtitle = [
         task.agent_type,
@@ -140,30 +160,17 @@ export function buildViewModel(trace) {
         `evidence: ${task.result && Array.isArray(task.result.evidences) ? task.result.evidences.length : 0}`,
         `errors: ${task.result && Array.isArray(task.result.errors) ? task.result.errors.length : 0}`,
       ].join(" | ");
-      // Center task node above its sub-agent sub-graph
-      let taskCenterX = taskX;
-      if (task.child_trace && (!task.child_trace.agent || task.child_trace.agent === "WebSearchAgent")) {
-        const maxQueries = (task.child_trace.iterations || []).reduce(
-          (max, it) => Math.max(max, (it.search_results || []).length),
-          0
-        );
-        taskCenterX = taskX + (Math.max(maxQueries - 1, 0) * WEB_LAYOUT.queryGap) / 2;
-      }
-      const nodesBeforeColumn = nodes.length;
-      pushNode(makeNode(taskId, "task", task.task_id, taskSubtitle, task, null, false, taskCenterX, taskY));
+      pushNode(makeNode(taskId, "task", task.task_id, taskSubtitle, task, null, false, taskX, taskY));
       edges.push(makeEdge(iterationId, taskId, "delegates"));
 
       if (task.child_trace) {
         const childLayout = addChildTraceNodes(taskId, task.child_trace, taskX, taskY + WEB_LAYOUT.rowGap);
         localBottomY = Math.max(localBottomY, childLayout.bottomY);
-        if (childLayout.lastNodeId) {
-          pendingReturnEdges.push(childLayout.lastNodeId);
-        }
+        pendingReturnEdges.push(childLayout.lastNodeId || taskId);
       } else {
         localBottomY = Math.max(localBottomY, taskY);
+        pendingReturnEdges.push(taskId);
       }
-      const columnRightX = nodes.slice(nodesBeforeColumn).reduce((max, n) => Math.max(max, n.x + 240), taskX);
-      nextTaskX = columnRightX + WEB_LAYOUT.taskColumnGap;
     });
     // Center the task subtree below the iteration node
     if (nodes.length > taskNodesStart) {
@@ -187,7 +194,7 @@ export function buildViewModel(trace) {
   for (const returnNodeId of pendingReturnEdges) {
     edges.push(makeEdge(returnNodeId, "result", "returns"));
   }
-  edges.push(makeEdge("blueprint", "result", "constrains"));
+
 
   let lastMainNodeId = "result";
   let lastMainY = currentMainY;
@@ -251,16 +258,7 @@ export function buildViewModel(trace) {
 
   function addChildTraceNodes(taskId, childTrace, x, y) {
     const runId = `${taskId}-child-run`;
-    // Pre-compute center X so childrun is centered above its sub-graph
-    let centerX = x;
-    if (!childTrace.agent || childTrace.agent === "WebSearchAgent") {
-      const maxQueries = (childTrace.iterations || []).reduce(
-        (max, it) => Math.max(max, (it.search_results || []).length),
-        0
-      );
-      centerX = x + (Math.max(maxQueries - 1, 0) * WEB_LAYOUT.queryGap) / 2;
-    }
-    pushNode(makeNode(runId, "childrun", childTrace.agent || "Child Run", buildRunSubtitle(childTrace), childTrace, null, false, centerX, y));
+    pushNode(makeNode(runId, "childrun", childTrace.agent || "Child Run", buildRunSubtitle(childTrace), childTrace, null, false, x, y));
     edges.push(makeEdge(taskId, runId, "runs"));
 
     let layout;
@@ -292,7 +290,7 @@ export function buildViewModel(trace) {
           },
           null,
           false,
-          centerX,
+          x,
           resultY
         )
       );
@@ -305,10 +303,17 @@ export function buildViewModel(trace) {
   }
 
   function addWebTraceGraph(runId, webTrace, keyPrefix, baseX, baseY) {
+    const webNodesStart = nodes.length;
     let previousChildNodeId = runId;
     let lastNodeId = runId;
     let bottomY = baseY;
     const childIterations = webTrace.iterations || [];
+
+    // All iterations share the same center column so they stack vertically aligned
+    const maxQueriesInBlock = childIterations.reduce(
+      (max, it) => Math.max(max, (it.search_results || []).length), 0
+    );
+    const blockCenterX = baseX + (Math.max(maxQueriesInBlock - 1, 0) * WEB_LAYOUT.queryGap) / 2;
 
     let nextIterationY = baseY;
     childIterations.forEach((childIteration, childIndex) => {
@@ -328,7 +333,8 @@ export function buildViewModel(trace) {
         .filter(Boolean)
         .join(" | ");
       const searchResults = childIteration.search_results || [];
-      const iterCenterX = baseX + (Math.max(searchResults.length - 1, 0) * WEB_LAYOUT.queryGap) / 2;
+      // Queries for this iteration are centered at blockCenterX
+      const iterLeftX = blockCenterX - (Math.max(searchResults.length - 1, 0) * WEB_LAYOUT.queryGap) / 2;
       pushNode(
         makeNode(
           childIterationId,
@@ -338,7 +344,7 @@ export function buildViewModel(trace) {
           childIteration,
           null,
           false,
-          iterCenterX,
+          blockCenterX,
           iterationY
         )
       );
@@ -350,7 +356,7 @@ export function buildViewModel(trace) {
       let deepestCandidateBottomY = iterationY + WEB_LAYOUT.stageGap * 2;
 
       searchResults.forEach((queryResult, queryIndex) => {
-        const queryX = baseX + queryIndex * WEB_LAYOUT.queryGap;
+        const queryX = iterLeftX + queryIndex * WEB_LAYOUT.queryGap;
         const queryY = iterationY + WEB_LAYOUT.stageGap;
         const queryId = `${childIterationId}-query-${queryIndex + 1}`;
         queryNodeIds.push(queryId);
@@ -413,7 +419,7 @@ export function buildViewModel(trace) {
         });
       });
 
-      const selectionX = baseX + (Math.max(searchResults.length - 1, 0) * WEB_LAYOUT.queryGap) / 2;
+      const selectionX = blockCenterX;
       const selectionY = deepestCandidateBottomY + 90;
       const selectionId = `${childIterationId}-selection`;
       const selectedSources = flattenSelectedSources(childIteration.selected_sources || []);
@@ -529,6 +535,19 @@ export function buildViewModel(trace) {
       nextIterationY = thisIterationBottomY + 120;
       previousChildNodeId = retrievalStageId;
     });
+
+    // Center the entire block so its bounding box center aligns with baseX
+    if (nodes.length > webNodesStart) {
+      const blockNodes = nodes.slice(webNodesStart);
+      const minX = Math.min(...blockNodes.map(n => n.x)) - 120;
+      const maxX = Math.max(...blockNodes.map(n => n.x)) + 120;
+      const offsetX = baseX - (minX + maxX) / 2;
+      for (let i = webNodesStart; i < nodes.length; i++) {
+        const shifted = { ...nodes[i], x: nodes[i].x + offsetX };
+        nodes[i] = shifted;
+        nodeById[shifted.id] = shifted;
+      }
+    }
 
     return { lastNodeId, bottomY };
   }
