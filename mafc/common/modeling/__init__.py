@@ -24,11 +24,11 @@ def make_model(name: str, **kwargs) -> Model:
 
     match platform:
         case "openai":
-            return OpenAIModel(name, **kwargs)
+            return OpenAIModel(specifier, **kwargs)
         case "anthropic":
-            return AnthropicModel(name, **kwargs)
+            return AnthropicModel(specifier, **kwargs)
         case "gemini":
-            return GeminiModel(name, **kwargs)
+            return GeminiModel(specifier, **kwargs)
         case _:
             raise ValueError(
                 f'Platform "{platform}" not supported. Check "config/available_models.csv" for available models.'
