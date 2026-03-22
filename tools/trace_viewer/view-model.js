@@ -150,6 +150,7 @@ export function buildViewModel(trace) {
     });
 
     const taskNodesStart = nodes.length;
+    const subAgentReturnNodes = [];
     tasks.forEach((task, index) => {
       const taskId = `task-${iteration.iteration}-${task.task_id}`;
       const taskX = taskCenters[index];
@@ -166,7 +167,9 @@ export function buildViewModel(trace) {
       if (task.child_trace) {
         const childLayout = addChildTraceNodes(taskId, task.child_trace, taskX, taskY + WEB_LAYOUT.rowGap);
         localBottomY = Math.max(localBottomY, childLayout.bottomY);
-        pendingReturnEdges.push(childLayout.lastNodeId || taskId);
+        const returnNodeId = childLayout.lastNodeId || taskId;
+        pendingReturnEdges.push(returnNodeId);
+        subAgentReturnNodes.push(returnNodeId);
       } else {
         localBottomY = Math.max(localBottomY, taskY);
         pendingReturnEdges.push(taskId);
@@ -183,6 +186,20 @@ export function buildViewModel(trace) {
         nodes[i] = shifted;
         nodeById[shifted.id] = shifted;
       }
+    }
+    // Align all sub-agent return nodes to the same Y so edges to the next
+    // iteration all depart from the same horizontal level and never cross
+    if (subAgentReturnNodes.length > 1) {
+      const maxReturnY = Math.max(...subAgentReturnNodes.map(id => nodeById[id]?.y ?? 0));
+      for (const id of subAgentReturnNodes) {
+        const idx = nodes.findIndex(n => n.id === id);
+        if (idx >= 0 && nodes[idx].y < maxReturnY) {
+          const aligned = { ...nodes[idx], y: maxReturnY };
+          nodes[idx] = aligned;
+          nodeById[id] = aligned;
+        }
+      }
+      localBottomY = Math.max(localBottomY, maxReturnY);
     }
     currentMainY = Math.max(currentMainY + WEB_LAYOUT.rowGap, localBottomY + 220);
   }
