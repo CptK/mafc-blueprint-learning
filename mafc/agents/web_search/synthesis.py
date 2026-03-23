@@ -11,6 +11,8 @@ from mafc.common.modeling.prompt import Prompt
 from mafc.utils.parsing import extract_json_object, is_failed_model_text
 from mafc.utils.media import build_media_json_instruction, parse_media_relevance
 
+_MAX_MEDIA_PER_REQUEST = 50
+
 
 def synthesize_step(model: Model, instruction: str, observations: list[str]) -> str:
     """Synthesize current observations across sources for the current step."""
@@ -62,7 +64,7 @@ def summarize_observation(
         f"Search query: {instruction}\n\n"
         f"Page content:\n{observation}"
     )
-    content: MultimodalSequence = MultimodalSequence(summary_prompt, *media_items)
+    content: MultimodalSequence = MultimodalSequence(summary_prompt, *media_items[:_MAX_MEDIA_PER_REQUEST])
     try:
         resp = model.generate([Message(role=MessageRole.USER, content=content)])
         summary_text, relevant_media = _parse_summarize_response(resp.text, media_items)

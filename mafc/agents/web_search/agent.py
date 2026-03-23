@@ -28,6 +28,8 @@ from mafc.agents.web_search.retrieval import (
 )
 from mafc.agents.web_search.tracing import WebSearchTraceRecorder
 
+_MAX_MEDIA_PER_REQUEST = 50
+
 
 def _parse_synthesis_response(
     response_text: str, media_items: list[Image | Video]
@@ -164,7 +166,10 @@ class WebSearchAgent(Agent):
             f"Task:\n{instruction}\n\n"
             f"Accepted evidence:\n{chr(10).join(evidence_blocks)}"
         )
-        content = deduplicate_media(MultimodalSequence(synthesis_prompt, *all_media))
+        if all_media:
+            deduped = deduplicate_media(MultimodalSequence(*all_media))
+            all_media = (deduped.images + deduped.videos)[:_MAX_MEDIA_PER_REQUEST]
+        content = MultimodalSequence(synthesis_prompt, *all_media)
         try:
             resp = self.summarization_model.generate([Message(role=MessageRole.USER, content=content)])
             synthesis, relevant_media = _parse_synthesis_response(resp.text, all_media)
