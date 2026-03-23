@@ -70,7 +70,7 @@ def summarize_observation(
         summary_text, relevant_media = _parse_summarize_response(resp.text, media_items)
         return summary_text, relevant_media, resp
     except Exception:
-        return observation, [], None
+        return "", [], None
 
 
 def _parse_summarize_response(

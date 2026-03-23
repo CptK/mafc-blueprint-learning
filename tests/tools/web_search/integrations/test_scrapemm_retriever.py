@@ -182,6 +182,19 @@ def test_decode_pdf_blocks_replaces_pdf_text_block() -> None:
     assert str(result) == "PDF page content"
 
 
+def test_decode_pdf_blocks_drops_unreadable_pdf_block() -> None:
+    from ezmm import MultimodalSequence
+
+    seq = MultimodalSequence(_fake_pdf_b64())
+    with patch(
+        "mafc.tools.web_search.integrations.scrapemm_retriever.pypdf.PdfReader",
+        side_effect=Exception("corrupt"),
+    ):
+        result = _decode_pdf_blocks(seq)
+
+    assert str(result).strip() == ""
+
+
 def test_decode_pdf_blocks_leaves_plain_text_unchanged() -> None:
     from ezmm import MultimodalSequence
 

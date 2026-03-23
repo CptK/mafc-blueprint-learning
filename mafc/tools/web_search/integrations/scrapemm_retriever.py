@@ -34,11 +34,19 @@ def _try_extract_pdf_text(content: str) -> str | None:
 
 
 def _decode_pdf_blocks(content: MultimodalSequence) -> MultimodalSequence:
-    """Replace any base64-encoded PDF text blocks with extracted plain text."""
+    """Replace any base64-encoded PDF text blocks with extracted plain text.
+
+    If a block is detected as a PDF but text extraction fails (e.g. scanned
+    image-only PDF), it is dropped rather than kept as raw base64, which would
+    be unusable and blow up downstream token budgets.
+    """
     blocks = []
     for block in content.to_list():
-        if isinstance(block, str):
-            blocks.append(_try_extract_pdf_text(block) or block)
+        if isinstance(block, str) and block.startswith(_PDF_BASE64_PREFIX):
+            extracted = _try_extract_pdf_text(block)
+            if extracted:
+                blocks.append(extracted)
+            # else: drop — never propagate raw binary base64
         else:
             blocks.append(block)
     return MultimodalSequence(*blocks)
