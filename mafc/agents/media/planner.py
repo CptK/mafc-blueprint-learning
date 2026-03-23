@@ -51,7 +51,7 @@ def plan_media_tools(
         response = _resp.text
         if trace is not None:
             trace.add_usage(_resp, agent.model.name)
-        logger.info(f"Media planner response:\n{response}")
+        logger.debug(f"Media planner response:\n{response}")
         if is_failed_model_text(response):
             return None, planner_messages, response
         repair_prefix = (
