@@ -89,3 +89,13 @@ def test_process_output_saves_prediction_and_stats(monkeypatch) -> None:
     assert saved_prediction["justification"] == "because"
     assert saved_prediction["gt_justification"] == {"k": 1}
     assert saved_stats == {"stats": {"tokens": 123}, "claim_id": "a"}
+
+
+def test_default_hook_methods_return_empty_values(tmp_path) -> None:
+    bench = DummyBenchmark(variant="test")
+    sample = bench.data[0]
+
+    assert bench.sample_extra_fields(sample) == {}
+    assert bench.compute_metrics([]) == {}
+    assert bench.format_metrics_report({}) == ""
+    assert bench.save_metric_plots({}, tmp_path) == []
