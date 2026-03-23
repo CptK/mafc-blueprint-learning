@@ -5,14 +5,11 @@ import logging
 import threading
 from collections.abc import Awaitable
 from ezmm import MultimodalSequence
-from scrapemm import retrieve
 from typing import Any, cast
 import pypdf
 
 from mafc.common.logger import logger
 from mafc.tools.web_search.integrations.integration import RetrievalIntegration
-
-logging.getLogger("scrapeMM").setLevel(logging.WARNING)  # scrapemm resets its logger to DEBUG on import
 
 # Base64 encoding of the PDF magic bytes "%PDF"
 _PDF_BASE64_PREFIX = "JVBER"
@@ -48,6 +45,9 @@ def _decode_pdf_blocks(content: MultimodalSequence) -> MultimodalSequence:
 
 
 def _retrieve_url(url: str) -> Awaitable[Any]:
+    from scrapemm import retrieve  # needs to be lazy import because of runner tests
+    logging.getLogger("scrapeMM").setLevel(logging.WARNING)  # scrapemm resets its logger to DEBUG on import
+
     return cast(Awaitable[Any], retrieve(url, show_progress=False))
 
 
