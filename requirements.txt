@@ -20,3 +20,4 @@ scrapeMM
 google-cloud-vision
 pyyaml
 mypy
+pypdf
