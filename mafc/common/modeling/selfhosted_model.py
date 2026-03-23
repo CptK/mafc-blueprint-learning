@@ -102,7 +102,7 @@ class SelfhostedModel(Model):
         except Exception as e:
             logger.error(
                 f"An error occurred while communicating with the Self-Hosted API: {e}\n"
-                f"Input: {[str(m.content) for m in messages_with_videos_as_frames(messages, self.video_frames_to_sample)]}"
+                f"Input: {[str(m.content)[:3000] for m in messages_with_videos_as_frames(messages, self.video_frames_to_sample)]}"
             )
             raise e
 
