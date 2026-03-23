@@ -85,8 +85,14 @@ def retrieve_query_results(
     seen_urls: set[str] | None = None,
     step: int | None = None,
     trace: WebSearchTraceRecorder | None = None,
+    n_workers: int = 1,
 ) -> list[QueryInvestigationResult]:
-    """Retrieve selected sources and extract structured per-query results."""
+    """Retrieve selected sources and extract structured per-query results.
+
+    Queries are processed sequentially to avoid concurrent SSL connections on the
+    shared asyncio event loop (causes segfaults on macOS/Python 3.13). Parallelism
+    within each query (per-source summarization) is controlled by n_workers.
+    """
     query_results: list[QueryInvestigationResult] = []
     for query_text, sources in selected_sources:
         if sources is None:
@@ -108,6 +114,7 @@ def retrieve_query_results(
                 seen_urls=seen_urls,
                 step=step,
                 trace=trace,
+                n_workers=n_workers,
             )
         )
     return query_results
@@ -283,6 +290,77 @@ def parse_selected_urls(response_text: str, max_selected: int) -> list[str]:
     return selected_urls[:max_selected]
 
 
+def _process_one_source(
+    source: WebSource,
+    content: MultimodalSequence | None,
+    query_text: str,
+    model: Model,
+    step: int | None,
+    trace: WebSearchTraceRecorder | None,
+) -> tuple[str, Evidence | None, list[str]]:
+    """Summarize one retrieved source and build its evidence object.
+
+    Returns (line_text, evidence_or_none, local_errors).
+    """
+    local_errors: list[str] = []
+    irrelevant = False
+    relevant_media: list = []
+
+    if content is None:
+        msg = f"Failed to retrieve content from {source.url}"
+        local_errors.append(msg)
+        logger.debug(f"[WebSearch-Agent] Failed to retrieve content from {source.url}")
+        snippet = source.preview or "No retrieved content."
+        raw_text = source.preview or ""
+        if trace is not None:
+            trace.record_error(step=step, phase="source_retrieval", message=msg)
+    else:
+        content_text = str(content).strip()
+        media_items = list(content.images) + list(content.videos)
+        if content_text:
+            snippet, relevant_media, obs_resp = summarize_observation(
+                model=model,
+                instruction=query_text,
+                observation=content_text,
+                media_items=media_items,
+            )
+            if trace is not None and obs_resp is not None:
+                trace.add_usage(obs_resp, model.name)
+            raw_text = content_text
+            if not snippet or is_failed_model_text(snippet):
+                irrelevant = True
+                logger.debug(f"[WebSearch-Agent] No relevant content found at {source.url}")
+        else:
+            snippet = ""
+            raw_text = ""
+            irrelevant = True
+
+    title = source.title or "Untitled"
+    line = f"- {title} | {source.url}\n  Content snippet: {snippet}"
+    evidence = (
+        None
+        if irrelevant
+        else build_evidence_from_source(
+            query_text=query_text,
+            source=source,
+            raw_text=raw_text,
+            snippet=snippet,
+            preview=source.preview,
+            relevant_media=relevant_media,
+        )
+    )
+    if trace is not None and step is not None:
+        trace.record_retrieval(
+            step=step,
+            query_text=query_text,
+            source=source,
+            retrieved_content=raw_text,
+            evidence=evidence,
+            irrelevant=irrelevant,
+        )
+    return line, evidence, local_errors
+
+
 def retrieve_and_extract_evidence(
     query_text: str,
     sources: Sequence[Source],
@@ -292,6 +370,7 @@ def retrieve_and_extract_evidence(
     seen_urls: set[str] | None = None,
     step: int | None = None,
     trace: WebSearchTraceRecorder | None = None,
+    n_workers: int = 1,
 ) -> QueryInvestigationResult:
     """Retrieve source content in batch and turn it into observations and evidence."""
     lines = [f"Query: {query_text}"]
@@ -321,64 +400,24 @@ def retrieve_and_extract_evidence(
             )
         contents = [None] * len(selected_sources)
 
-    for source, content in zip(selected_sources, contents):
-        irrelevant = False
-        relevant_media: list = []
-        if content is None:
-            errors.append(f"Failed to retrieve content from {source.url}")
-            logger.debug(f"[WebSearch-Agent] Failed to retrieve content from {source.url}")
-            snippet = source.preview or "No retrieved content."
-            raw_text = source.preview or ""
-            if trace is not None:
-                trace.record_error(
-                    step=step,
-                    phase="source_retrieval",
-                    message=f"Failed to retrieve content from {source.url}",
+    pairs = list(zip(selected_sources, contents))
+    if n_workers <= 1 or len(pairs) <= 1:
+        proc_results = [
+            _process_one_source(source, content, query_text, model, step, trace) for source, content in pairs
+        ]
+    else:
+        max_workers = min(n_workers, len(pairs))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            proc_results = list(
+                pool.map(
+                    lambda sc: _process_one_source(sc[0], sc[1], query_text, model, step, trace),
+                    pairs,
                 )
-        else:
-            content_text = str(content).strip()
-            media_items = list(content.images) + list(content.videos)
-            if content_text:
-                snippet, relevant_media, obs_resp = summarize_observation(
-                    model=model,
-                    instruction=query_text,
-                    observation=content_text,
-                    media_items=media_items,
-                )
-                if trace is not None and obs_resp is not None:
-                    trace.add_usage(obs_resp, model.name)
-                raw_text = content_text
-                if not snippet or is_failed_model_text(snippet):
-                    irrelevant = True
-                    logger.debug(f"[WebSearch-Agent] No relevant content found at {source.url}")
-            else:
-                snippet = ""
-                raw_text = ""
-                relevant_media = []
-                irrelevant = True
-        title = source.title or "Untitled"
-        lines.append(f"- {title} | {source.url}\n  Content snippet: {snippet}")
-        evidence = (
-            None
-            if irrelevant
-            else build_evidence_from_source(
-                query_text=query_text,
-                source=source,
-                raw_text=raw_text,
-                snippet=snippet,
-                preview=source.preview,
-                relevant_media=relevant_media,
             )
-        )
-        if trace is not None and step is not None:
-            trace.record_retrieval(
-                step=step,
-                query_text=query_text,
-                source=source,
-                retrieved_content=raw_text,
-                evidence=evidence,
-                irrelevant=irrelevant,
-            )
+
+    for (source, _), (line, evidence, local_errors) in zip(pairs, proc_results):
+        lines.append(line)
+        errors.extend(local_errors)
         if seen_urls is not None:
             seen_urls.add(source.url)
         if evidence is not None:

@@ -13,18 +13,21 @@ from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 
 # Base64 encoding of the PDF magic bytes "%PDF"
 _PDF_BASE64_PREFIX = "JVBER"
+_PDF_RAW_PREFIX = "%PDF"
 
 
 def _try_extract_pdf_text(content: str) -> str | None:
-    """If content is a base64-encoded PDF, decode it and extract plain text.
+    """If content is a PDF (base64-encoded or raw binary), extract plain text.
 
-    Returns the extracted text, or None if the content is not a base64 PDF
-    or extraction fails.
+    Returns the extracted text, or None if not a PDF or extraction fails.
     """
-    if not content.startswith(_PDF_BASE64_PREFIX):
-        return None
     try:
-        pdf_bytes = base64.b64decode(content)
+        if content.startswith(_PDF_BASE64_PREFIX):
+            pdf_bytes = base64.b64decode(content)
+        elif content.startswith(_PDF_RAW_PREFIX):
+            pdf_bytes = content.encode("latin-1")
+        else:
+            return None
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         pages = [page.extract_text() or "" for page in reader.pages]
         text = "\n\n".join(p for p in pages if p.strip())
@@ -34,19 +37,21 @@ def _try_extract_pdf_text(content: str) -> str | None:
 
 
 def _decode_pdf_blocks(content: MultimodalSequence) -> MultimodalSequence:
-    """Replace any base64-encoded PDF text blocks with extracted plain text.
+    """Replace any PDF text blocks (base64 or raw) with extracted plain text.
 
     If a block is detected as a PDF but text extraction fails (e.g. scanned
-    image-only PDF), it is dropped rather than kept as raw base64, which would
-    be unusable and blow up downstream token budgets.
+    image-only PDF), it is dropped rather than passed as raw binary, which
+    would be unusable and blow up downstream token budgets.
     """
     blocks = []
     for block in content.to_list():
-        if isinstance(block, str) and block.startswith(_PDF_BASE64_PREFIX):
+        if isinstance(block, str) and (
+            block.startswith(_PDF_BASE64_PREFIX) or block.startswith(_PDF_RAW_PREFIX)
+        ):
             extracted = _try_extract_pdf_text(block)
             if extracted:
                 blocks.append(extracted)
-            # else: drop — never propagate raw binary base64
+            # else: drop — never propagate raw binary
         else:
             blocks.append(block)
     return MultimodalSequence(*blocks)

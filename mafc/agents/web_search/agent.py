@@ -282,6 +282,7 @@ class WebSearchAgent(Agent):
             seen_urls=seen_urls,
             step=step,
             trace=trace,
+            n_workers=self.n_workers,
         )
         if not candidate_sources or not query_results:
             message = f"No observations produced in iteration {step}."
