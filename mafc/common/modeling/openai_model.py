@@ -39,6 +39,9 @@ class OpenAIAPI(API):
         self.client = OpenAI(api_key=api_key, timeout=300)
 
     def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
+        max_response_length = kwargs.get("max_response_length", 2048)
+        # Subtract overhead for chat-template tokens and tokenizer mismatch.
+        input_budget = self.context_window - max_response_length - 200
         provider_messages = cast(
             list[ChatCompletionMessageParam],
             [
@@ -46,7 +49,7 @@ class OpenAIAPI(API):
                     "role": message.role.value,
                     "content": cast(
                         list[ChatCompletionContentPartParam],
-                        format_input(message.content, context_window=self.context_window),
+                        format_input(message.content, context_window=input_budget),
                     ),
                 }
                 for message in messages
@@ -58,7 +61,7 @@ class OpenAIAPI(API):
             messages=provider_messages,
             temperature=kwargs.get("temperature", 1.0),
             top_p=kwargs.get("top_p", 1.0),
-            max_completion_tokens=kwargs.get("max_response_length", 2048),
+            max_completion_tokens=max_response_length,
         )
 
         content = response.choices[0].message.content
@@ -123,7 +126,8 @@ class OpenAIModel(Model):
             raise e
         except Exception as e:
             logger.error(
-                f"An error occurred while communicating with the OpenAI API: {e}\nInput: {messages_with_videos_as_frames(messages, self.video_frames_to_sample)}"
+                f"An error occurred while communicating with the OpenAI API: {e}\n"
+                f"Input: {[str(m.content) for m in messages_with_videos_as_frames(messages, self.video_frames_to_sample)]}"
             )
             raise e
 

@@ -88,13 +88,16 @@ class AnthropicAPI(API):
         self.client = anthropic.Anthropic(api_key=api_key, timeout=300)
 
     def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
+        max_response_length = kwargs.get("max_response_length", 2048)
+        # Subtract overhead for chat-template tokens and tokenizer mismatch.
+        input_budget = self.context_window - max_response_length - 200
         system_parts = [
             str(message.content).strip() for message in messages if message.role == MessageRole.SYSTEM
         ]
         anthropic_messages = [
             {
                 "role": message.role.value,
-                "content": format_input(message.content, context_window=self.context_window),
+                "content": format_input(message.content, context_window=input_budget),
             }
             for message in messages
             if message.role != MessageRole.SYSTEM
@@ -109,7 +112,7 @@ class AnthropicAPI(API):
             create_kwargs = {
                 "model": self.model,
                 "messages": anthropic_messages,
-                "max_tokens": kwargs.get("max_response_length", 2048),
+                "max_tokens": max_response_length,
             }
             if temp is not None and topp is not None:
                 logger.warning("Both temperature and top_p specified; using temperature for Anthropic.")
@@ -129,7 +132,10 @@ class AnthropicAPI(API):
             logger.error("Anthropic authentication failed. Check your API key.")
             raise e
         except Exception as e:
-            logger.error(f"Error communicating with Anthropic API: {e}")
+            logger.error(
+                f"An error occurred while communicating with the Anthropic API: {e}\n"
+                f"Input: {[str(m.content) for m in messages]}"
+            )
             raise e
 
         # Extract text parts from content blocks

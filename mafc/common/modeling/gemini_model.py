@@ -84,13 +84,16 @@ class GeminiAPI(API):
         self.client = genai.Client(api_key=api_key)
 
     def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
+        max_response_length = kwargs.get("max_response_length", 2048)
+        # Subtract overhead for chat-template tokens and tokenizer mismatch.
+        input_budget = self.context_window - max_response_length - 200
         system_parts = [
             str(message.content).strip() for message in messages if message.role.value == "system"
         ]
         contents = [
             Content(
                 role=message.role.value,
-                parts=format_input(message.content, context_window=self.context_window),
+                parts=format_input(message.content, context_window=input_budget),
             )
             for message in messages
             if message.role.value != "system"
@@ -99,7 +102,7 @@ class GeminiAPI(API):
         config = GenerateContentConfig(
             temperature=kwargs.get("temperature", 1.0),
             top_p=kwargs.get("top_p", 1.0),
-            max_output_tokens=kwargs.get("max_response_length", 2048),
+            max_output_tokens=max_response_length,
             system_instruction="\n\n".join(part for part in system_parts if part) if system_parts else None,
         )
 
@@ -110,7 +113,10 @@ class GeminiAPI(API):
                 config=config,
             )
         except Exception as e:
-            logger.error(f"An error occurred while communicating with the Gemini API: {e}")
+            logger.error(
+                f"An error occurred while communicating with the Gemini API: {e}\n"
+                f"Input: {[str(m.content) for m in messages]}"
+            )
             raise
 
         # Extract primary text, falling back to aggregating candidate parts
