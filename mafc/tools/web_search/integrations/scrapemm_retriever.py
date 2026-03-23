@@ -30,39 +30,20 @@ class ScrapeMMRetriever(RetrievalIntegration):
     def __init__(self, timeout_seconds: float = 30.0, n_workers: int = 8):
         super().__init__(n_workers=n_workers)
         self.timeout_seconds = timeout_seconds
-
-    async def _retrieve_with_timeout(self, coro: Awaitable[Any]) -> Any:
-        return await asyncio.wait_for(coro, timeout=self.timeout_seconds)
+        # A single persistent event loop running in a background daemon thread.
+        # Using one loop per instance avoids the semaphore leaks and segfaults
+        # that occur when asyncio.run() repeatedly creates/destroys event loops
+        # from many ThreadPoolExecutor threads simultaneously.
+        self._loop = asyncio.new_event_loop()
+        self._loop_thread = threading.Thread(
+            target=self._loop.run_forever, daemon=True, name="scrapemm-event-loop"
+        )
+        self._loop_thread.start()
 
     def _run_retrieve(self, url: str) -> Any:
-        coro = _retrieve_url(url)
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self._retrieve_with_timeout(coro))
-
-        result = None
-        error = None
-
-        def runner() -> None:
-            nonlocal result, error
-            try:
-                result = asyncio.run(self._retrieve_with_timeout(coro))
-            except Exception as exc:
-                error = exc
-
-        thread = threading.Thread(target=runner, daemon=True)
-        thread.start()
-        thread.join(timeout=self.timeout_seconds + 1.0)
-
-        if thread.is_alive():
-            raise TimeoutError(f"ScrapeMM retrieval timed out after {self.timeout_seconds} seconds")
-
-        if error is not None:
-            raise error
-        if result is None:
-            raise RuntimeError("ScrapeMM retrieval finished without a result")
-        return result
+        coro = asyncio.wait_for(_retrieve_url(url), timeout=self.timeout_seconds)
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result(timeout=self.timeout_seconds + 1.0)
 
     def _retrieve(self, url: str) -> MultimodalSequence | None:
         try:
