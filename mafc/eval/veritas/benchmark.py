@@ -294,7 +294,7 @@ class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
                 skipped_claims += 1
                 continue
             elif self.label_scheme == 7:
-                label = _classify_integrity_7(integrity)
+                label: Veritas7Label | Veritas3Label = _classify_integrity_7(integrity)
             elif integrity >= self.INTACT_THRESHOLD:
                 label = Veritas3Label.INTACT
             elif integrity <= self.COMPROMISED_THRESHOLD:
