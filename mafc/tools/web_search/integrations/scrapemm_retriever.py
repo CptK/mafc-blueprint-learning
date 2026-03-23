@@ -46,6 +46,7 @@ def _decode_pdf_blocks(content: MultimodalSequence) -> MultimodalSequence:
 
 def _retrieve_url(url: str) -> Awaitable[Any]:
     from scrapemm import retrieve  # needs to be lazy import because of runner tests
+
     logging.getLogger("scrapeMM").setLevel(logging.WARNING)  # scrapemm resets its logger to DEBUG on import
 
     return cast(Awaitable[Any], retrieve(url, show_progress=False))
