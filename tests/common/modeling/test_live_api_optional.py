@@ -7,6 +7,7 @@ from mafc.common.modeling.anthropic_model import AnthropicAPI
 from mafc.common.modeling.gemini_model import GeminiAPI
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.openai_model import OpenAIAPI
+from mafc.common.modeling.selfhosted_model import SelfhostedAPI
 from mafc.common.modeling.prompt import Prompt
 
 
@@ -86,3 +87,20 @@ def test_gemini_live_api_small_call() -> None:
     )
     assert isinstance(out.text, str)
     assert out.text.strip().upper() == "OK"
+
+
+@pytest.mark.integration
+def test_selfhosted_live_api_small_call() -> None:
+    if not config.globals.selfhosted_url:
+        pytest.skip("selfhosted_url not set")
+    api = SelfhostedAPI(model="Qwen/Qwen3.5-122B-A10B-FP8", context_window=1024)
+    out = _call_or_skip(
+        lambda: api(
+            messages=_multi_role_messages(),
+            max_response_length=5000,
+            temperature=0.0,
+            top_p=1.0,
+        )
+    )
+    assert isinstance(out.text, str)
+    assert "OK" in out.text.strip().upper()

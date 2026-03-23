@@ -3,6 +3,7 @@ from .anthropic_model import AnthropicAPI, AnthropicModel
 from .gemini_model import GeminiAPI, GeminiModel
 from .model import APIResponse, Model, Response
 from .openai_model import OpenAIAPI, OpenAIModel
+from .selfhosted_model import SelfhostedAPI, SelfhostedModel
 from .prompt import Prompt
 from .utils import (
     AVAILABLE_MODELS,
@@ -29,6 +30,8 @@ def make_model(name: str, **kwargs) -> Model:
             return AnthropicModel(specifier, **kwargs)
         case "gemini":
             return GeminiModel(specifier, **kwargs)
+        case "selfhosted":
+            return SelfhostedModel(specifier, **kwargs)
         case _:
             raise ValueError(
                 f'Platform "{platform}" not supported. Check "config/available_models.csv" for available models.'
@@ -53,4 +56,6 @@ __all__ = [
     "AnthropicAPI",
     "GeminiModel",
     "GeminiAPI",
+    "SelfhostedModel",
+    "SelfhostedAPI",
 ]
