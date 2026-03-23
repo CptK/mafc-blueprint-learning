@@ -122,7 +122,9 @@ class OpenAIModel(Model):
             logger.error("Authentication failed. Check your OpenAI API key.")
             raise e
         except Exception as e:
-            logger.error(f"An error occurred while communicating with the OpenAI API: {e}")
+            logger.error(
+                f"An error occurred while communicating with the OpenAI API: {e}\nInput: {messages_with_videos_as_frames(messages, self.video_frames_to_sample)}"
+            )
             raise e
 
         return Response(
