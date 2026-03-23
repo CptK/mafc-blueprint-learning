@@ -279,7 +279,7 @@ def parse_selected_urls(response_text: str, max_selected: int) -> list[str]:
         logger.error("[WebSearch-Agent] Invalid source filter output: selected_urls must be list[str].")
         return []
     selected_urls = [url.strip() for url in selected_urls if url.strip()]
-    logger.info("Model selected URLs:\n" + "\n  ".join(selected_urls))
+    logger.debug("Model selected URLs:\n" + "\n  ".join(selected_urls))
     return selected_urls[:max_selected]
 
 
