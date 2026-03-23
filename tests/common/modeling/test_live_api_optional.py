@@ -94,9 +94,15 @@ def test_selfhosted_live_api_small_call() -> None:
     if not config.globals.selfhosted_url:
         pytest.skip("selfhosted_url not set")
     api = SelfhostedAPI(model="Qwen/Qwen3.5-122B-A10B-FP8", context_window=1024)
+    # Use system+user only — Qwen3's chat template does not support an assistant
+    # turn before the first user turn (system→assistant→user renders as invalid).
+    messages = [
+        Message(role=MessageRole.SYSTEM, content=Prompt(text="Reply with exactly one word: OK")),
+        Message(role=MessageRole.USER, content=Prompt(text="Answer now.")),
+    ]
     out = _call_or_skip(
         lambda: api(
-            messages=_multi_role_messages(),
+            messages=messages,
             max_response_length=5000,
             temperature=0.0,
             top_p=1.0,
