@@ -36,6 +36,7 @@ class FactCheckAgentConfig(AgentModelConfig):
 class WebSearchAgentConfig(AgentModelConfig):
     workers: int = 4
     max_iterations: int = 2
+    max_queries_per_step: int = 5
     max_results_per_query: int = 4
 
 

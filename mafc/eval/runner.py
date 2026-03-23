@@ -57,6 +57,7 @@ def _build_fact_check_agent(
         summarization_model=worker_model,
         n_workers=ws_cfg.workers,
         max_iterations=ws_cfg.max_iterations,
+        max_queries_per_step=ws_cfg.max_queries_per_step,
         max_results_per_query=ws_cfg.max_results_per_query,
     )
     judge_agent = JudgeAgent(
