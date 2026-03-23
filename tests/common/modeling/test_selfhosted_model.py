@@ -59,10 +59,12 @@ def test_selfhosted_api_call_empty_response(monkeypatch) -> None:
                 @staticmethod
                 def create(**kwargs):
                     return SimpleNamespace(
-                        choices=[SimpleNamespace(
-                            message=SimpleNamespace(content=None),
-                            finish_reason="length",
-                        )],
+                        choices=[
+                            SimpleNamespace(
+                                message=SimpleNamespace(content=None),
+                                finish_reason="length",
+                            )
+                        ],
                         usage=None,
                     )
 
@@ -142,14 +144,10 @@ def test_selfhosted_model_generate_error_paths(monkeypatch) -> None:
     with pytest.raises(DummyRateLimitError):
         model.generate(prompt)
 
-    monkeypatch.setattr(
-        model, "api", lambda *_args, **_kwargs: (_ for _ in ()).throw(DummyAuthError("auth"))
-    )
+    monkeypatch.setattr(model, "api", lambda *_args, **_kwargs: (_ for _ in ()).throw(DummyAuthError("auth")))
     with pytest.raises(DummyAuthError):
         model.generate(prompt)
 
-    monkeypatch.setattr(
-        model, "api", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("other"))
-    )
+    monkeypatch.setattr(model, "api", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("other")))
     with pytest.raises(RuntimeError):
         model.generate(prompt)
