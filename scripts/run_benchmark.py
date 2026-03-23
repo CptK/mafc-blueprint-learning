@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import resource
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,11 @@ from pathlib import Path
 from mafc.common.logger import logger
 from mafc.eval.run_config import BenchmarkRunConfig
 from mafc.eval.runner import run_benchmark
+
+# Raise the open-file-descriptor limit to avoid EMFILE errors when many
+# parallel model/retrieval connections are open simultaneously.
+_soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (min(65536, _hard), _hard))
 
 DEFAULT_OUT_DIR = "out"
 
