@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 import math
 from pathlib import Path
+from typing import Any
 
 from ezmm import Image, Video
 
@@ -11,6 +12,8 @@ from mafc.eval.benchmark import Benchmark
 from mafc.common.label import BaseLabel
 from mafc.eval.veritas.types import ClaimEntry, MediaScore
 from mafc.eval.types import BenchmarkSample
+from mafc.eval.metrics import save_confusion_matrix_png
+from mafc.eval.veritas.metrics import compute_veritas_metrics, format_veritas_metrics_report
 from mafc.eval.veritas.labels import (
     Veritas3Label,
     Veritas7Label,
@@ -104,6 +107,46 @@ class VeriTaS(Benchmark[BenchmarkSample]):
         # Skip parent __init__ file_path handling since we set it directly
         self.full_name = f"{self.name} ({variant})"
         self.data = self._load_data()
+
+    def sample_extra_fields(self, sample: BenchmarkSample) -> dict[str, Any]:
+        """Expose the raw integrity score so the runner stores it in the JSONL."""
+        integrity = (sample.justification or {}).get("integrity")
+        try:
+            return {"gt_integrity_score": float(integrity) if integrity is not None else None}
+        except (TypeError, ValueError):
+            return {"gt_integrity_score": None}
+
+    def compute_metrics(self, results: list[dict[str, Any]]) -> dict[str, Any]:
+        return compute_veritas_metrics(results, label_scheme=self.label_scheme)
+
+    def format_metrics_report(self, metrics: dict[str, Any]) -> str:
+        return format_veritas_metrics_report(metrics, label_scheme=self.label_scheme)
+
+    def save_metric_plots(self, metrics: dict[str, Any], run_dir: Path) -> list[Path]:
+        written: list[Path] = []
+        cm = metrics.get("confusion_matrix") or {}
+        if cm:
+            n = self.label_scheme
+            path = run_dir / f"confusion_matrix_{n}class.png"
+            save_confusion_matrix_png(
+                cm,
+                path,
+                title=f"Confusion Matrix ({n}-class)",
+                subtitle=f"accuracy={metrics.get('accuracy', 0):.1%}",
+            )
+            written.append(path)
+        coarsened = metrics.get("coarsened_3class") or {}
+        cm3 = coarsened.get("confusion_matrix") or {}
+        if cm3:
+            path3 = run_dir / "confusion_matrix_3class_coarsened.png"
+            save_confusion_matrix_png(
+                cm3,
+                path3,
+                title="Confusion Matrix (3-class coarsened)",
+                subtitle=f"accuracy={coarsened.get('accuracy', 0):.1%}",
+            )
+            written.append(path3)
+        return written
 
     def _get_integrity_score(self, claim_entry: ClaimEntry) -> float | None:
         """Extract integrity score from claim entry, handling both formats."""
