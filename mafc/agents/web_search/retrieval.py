@@ -164,7 +164,7 @@ def select_sources_for_retrieval(
     selected_urls: list[str] = []
     selection_prompt: str | None = None
     selection_response: str | None = None
-    logger.info(
+    logger.debug(
         f"All candidate URLs before filtering:\n{'\n    '.join([c.source.url for c in global_candidates])}"
     )
     if len(global_candidates) > 5:

@@ -50,7 +50,7 @@ def plan_step(
             trace.add_usage(_resp, agent.model.name)
         if trace is not None and step is not None:
             trace.record_planner_response(response, step=step)
-        logger.info(f"Planner response:\n{response}")
+        logger.debug(f"Planner response:\n{response}")
         if is_failed_model_text(response):
             return None
         repair_prefix = (
