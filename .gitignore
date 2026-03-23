@@ -2,6 +2,8 @@ data/
 temp/
 config/google_service_account_key.json
 .DS_Store
+traces/
+out/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
