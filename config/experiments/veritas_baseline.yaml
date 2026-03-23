@@ -1,0 +1,30 @@
+benchmark:
+  name: veritas
+  split: 2025_q4
+  label_scheme: 7
+  # sample_ids: ["123", "456"]  # run specific samples only
+  first_n: 4                 # run first N samples (useful for smoke tests)
+
+agents:
+  fact_check:
+    model: qwen_3_5_122b
+    workers: 4          # internal task parallelism within a single fact-check run
+  web_search:
+    model: qwen_3_5_122b
+    workers: 4
+    max_iterations: 2
+    max_results_per_query: 4
+  media:
+    model: qwen_3_5_122b
+  judge:
+    model: qwen_3_5_122b
+
+blueprints:
+  selector_model: qwen_3_5_122b
+  config_dir: config/blueprints
+
+run:
+  concurrency: 4        # number of samples processed in parallel
+  timeout_per_sample:   # seconds per sample; leave empty for no timeout
+  traces: true
+  log_level: INFO
