@@ -12,4 +12,4 @@ class BenchmarkSample:
     id: str
     input: Claim
     label: BaseLabel
-    justification: dict[str, Any] | None = None
+    justification: dict[str, Any] | None

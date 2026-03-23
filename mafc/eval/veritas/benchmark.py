@@ -11,7 +11,7 @@ from mafc.common.claim import Claim
 from mafc.eval.benchmark import Benchmark
 from mafc.common.label import BaseLabel
 from mafc.eval.veritas.types import ClaimEntry, MediaScore
-from mafc.eval.types import BenchmarkSample
+from mafc.eval.veritas.types import VeriTaSBenchmarkSample
 from mafc.eval.metrics import save_confusion_matrix_png
 from mafc.eval.veritas.metrics import compute_veritas_metrics, format_veritas_metrics_report
 from mafc.eval.veritas.labels import (
@@ -35,7 +35,7 @@ def _classify_integrity_7(score: float) -> Veritas7Label:
     return Veritas7Label.INTACT_CERTAIN
 
 
-class VeriTaS(Benchmark[BenchmarkSample]):
+class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
     name = "VeriTaS"
     shorthand = "veritas"
 
@@ -108,13 +108,12 @@ class VeriTaS(Benchmark[BenchmarkSample]):
         self.full_name = f"{self.name} ({variant})"
         self.data = self._load_data()
 
-    def sample_extra_fields(self, sample: BenchmarkSample) -> dict[str, Any]:
-        """Expose the raw integrity score so the runner stores it in the JSONL."""
-        integrity = (sample.justification or {}).get("integrity")
-        try:
-            return {"gt_integrity_score": float(integrity) if integrity is not None else None}
-        except (TypeError, ValueError):
-            return {"gt_integrity_score": None}
+    def sample_extra_fields(self, sample: VeriTaSBenchmarkSample) -> dict[str, Any]:
+        return {
+            "gt_integrity_score": sample.gt_score,
+            "gt_veracity": sample.gt_veracity,
+            "gt_context_coverage": sample.gt_context_coverage,
+        }
 
     def compute_metrics(self, results: list[dict[str, Any]]) -> dict[str, Any]:
         return compute_veritas_metrics(results, label_scheme=self.label_scheme)
@@ -242,7 +241,7 @@ class VeriTaS(Benchmark[BenchmarkSample]):
             "media_verdicts": media_verdicts,
         }
 
-    def _load_data(self) -> list[BenchmarkSample]:
+    def _load_data(self) -> list[VeriTaSBenchmarkSample]:
         """Load claims from the VeriTaS dataset."""
         logger.info(f"[VeriTaS] Opening claims file: {self.file_path}")
         with open(self.file_path, "r") as f:
@@ -255,7 +254,7 @@ class VeriTaS(Benchmark[BenchmarkSample]):
             f"[VeriTaS] Loading {metadata.get('total_claims', len(claims))} claims from VeriTaS {self.variant}..."
         )
 
-        data: list[BenchmarkSample] = []
+        data: list[VeriTaSBenchmarkSample] = []
         skipped_claims = 0
         for claim_entry in claims:
             claim_id = str(claim_entry["id"])
@@ -291,7 +290,9 @@ class VeriTaS(Benchmark[BenchmarkSample]):
             # Label based on integrity score (3-class or 7-class)
             integrity = self._get_integrity_score(claim_entry)
             if integrity is None:
-                label = Veritas7Label.UNKNOWN if self.label_scheme == 7 else Veritas3Label.UNKNOWN
+                logger.warning(f"[VeriTaS] Skipping claim {claim_id}: missing integrity score.")
+                skipped_claims += 1
+                continue
             elif self.label_scheme == 7:
                 label = _classify_integrity_7(integrity)
             elif integrity >= self.INTACT_THRESHOLD:
@@ -301,10 +302,20 @@ class VeriTaS(Benchmark[BenchmarkSample]):
             else:
                 label = Veritas3Label.UNKNOWN
 
-            # Store additional ground truth info for evaluation
-            justification = self._get_justification(claim_entry)
+            gt = self._get_justification(claim_entry)
 
-            data.append(BenchmarkSample(id=claim_id, input=claim, label=label, justification=justification))
+            data.append(
+                VeriTaSBenchmarkSample(
+                    id=claim_id,
+                    input=claim,
+                    label=label,
+                    justification=gt,
+                    gt_score=integrity,
+                    gt_veracity=gt["veracity"],
+                    gt_context_coverage=gt["context_coverage"],
+                    gt_media_verdicts=gt["media_verdicts"],
+                )
+            )
 
         logger.info(f"[VeriTaS] Successfully loaded {len(data)} claims")
         logger.info("[VeriTaS] Label distribution:")

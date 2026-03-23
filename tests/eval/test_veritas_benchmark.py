@@ -203,7 +203,7 @@ def test_load_data_skips_claims_with_invalid_media_registration(tmp_path, monkey
 def test_load_data_handles_bad_date_and_claim_creation_failure(tmp_path, monkeypatch) -> None:
     claims_path = tmp_path / "claims.json"
     claims = [
-        {"id": 1, "text": "ok", "integrity": None, "media": [], "date": "not-a-date"},
+        {"id": 1, "text": "ok", "integrity": {"score": 0.5}, "media": [], "date": "not-a-date"},
         {"id": 2, "text": "bad", "integrity": {"score": 0.9}, "media": []},
     ]
     _write_claims_file(claims_path, claims)
@@ -224,7 +224,7 @@ def test_load_data_handles_bad_date_and_claim_creation_failure(tmp_path, monkeyp
     bench = VeriTaS(data_path=str(claims_path), variant="unit", label_scheme=7)
     assert len(bench.data) == 1
     assert bench.data[0].id == "1"
-    assert bench.data[0].label == Veritas7Label.UNKNOWN
+    assert bench.data[0].label == Veritas7Label.INTACT_RATHER_CERTAIN
 
 
 def test_three_class_thresholds(tmp_path, monkeypatch) -> None:
