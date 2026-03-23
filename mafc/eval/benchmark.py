@@ -107,6 +107,40 @@ class Benchmark(ABC, Generic[TBenchmarkSample]):
     def __iter__(self) -> Iterator[TBenchmarkSample]:
         return iter(self.data)
 
+    def sample_extra_fields(self, sample: TBenchmarkSample) -> dict[str, Any]:
+        """Return benchmark-specific fields to merge into a per-claim result dict.
+
+        Override in subclasses to expose ground-truth metadata needed for
+        benchmark-specific metrics (e.g. a raw integrity score for MSE/MAE).
+        The runner stores these fields in the JSONL results file so they are
+        available even on resumed runs.
+        """
+        return {}
+
+    def compute_metrics(self, results: list[dict[str, Any]]) -> dict[str, Any]:
+        """Compute benchmark-specific metrics from the collected result dicts.
+
+        Each dict contains at least: claim_id, ground_truth, predicted, correct,
+        errors, duration_ms, cost, plus whatever was returned by sample_extra_fields.
+        Returns a JSON-serialisable dict that is embedded in the run summary.
+        Override in subclasses; the default implementation returns {}.
+        """
+        return {}
+
+    def format_metrics_report(self, metrics: dict[str, Any]) -> str:
+        """Return a human-readable metrics report string for console/file output.
+
+        Override in subclasses to provide a richer view of benchmark-specific metrics.
+        """
+        return ""
+
+    def save_metric_plots(self, metrics: dict[str, Any], run_dir: Path) -> list[Path]:
+        """Save metric visualisations (e.g. confusion matrix PNGs) to run_dir.
+
+        Returns the list of files written.  Override in subclasses.
+        """
+        return []
+
     def process_output(self, output: tuple[Any, Mapping[str, Any]]) -> None:
         """Handles the model's output and evaluates whether it is correct."""
         doc, meta = output
