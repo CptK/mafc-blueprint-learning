@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import resource
 import shutil
+
+faulthandler.enable()
 from datetime import datetime
 from pathlib import Path
 
