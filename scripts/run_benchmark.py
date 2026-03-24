@@ -7,14 +7,14 @@ import argparse
 import faulthandler
 import resource
 import shutil
-
-faulthandler.enable()
 from datetime import datetime
 from pathlib import Path
 
 from mafc.common.logger import logger
 from mafc.eval.run_config import BenchmarkRunConfig
 from mafc.eval.runner import run_benchmark
+
+faulthandler.enable()
 
 # Raise the open-file-descriptor limit to avoid EMFILE errors when many
 # parallel model/retrieval connections are open simultaneously.
