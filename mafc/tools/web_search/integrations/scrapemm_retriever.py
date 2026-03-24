@@ -1,4 +1,5 @@
 import asyncio
+import atexit
 import base64
 import io
 import logging
@@ -74,8 +75,8 @@ class ScrapeMMRetriever(RetrievalIntegration):
 
     # One event loop shared across ALL instances and threads. Multiple independent
     # event loops doing concurrent SSL (aiohttp/Decodo) from separate threads
-    # causes segfaults on macOS / Python 3.13. A single loop serialises all
-    # async I/O into one thread, which is inherently thread-safe.
+    # causes segfaults on macOS and Linux / Python 3.13. A single loop serialises
+    # all async I/O into one thread, which is inherently thread-safe.
     _shared_loop: asyncio.AbstractEventLoop | None = None
     _shared_loop_thread: threading.Thread | None = None
     _class_lock: threading.Lock = threading.Lock()
@@ -90,8 +91,21 @@ class ScrapeMMRetriever(RetrievalIntegration):
                 thread.start()
                 ScrapeMMRetriever._shared_loop = loop
                 ScrapeMMRetriever._shared_loop_thread = thread
+                atexit.register(ScrapeMMRetriever._shutdown_shared_loop)
         self._loop = ScrapeMMRetriever._shared_loop
         self._loop_thread = ScrapeMMRetriever._shared_loop_thread
+
+    @classmethod
+    def _shutdown_shared_loop(cls) -> None:
+        with cls._class_lock:
+            loop = cls._shared_loop
+            thread = cls._shared_loop_thread
+            cls._shared_loop = None
+            cls._shared_loop_thread = None
+        if loop is not None:
+            loop.call_soon_threadsafe(loop.stop)
+        if thread is not None:
+            thread.join(timeout=5.0)
 
     def _run_retrieve(self, url: str) -> Any:
         coro = asyncio.wait_for(_retrieve_url(url), timeout=self.timeout_seconds)
