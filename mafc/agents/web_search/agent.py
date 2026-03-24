@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import date
 from pathlib import Path
 from typing import cast
 
@@ -66,7 +65,6 @@ class WebSearchAgent(Agent):
         max_iterations: int = 4,
         max_queries_per_step: int = 5,
         max_results_per_query: int = 5,
-        latest_allowed_date: date | None = None,
         trace_dir: str | Path | None = None,
     ):
         super().__init__(main_model, n_workers=n_workers)
@@ -76,7 +74,6 @@ class WebSearchAgent(Agent):
         self.max_iterations = max_iterations
         self.max_queries_per_step = max_queries_per_step
         self.max_results_per_query = max_results_per_query
-        self.latest_allowed_date = latest_allowed_date
         self.trace_dir = trace_dir
 
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
@@ -262,7 +259,7 @@ class WebSearchAgent(Agent):
             search_tool=self.search_tool,
             n_workers=self.n_workers,
             max_results_per_query=self.max_results_per_query,
-            latest_allowed_date=self.latest_allowed_date,
+            latest_allowed_date=session.cutoff_date,
             step=step,
             trace=trace,
         )

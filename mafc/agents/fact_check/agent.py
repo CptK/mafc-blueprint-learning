@@ -613,6 +613,7 @@ class FactCheckAgent(Agent):
                 id=child_session_id,
                 goal=goal,
                 claim=claim,
+                cutoff_date=parent_session.cutoff_date,
                 parent_session_id=parent_session.id,
                 evidences=list(state.evidences),
             )
@@ -621,6 +622,7 @@ class FactCheckAgent(Agent):
             id=child_session_id,
             goal=Prompt(text=instruction or str(claim)),
             claim=claim,
+            cutoff_date=parent_session.cutoff_date,
             parent_session_id=parent_session.id,
             evidences=list(state.evidences),
         )

@@ -125,7 +125,7 @@ class JudgeAgent(Agent):
         repair_prefix = (
             "Convert the following judge response to strict JSON with schema:\n"
             '{"label": "one allowed label", "justification": "short grounded justification"}\n'
-            f"Allowed labels: {', '.join(str(k) for k in self.class_definitions)}\n"
+            f"Allowed labels: {', '.join(k.value for k in self.class_definitions)}\n"
             "Only return JSON."
         )
         parsed, repair_text = try_parse_with_repair(

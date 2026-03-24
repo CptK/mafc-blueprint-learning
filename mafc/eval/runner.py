@@ -108,6 +108,7 @@ def _run_sample(
             id=f"benchmark:{sample.id}",
             goal=Prompt(text="Fact-check this claim using the selected blueprint."),
             claim=sample.input,
+            cutoff_date=sample.input.date.date() if sample.input.date is not None else None,
         )
         result = agent.run(session, true_label=sample.label.value)
         predicted = _extract_predicted_label(result)

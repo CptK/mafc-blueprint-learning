@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 from ezmm import MultimodalSequence
 
@@ -63,6 +64,7 @@ class AgentSession:
     id: str
     goal: MultimodalSequence
     claim: Claim | None = None
+    cutoff_date: date | None = None  # Restrict web searches to sources published on or before this date.
     status: AgentStatus = AgentStatus.NOT_STARTED
     messages: list[AgentMessage] = field(default_factory=list)
     evidences: list[Evidence] = field(default_factory=list)
