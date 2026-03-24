@@ -21,3 +21,6 @@ google-cloud-vision
 pyyaml
 mypy
 pypdf
+uvicorn
+pillow
+fastapi
