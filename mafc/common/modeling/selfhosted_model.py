@@ -20,6 +20,7 @@ class SelfhostedAPI(API):
                 "Missing self-hosted model URL. Set selfhosted_url in the environment or config/.env."
             )
         self.client = OpenAI(base_url=globals.selfhosted_url, api_key="none", timeout=300)
+        _ = self.client.chat  # warm up lazy openai submodule imports in this thread
 
     def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
         max_response_length = kwargs.get("max_response_length", 2048)
