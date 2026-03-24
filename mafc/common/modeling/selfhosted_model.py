@@ -1,5 +1,6 @@
-from openai import OpenAI
 import openai
+from openai import OpenAI
+import time
 from typing import cast
 
 from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMessageParam
@@ -41,13 +42,24 @@ class SelfhostedAPI(API):
             ],
         )
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=provider_messages,
-            temperature=kwargs.get("temperature", 1.0),
-            top_p=kwargs.get("top_p", 1.0),
-            max_tokens=max_response_length,
-        )
+        for _attempt in range(3):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=provider_messages,
+                    temperature=kwargs.get("temperature", 1.0),
+                    top_p=kwargs.get("top_p", 1.0),
+                    max_tokens=max_response_length,
+                )
+                break
+            except openai.APIConnectionError as e:
+                if _attempt == 2:
+                    raise
+                wait = 2**_attempt * 5  # 5s, 10s
+                logger.warning(
+                    f"[Selfhosted] Connection error (attempt {_attempt + 1}/3), retrying in {wait}s: {e}"
+                )
+                time.sleep(wait)
 
         content = response.choices[0].message.content
         if not content:
