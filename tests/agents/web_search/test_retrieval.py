@@ -83,10 +83,11 @@ def test_passes_end_date_to_query() -> None:
         summarization_model=summarizer,
         search_tool=search_tool,
         retriever=retriever,
-        latest_allowed_date=cutoff,
     )
 
-    out = agent.run(make_session("Any task"))
+    session = make_session("Any task")
+    session.cutoff_date = cutoff
+    out = agent.run(session)
 
     assert out.result is not None
     assert search_tool.query_objects[0].end_date == cutoff
