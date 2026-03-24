@@ -1,15 +1,9 @@
 import numpy as np
 import pandas as pd
-import threading
-
 from ezmm import MultimodalSequence
 from ezmm.common.items import Image, Video
 
 from mafc.common.modeling.message import Message
-
-# ezmm's global item registry and OpenCV's VideoCapture are not thread-safe.
-# Serialise all video-to-frames conversions to prevent concurrent access.
-_video_frames_lock = threading.Lock()
 
 AVAILABLE_MODELS = pd.read_csv("config/available_models.csv", skipinitialspace=True)
 
@@ -64,18 +58,17 @@ def with_videos_as_frames(content: MultimodalSequence, n_frames: int = 5) -> Mul
     """Return content with videos replaced by sampled image frames."""
     from mafc.common.modeling.prompt import Prompt
 
-    with _video_frames_lock:
-        if isinstance(content, Prompt):
-            return content.with_videos_as_frames(n_frames)
-        new_data = []
-        for item in content.data:
-            if isinstance(item, Video):
-                frames = item.sample_frames(n_frames, format="jpeg")
-                for frame_bytes in frames:
-                    new_data.append(Image(binary_data=frame_bytes))
-            else:
-                new_data.append(item)
-        return MultimodalSequence(*new_data)
+    if isinstance(content, Prompt):
+        return content.with_videos_as_frames(n_frames)
+    new_data = []
+    for item in content.data:
+        if isinstance(item, Video):
+            frames = item.sample_frames(n_frames, format="jpeg")
+            for frame_bytes in frames:
+                new_data.append(Image(binary_data=frame_bytes))
+        else:
+            new_data.append(item)
+    return MultimodalSequence(*new_data)
 
 
 def messages_with_videos_as_frames(messages: list[Message], n_frames: int = 5) -> list[Message]:
