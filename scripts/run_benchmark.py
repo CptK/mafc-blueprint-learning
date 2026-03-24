@@ -7,8 +7,12 @@ import argparse
 import faulthandler
 import resource
 import shutil
+import threading
 from datetime import datetime
 from pathlib import Path
+
+import ezmm
+from ezmm.common.registry import ItemRegistry
 
 from mafc.common.logger import logger
 from mafc.eval.run_config import BenchmarkRunConfig
@@ -20,6 +24,22 @@ faulthandler.enable()
 # parallel model/retrieval connections are open simultaneously.
 _soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (min(65536, _hard), _hard))
+
+# ezmm's ItemRegistry uses a single shared SQLite cursor which is not
+# thread-safe. Monkey-patch all public cursor-using methods with a lock so
+# concurrent worker threads cannot corrupt or deadlock the registry.
+_registry_lock = threading.RLock()  # reentrant: add_item → contains → _get_id_by_path all in same thread
+for _name in ("get", "get_by_path", "add_item", "get_cached", "update_file_path", "contains"):
+    _orig = getattr(ItemRegistry, _name)
+
+    def _make_locked(m):
+        def _locked(self, *args, **kwargs):
+            with _registry_lock:
+                return m(self, *args, **kwargs)
+
+        return _locked
+
+    setattr(ItemRegistry, _name, _make_locked(_orig))
 
 DEFAULT_OUT_DIR = "out"
 
@@ -57,6 +77,8 @@ def main() -> None:
         shutil.copy(args.config, run_dir / "config.yaml")
         skip_ids = set()
         logger.info(f"[Runner] Starting new run at {run_dir}")
+
+    ezmm.set_ezmm_path(run_dir / "temp")
 
     logger.set_experiment_dir(run_dir)
     logger.set_log_level(config.run.log_level.lower())  # type: ignore[arg-type]
