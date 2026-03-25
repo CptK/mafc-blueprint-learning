@@ -49,6 +49,7 @@ class AgentsConfig(BaseModel):
 
 class BlueprintsConfig(BaseModel):
     selector_model: str
+    selector_max_response_length: int = 8192
     config_dir: str = "config/blueprints"
 
 

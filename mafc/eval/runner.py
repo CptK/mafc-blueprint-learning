@@ -46,7 +46,9 @@ def _build_fact_check_agent(
     judge_model = make_model(
         judge_cfg.model, temperature=judge_cfg.temperature, max_response_length=judge_cfg.max_response_length
     )
-    selector_model = make_model(bp_cfg.selector_model)
+    selector_model = make_model(
+        bp_cfg.selector_model, max_response_length=bp_cfg.selector_max_response_length
+    )
 
     registry = BlueprintRegistry.from_path(bp_cfg.config_dir)
     selector = BlueprintSelector(model=selector_model, registry=registry, default_blueprint_name="generic")

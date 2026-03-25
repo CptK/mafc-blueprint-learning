@@ -68,7 +68,7 @@ class SelfhostedAPI(API):
                 f"[Selfhosted] Empty response from model '{self.model}': "
                 f"finish_reason={finish_reason!r}, max_response_length={kwargs.get('max_response_length', 2048)}"
             )
-            content = "Failed to generate a response."
+            content = f"Failed to generate a response (finish_reason={finish_reason!r})."
         return APIResponse(
             text=content,
             input_token_count=response.usage.prompt_tokens if response.usage else None,
