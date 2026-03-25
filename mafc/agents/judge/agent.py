@@ -47,7 +47,7 @@ class JudgeAgent(Agent):
         super().__init__(model, n_workers=n_workers, agent_id=agent_id)
         self.class_definitions = dict(class_definitions)
         self.extra_judge_rules = extra_judge_rules
-        self._labels_by_value = {label.value: label for label in self.class_definitions}
+        self._labels_by_value = {label.value.lower(): label for label in self.class_definitions}
         self.trace_dir = trace_dir
 
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
@@ -80,7 +80,7 @@ class JudgeAgent(Agent):
                 evidences=list(session.evidences),
             )
 
-        label = self._labels_by_value.get(parsed.label)
+        label = self._labels_by_value.get(parsed.label.lower())
         if label is None:
             return self._abort(
                 session,

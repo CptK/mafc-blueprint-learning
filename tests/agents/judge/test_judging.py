@@ -144,6 +144,16 @@ def test_synthesize_from_evidences_returns_formatted_string() -> None:
     assert "Contradicted" in result
 
 
+def test_label_matching_is_case_insensitive() -> None:
+    # Model returns label with mixed case (e.g. capitalised by the LLM)
+    session = make_session()
+    out = _agent(['{"label":"False","justification":"Evidence contradicts."}']).run(session)
+
+    assert out.session.status == AgentStatus.COMPLETED
+    assert session.claim is not None
+    assert session.claim.verdict == DummyLabel.FALSE
+
+
 def test_synthesize_from_evidences_falls_back_to_raw_response_on_parse_failure() -> None:
     raw_response = "I cannot determine a label."
     agent = _agent([raw_response])
