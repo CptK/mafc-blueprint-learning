@@ -68,6 +68,7 @@ def main() -> None:
         if not config_path.exists():
             raise FileNotFoundError(f"No config.yaml found in resume dir: {run_dir}")
         config = BenchmarkRunConfig.from_yaml(config_path)
+        logger.set_experiment_dir(run_dir)
         skip_ids = logger.load_completed_ids() if (run_dir / logger.results_filename).exists() else set()
         logger.info(f"[Runner] Resuming run at {run_dir} ({len(skip_ids)} samples already done)")
     else:
@@ -75,12 +76,12 @@ def main() -> None:
         run_dir = _make_run_dir(config)
         run_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(args.config, run_dir / "config.yaml")
+        logger.set_experiment_dir(run_dir)
         skip_ids = set()
         logger.info(f"[Runner] Starting new run at {run_dir}")
 
     ezmm.set_ezmm_path(run_dir / "temp")
 
-    logger.set_experiment_dir(run_dir)
     logger.set_log_level(config.run.log_level.lower())  # type: ignore[arg-type]
 
     run_benchmark(config, run_dir, skip_ids=skip_ids or None)
