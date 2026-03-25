@@ -159,13 +159,15 @@ def save_confusion_matrix_png(
     full_title = f"{title}\n{subtitle}" if subtitle else title
     ax.set_title(full_title, fontsize=11, pad=12)
 
-    # Annotate cells with raw counts
+    # Annotate cells with raw count (top) and row-normalised proportion (bottom, smaller)
     thresh = 0.5
     for i in range(n):
         for j in range(n):
             count = matrix[i, j]
-            color = "white" if norm[i, j] > thresh else "black"
-            ax.text(j, i, str(count), ha="center", va="center", fontsize=9, color=color)
+            prop = norm[i, j]
+            color = "white" if prop > thresh else "black"
+            ax.text(j, i - 0.15, str(count), ha="center", va="center", fontsize=9, color=color)
+            ax.text(j, i + 0.22, f"({prop:.2f})", ha="center", va="center", fontsize=7, color=color)
 
     fig.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches="tight")
