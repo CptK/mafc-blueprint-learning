@@ -18,7 +18,7 @@ from mafc.utils.parsing import extract_json_object, strip_json_fences
 class PlannerCheckUpdatePayload(BaseModel):
     """Validated JSON payload for one check-status update."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     id: str
     status: CheckStatus
@@ -28,7 +28,7 @@ class PlannerCheckUpdatePayload(BaseModel):
 class DelegationTaskPayload(BaseModel):
     """Validated JSON payload for one delegated task."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     task_id: str
     agent_type: str
@@ -40,7 +40,7 @@ class DelegationTaskPayload(BaseModel):
 class PlannerDecisionPayload(BaseModel):
     """Validated JSON payload for the execution phase of an action node."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     decision_type: PlannerDecisionType
     rationale: str
@@ -51,7 +51,7 @@ class PlannerDecisionPayload(BaseModel):
 class RoutingDecisionPayload(BaseModel):
     """Validated JSON payload for the routing phase."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     next_node_id: str
     rationale: str
