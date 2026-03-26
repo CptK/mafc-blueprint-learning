@@ -69,11 +69,36 @@ def get_base_domain(url: str) -> str:
 
 
 def extract_json_object(text: str) -> str:
-    """Extract the first JSON object from potentially mixed model output."""
-    if text.startswith("{") and text.endswith("}"):
+    """Extract the first complete JSON object from potentially mixed model output."""
+    text = text.strip()
+    start = text.find("{")
+    if start == -1:
         return text
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    return match.group(0).strip() if match else text
+    # Walk from the first '{' and find the matching closing '}' via bracket counting.
+    # This correctly handles models that repeat their output (e.g. plain JSON followed
+    # by the same JSON inside a ```json fence) by stopping at the first complete object.
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(text[start:], start):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1].strip()
+    return text
 
 
 def is_failed_model_text(text: str) -> bool:
