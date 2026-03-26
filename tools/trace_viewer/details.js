@@ -394,6 +394,9 @@ export function renderDetail(node) {
     const totalTokens = (payload.total_input_tokens ?? 0) + (payload.total_output_tokens ?? 0);
     const byModel = payload.by_model || {};
     const modelNames = Object.keys(byModel);
+    const timings = payload.timings || {};
+    const llmTotal = Object.entries(timings).filter(([k]) => k.startsWith("llm_")).reduce((s, [, v]) => s + v, 0);
+    const scrapingTotal = timings["scrapemm_retrieval_ms"] || 0;
     return `
       <h3>Run Summary</h3>
 
@@ -407,6 +410,11 @@ export function renderDetail(node) {
         ${payload.runtime_seconds != null ? `<strong>Runtime:</strong> ${(payload.runtime_seconds / 60).toFixed(1)}min &nbsp;|&nbsp; ` : ""}
         ${payload.evidence_count != null ? `<strong>Evidence:</strong> ${payload.evidence_count}` : ""}
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
+      </p>
+
+      <p>
+        ${llmTotal ? `<strong>LLM time:</strong> ${escapeHtml(formatMs(llmTotal))}` : ""}
+        ${scrapingTotal ? ` &nbsp;|&nbsp; <strong>Scraping time:</strong> ${escapeHtml(formatMs(scrapingTotal))}` : ""}
       </p>
 
       <div class="detail-section">

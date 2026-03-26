@@ -180,7 +180,20 @@ export function buildViewModel(trace) {
         total_input_tokens: summary.total_input_tokens ?? null,
         total_output_tokens: summary.total_output_tokens ?? null,
         by_model: summary.by_model ?? {},
-        timings: summary.timings ?? {},
+        timings: (() => {
+          const merged = { ...(summary.timings || {}) };
+          for (const iter of trace.iterations || []) {
+            for (const task of iter.delegated_tasks || []) {
+              for (const [k, v] of Object.entries((task.child_trace?.summary?.timings) || {})) {
+                merged[k] = (merged[k] || 0) + v;
+              }
+            }
+          }
+          for (const [k, v] of Object.entries((trace.judge_run?.summary?.timings) || {})) {
+            merged[k] = (merged[k] || 0) + v;
+          }
+          return merged;
+        })(),
         evidence_count: summary.evidence_count ?? null,
         errors: summary.errors || [],
       },
