@@ -24,7 +24,7 @@ class SequencedModel(Model):
         self.outputs = outputs
         self.calls: list[str] = []
 
-    def generate(self, messages: list[Message]) -> Response:
+    def _do_generate(self, messages: list[Message]) -> Response:
         self.calls.append("\n".join(f"[{message.role.value}] {message.content}" for message in messages))
         text = self.outputs.pop(0) if self.outputs else ""
         return Response(text=text, total_cost=0.0)
@@ -34,7 +34,7 @@ class FailingModel(Model):
     def __init__(self):
         super().__init__(specifier="OPENAI:gpt-5-mini-2025-08-07")
 
-    def generate(self, messages: list[Message]) -> Response:
+    def _do_generate(self, messages: list[Message]) -> Response:
         raise RuntimeError("model unavailable")
 
 

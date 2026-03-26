@@ -5,7 +5,7 @@ from mafc.common.modeling.model import API, APIResponse, Model
 
 
 class DummyModel(Model):
-    def generate(self, messages):
+    def _do_generate(self, messages):
         raise NotImplementedError
 
 
@@ -27,4 +27,4 @@ def test_model_initialization_and_compute_cost() -> None:
 def test_abstract_method_bodies_are_covered() -> None:
     # These execute the abstract base method bodies (which are `pass`) directly.
     assert API.__call__(cast(API, object()), messages=cast(list[Message], object())) is None
-    assert Model.generate(cast(Model, object()), messages=cast(list[Message], object())) is None
+    assert Model._do_generate(cast(Model, object()), messages=cast(list[Message], object())) is None
