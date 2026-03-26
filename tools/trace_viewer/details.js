@@ -231,6 +231,8 @@ export function renderDetail(node) {
           <ul>${seenQueries.map((q) => `<li>${escapeHtml(q)}</li>`).join("")}</ul>
         </div>` : ""}
 
+      ${renderTimings(summary.timings)}
+
       ${renderCollapsibleMultimodal("Goal", payload.goal)}
       ${renderCollapsibleMultimodal("Result", summary.result && summary.result.result)}
     `;
@@ -442,6 +444,8 @@ export function renderDetail(node) {
         </table>
       </div>
 
+      ${renderTimings(payload.timings)}
+
       ${renderErrorList(errors)}
     `;
   }
@@ -581,6 +585,36 @@ function renderMediaGrid(images, videos) {
     }
     return `<video class="claim-media-video" src="${url}" controls></video>`;
   }).join("")}</div>`;
+}
+
+function formatMs(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  return `${m}m ${s}s`;
+}
+
+function humanizeTimingLabel(label) {
+  return label.replace(/_ms$/, "").replace(/_/g, " ");
+}
+
+function renderTimings(timings) {
+  if (!timings || !Object.keys(timings).length) return "";
+  const rows = Object.entries(timings)
+    .sort(([, a], [, b]) => b - a)
+    .map(([label, ms]) => `<tr>
+      <td style="padding:2px 8px 2px 0">${escapeHtml(humanizeTimingLabel(label))}</td>
+      <td style="text-align:right;padding:2px 0">${escapeHtml(formatMs(ms))}</td>
+    </tr>`)
+    .join("");
+  return `
+    <div class="detail-section">
+      <strong>Phase timings</strong>
+      <table style="margin-top:4px;border-collapse:collapse;width:100%">
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 function renderErrorList(errors) {
