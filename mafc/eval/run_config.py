@@ -26,6 +26,8 @@ class BenchmarkConfig(BaseModel):
 class AgentModelConfig(BaseModel):
     model: str
     temperature: float = 1.0
+    top_p: float = 1.0
+    top_k: int = 50
     max_response_length: int = 64000
 
 
@@ -40,6 +42,11 @@ class WebSearchAgentConfig(AgentModelConfig):
     max_results_per_query: int = 4
     summarization_model: str | None = None  # defaults to main model if not set
     summarization_max_response_length: int | None = None  # defaults to max_response_length if not set
+    summarization_thinking: bool = True  # set False for non-thinking mode (Qwen3 family)
+    summarization_temperature: float | None = None  # defaults to temperature if not set
+    summarization_top_p: float | None = None  # defaults to top_p if not set
+    summarization_top_k: int | None = None  # defaults to top_k if not set
+    summarization_presence_penalty: float = 0.0
 
 
 class AgentsConfig(BaseModel):

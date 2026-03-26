@@ -43,8 +43,12 @@ def _build_fact_check_agent(
     summarization_model = (
         make_model(
             ws_cfg.summarization_model,
-            temperature=ws_cfg.temperature,
+            temperature=ws_cfg.summarization_temperature or ws_cfg.temperature,
+            top_p=ws_cfg.summarization_top_p or ws_cfg.top_p,
+            top_k=ws_cfg.summarization_top_k or ws_cfg.top_k,
             max_response_length=ws_cfg.summarization_max_response_length or ws_cfg.max_response_length,
+            thinking=ws_cfg.summarization_thinking,
+            presence_penalty=ws_cfg.summarization_presence_penalty,
         )
         if ws_cfg.summarization_model
         else worker_model
