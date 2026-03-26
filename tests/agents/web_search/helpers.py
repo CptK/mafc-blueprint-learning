@@ -15,7 +15,7 @@ class SequencedModel(Model):
         self.outputs = outputs
         self.calls: list[str] = []
 
-    def generate(self, messages: list[Message]) -> Response:
+    def _do_generate(self, messages: list[Message]) -> Response:
         self.calls.append("\n".join(f"[{message.role.value}] {message.content}" for message in messages))
         text = self.outputs.pop(0) if self.outputs else ""
         return Response(text=text, total_cost=0.0)
