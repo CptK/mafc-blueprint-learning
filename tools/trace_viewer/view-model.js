@@ -179,6 +179,7 @@ export function buildViewModel(trace) {
         total_cost_usd: summary.total_cost_usd ?? null,
         total_input_tokens: summary.total_input_tokens ?? null,
         total_output_tokens: summary.total_output_tokens ?? null,
+        total_calls: summary.total_calls ?? null,
         by_model: summary.by_model ?? {},
         timings: (() => {
           const merged = { ...(summary.timings || {}) };

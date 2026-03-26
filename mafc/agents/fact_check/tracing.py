@@ -446,24 +446,30 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
             for task in iteration.get("delegated_tasks", []):
                 child_summary = (task.get("child_trace") or {}).get("summary") or {}
                 self._total_cost += child_summary.get("total_cost_usd", 0.0)
+                self._total_calls += child_summary.get("total_calls", 0)
                 self._total_input_tokens += child_summary.get("total_input_tokens", 0)
                 self._total_output_tokens += child_summary.get("total_output_tokens", 0)
                 for m_name, m_stats in (child_summary.get("by_model") or {}).items():
                     entry = self._by_model.setdefault(
-                        m_name, {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+                        m_name, {"cost_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0}
                     )
                     entry["cost_usd"] += m_stats.get("cost_usd", 0.0)
+                    entry["calls"] += m_stats.get("calls", 0)
                     entry["input_tokens"] += m_stats.get("input_tokens", 0)
                     entry["output_tokens"] += m_stats.get("output_tokens", 0)
+                for label, ms in (child_summary.get("timings") or {}).items():
+                    self._timings[label] = self._timings.get(label, 0.0) + ms
         judge_summary = (self.trace.get("judge_run") or {}).get("summary") or {}
         self._total_cost += judge_summary.get("total_cost_usd", 0.0)
+        self._total_calls += judge_summary.get("total_calls", 0)
         self._total_input_tokens += judge_summary.get("total_input_tokens", 0)
         self._total_output_tokens += judge_summary.get("total_output_tokens", 0)
         for m_name, m_stats in (judge_summary.get("by_model") or {}).items():
             entry = self._by_model.setdefault(
-                m_name, {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+                m_name, {"cost_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0}
             )
             entry["cost_usd"] += m_stats.get("cost_usd", 0.0)
+            entry["calls"] += m_stats.get("calls", 0)
             entry["input_tokens"] += m_stats.get("input_tokens", 0)
             entry["output_tokens"] += m_stats.get("output_tokens", 0)
 

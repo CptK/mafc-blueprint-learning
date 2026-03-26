@@ -127,6 +127,7 @@ class BaseTraceRecorder:
         self.scope = trace_scope
         self._event_seq = 0
         self._total_cost: float = 0.0
+        self._total_calls: int = 0
         self._total_input_tokens: int = 0
         self._total_output_tokens: int = 0
         self._by_model: dict[str, dict] = {}
@@ -147,14 +148,16 @@ class BaseTraceRecorder:
     def add_usage(self, response: Response, model_name: str) -> None:
 
         self._total_cost += response.total_cost
+        self._total_calls += 1
         in_tok = response.input_token_count or 0
         out_tok = response.output_token_count or 0
         self._total_input_tokens += in_tok
         self._total_output_tokens += out_tok
         entry = self._by_model.setdefault(
-            model_name, {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+            model_name, {"cost_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0}
         )
         entry["cost_usd"] += response.total_cost
+        entry["calls"] += 1
         entry["input_tokens"] += in_tok
         entry["output_tokens"] += out_tok
 
@@ -187,11 +190,13 @@ class BaseTraceRecorder:
     def _write_usage_stats(self) -> None:
         """Write accumulated usage counters and timings into ``self.trace["summary"]``."""
         self.trace["summary"]["total_cost_usd"] = round(self._total_cost, 6)
+        self.trace["summary"]["total_calls"] = self._total_calls
         self.trace["summary"]["total_input_tokens"] = self._total_input_tokens
         self.trace["summary"]["total_output_tokens"] = self._total_output_tokens
         self.trace["summary"]["by_model"] = {
             name: {
                 "cost_usd": round(stats["cost_usd"], 6),
+                "calls": stats.get("calls", 0),
                 "input_tokens": stats["input_tokens"],
                 "output_tokens": stats["output_tokens"],
             }

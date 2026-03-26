@@ -409,6 +409,7 @@ export function renderDetail(node) {
       <p>
         ${payload.runtime_seconds != null ? `<strong>Runtime:</strong> ${(payload.runtime_seconds / 60).toFixed(1)}min &nbsp;|&nbsp; ` : ""}
         ${payload.evidence_count != null ? `<strong>Evidence:</strong> ${payload.evidence_count}` : ""}
+        ${payload.total_calls != null ? ` &nbsp;|&nbsp; <strong>LLM calls:</strong> ${payload.total_calls}` : ""}
         ${errors.length ? ` &nbsp;|&nbsp; <strong>Errors:</strong> ${errors.length}` : ""}
       </p>
 
@@ -423,6 +424,7 @@ export function renderDetail(node) {
           <thead>
             <tr>
               <th style="text-align:left;padding:2px 8px 2px 0">Model</th>
+              <th style="text-align:right;padding:2px 8px">Calls</th>
               <th style="text-align:right;padding:2px 8px">Input tok</th>
               <th style="text-align:right;padding:2px 8px">Output tok</th>
               <th style="text-align:right;padding:2px 8px">Total tok</th>
@@ -435,6 +437,7 @@ export function renderDetail(node) {
               const mTotal = (m.input_tokens || 0) + (m.output_tokens || 0);
               return `<tr>
                 <td style="padding:2px 8px 2px 0">${escapeHtml(name)}</td>
+                <td style="text-align:right;padding:2px 8px">${m.calls != null ? m.calls : "—"}</td>
                 <td style="text-align:right;padding:2px 8px">${(m.input_tokens || 0).toLocaleString()}</td>
                 <td style="text-align:right;padding:2px 8px">${(m.output_tokens || 0).toLocaleString()}</td>
                 <td style="text-align:right;padding:2px 8px">${mTotal.toLocaleString()}</td>
@@ -443,6 +446,7 @@ export function renderDetail(node) {
             }).join("")}
             ${modelNames.length > 1 ? `<tr style="border-top:1px solid #ccc;font-weight:bold">
               <td style="padding:2px 8px 2px 0">Total</td>
+              <td style="text-align:right;padding:2px 8px">${payload.total_calls != null ? payload.total_calls : "—"}</td>
               <td style="text-align:right;padding:2px 8px">${(payload.total_input_tokens || 0).toLocaleString()}</td>
               <td style="text-align:right;padding:2px 8px">${(payload.total_output_tokens || 0).toLocaleString()}</td>
               <td style="text-align:right;padding:2px 8px">${totalTokens.toLocaleString()}</td>
