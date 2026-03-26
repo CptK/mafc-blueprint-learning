@@ -80,7 +80,7 @@ def test_selfhosted_api_call_empty_response(monkeypatch) -> None:
     api = SelfhostedAPI(model="m", context_window=100)
     out = api(messages=[Message(role=MessageRole.USER, content=Prompt(text="?"))])
 
-    assert out.text == "Failed to generate a response."
+    assert out.text == "Failed to generate a response (finish_reason='length')."
     assert out.input_token_count is None
 
 
