@@ -169,7 +169,7 @@ class GeminiModel(Model):
         )
         self.api = GeminiAPI(model=self.model, context_window=self.context_window)
 
-    def generate(self, messages: list[Message]) -> Response:
+    def _do_generate(self, messages: list[Message]) -> Response:
         api_response = self.api(
             messages_with_videos_as_frames(messages, self.video_frames_to_sample),
             temperature=self.temperature,

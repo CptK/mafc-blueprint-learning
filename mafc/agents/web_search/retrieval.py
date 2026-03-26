@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Sequence
 from datetime import date
@@ -39,6 +40,7 @@ def execute_search_queries(
     trace: WebSearchTraceRecorder | None = None,
 ) -> list[tuple[str, Sequence[Source] | None]]:
     """Execute all search queries and return source candidates per query."""
+    _search_t0 = time.monotonic()
     if n_workers <= 1:
         results = [
             execute_search_query(query_text, search_tool, max_results_per_query, latest_allowed_date)
@@ -58,6 +60,8 @@ def execute_search_queries(
                     queries,
                 )
             )
+    if trace is not None and step is not None:
+        trace.add_timing("google_search_ms", (time.monotonic() - _search_t0) * 1000)
 
     candidate_sources: list[tuple[str, Sequence[Source] | None]] = []
     for result in results:
@@ -183,6 +187,7 @@ def select_sources_for_retrieval(
         )
         if trace is not None and filter_resp is not None:
             trace.add_usage(filter_resp, model.name)
+            trace.add_timing("llm_source_filter_ms", filter_resp.duration_ms or 0.0)
 
     selected_by_query: dict[str, list[WebSource]] = {query_text: [] for query_text, _ in candidates}
     if selected_urls:
@@ -326,6 +331,7 @@ def _process_one_source(
             )
             if trace is not None and obs_resp is not None:
                 trace.add_usage(obs_resp, model.name)
+                trace.add_timing("llm_summarization_ms", obs_resp.duration_ms or 0.0)
             raw_text = content_text
             if not snippet or is_failed_model_text(snippet):
                 irrelevant = True
@@ -387,6 +393,7 @@ def retrieve_and_extract_evidence(
         selected_sources = all_web_sources
     evidences: list[Evidence] = []
 
+    _scrape_t0 = time.monotonic()
     try:
         contents = retriever.retrieve_batch([source.url for source in selected_sources])
     except Exception as exc:
@@ -399,6 +406,8 @@ def retrieve_and_extract_evidence(
                 message=f"Batch retrieval failed for query '{query_text}': {exc}",
             )
         contents = [None] * len(selected_sources)
+    if trace is not None:
+        trace.add_timing("scrapemm_retrieval_ms", (time.monotonic() - _scrape_t0) * 1000)
 
     pairs = list(zip(selected_sources, contents))
     if n_workers <= 1 or len(pairs) <= 1:

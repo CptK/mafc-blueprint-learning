@@ -40,6 +40,15 @@ def _build_fact_check_agent(
     worker_model = make_model(
         ws_cfg.model, temperature=ws_cfg.temperature, max_response_length=ws_cfg.max_response_length
     )
+    summarization_model = (
+        make_model(
+            ws_cfg.summarization_model,
+            temperature=ws_cfg.temperature,
+            max_response_length=ws_cfg.summarization_max_response_length or ws_cfg.max_response_length,
+        )
+        if ws_cfg.summarization_model
+        else worker_model
+    )
     media_model = make_model(
         media_cfg.model, temperature=media_cfg.temperature, max_response_length=media_cfg.max_response_length
     )
@@ -56,7 +65,7 @@ def _build_fact_check_agent(
     media_agent = MediaAgent(model=media_model, summarization_model=media_model)
     web_search_agent = WebSearchAgent(
         main_model=worker_model,
-        summarization_model=worker_model,
+        summarization_model=summarization_model,
         n_workers=ws_cfg.workers,
         max_iterations=ws_cfg.max_iterations,
         max_queries_per_step=ws_cfg.max_queries_per_step,

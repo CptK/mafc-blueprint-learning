@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import inspect
 from pathlib import Path
+import time
 
 from ezmm import MultimodalSequence
 
@@ -294,6 +295,7 @@ class FactCheckAgent(Agent):
         _resp = self.model.generate(messages)
         response_text = _resp.text.strip()
         trace.add_usage(_resp, self.model.name)
+        trace.add_timing("llm_action_planner_ms", _resp.duration_ms or 0.0)
         trace.record_planner_response(response_text, state.iteration)
         logger.debug(f"[FactCheckAgent] Iteration {state.iteration} action node response:\n{response_text}")
 
@@ -404,6 +406,7 @@ class FactCheckAgent(Agent):
         _resp = self.model.generate(messages)
         response_text = _resp.text.strip()
         trace.add_usage(_resp, self.model.name)
+        trace.add_timing("llm_router_ms", _resp.duration_ms or 0.0)
         logger.debug(f"[FactCheckAgent] Iteration {state.iteration} routing response:\n{response_text}")
 
         routing = try_parse_routing_decision(response_text)
@@ -547,6 +550,7 @@ class FactCheckAgent(Agent):
         if not delegated_calls:
             return
 
+        _delegation_t0 = time.monotonic()
         if len(delegated_calls) == 1 or self.n_workers <= 1:
             results = [
                 (task_id, self._run_worker_agent(worker_agent, child_session, task_scope))
@@ -563,6 +567,7 @@ class FactCheckAgent(Agent):
                     for task_id, worker_agent, child_session, task_scope in delegated_calls
                 ]
                 results = [(task_id, future.result()) for task_id, future in futures]
+        trace.add_timing("delegation_ms", (time.monotonic() - _delegation_t0) * 1000)
 
         for task_id, result in results:
             session.messages.extend(result.messages)
@@ -653,6 +658,7 @@ class FactCheckAgent(Agent):
         answer = _synth_resp.text.strip()
         if trace is not None:
             trace.add_usage(_synth_resp, self.model.name)
+            trace.add_timing("llm_synthesis_ms", _synth_resp.duration_ms or 0.0)
         if trace is not None:
             trace.record_synthesis(
                 iteration=state.iteration or None,

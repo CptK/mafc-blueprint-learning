@@ -108,7 +108,7 @@ class OpenAIModel(Model):
         )
         self.api = OpenAIAPI(model=self.model, context_window=self.context_window)
 
-    def generate(self, messages: list[Message]) -> Response:
+    def _do_generate(self, messages: list[Message]) -> Response:
         try:
             api_response = self.api(
                 messages_with_videos_as_frames(messages, self.video_frames_to_sample),

@@ -326,6 +326,7 @@ class WebSearchAgent(Agent):
         result_text, synthesis_resp = self._synthesize_final(instruction, session.evidences)
         if trace is not None and synthesis_resp is not None:
             trace.add_usage(synthesis_resp, self.summarization_model.name)
+            trace.add_timing("llm_synthesis_ms", synthesis_resp.duration_ms or 0.0)
         if trace is not None:
             trace.record_synthesis(
                 step=None,

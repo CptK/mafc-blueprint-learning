@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -129,12 +130,19 @@ class BaseTraceRecorder:
         self._total_input_tokens: int = 0
         self._total_output_tokens: int = 0
         self._by_model: dict[str, dict] = {}
+        self._timings: dict[str, float] = {}
+        self._timings_lock = threading.Lock()
         # Subclass is responsible for assigning self.trace after calling super().__init__
         self.trace: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Usage tracking
     # ------------------------------------------------------------------
+
+    def add_timing(self, label: str, duration_ms: float) -> None:
+        """Accumulate elapsed time (in ms) for a named phase."""
+        with self._timings_lock:
+            self._timings[label] = self._timings.get(label, 0.0) + duration_ms
 
     def add_usage(self, response: Response, model_name: str) -> None:
 
@@ -177,7 +185,7 @@ class BaseTraceRecorder:
     # ------------------------------------------------------------------
 
     def _write_usage_stats(self) -> None:
-        """Write accumulated usage counters into ``self.trace["summary"]``."""
+        """Write accumulated usage counters and timings into ``self.trace["summary"]``."""
         self.trace["summary"]["total_cost_usd"] = round(self._total_cost, 6)
         self.trace["summary"]["total_input_tokens"] = self._total_input_tokens
         self.trace["summary"]["total_output_tokens"] = self._total_output_tokens
@@ -189,6 +197,7 @@ class BaseTraceRecorder:
             }
             for name, stats in self._by_model.items()
         }
+        self.trace["summary"]["timings"] = {label: round(ms) for label, ms in self._timings.items()}
 
     def _persist(self) -> None:
         """Sync trace to the TraceScope and flush to disk if enabled."""

@@ -38,6 +38,8 @@ class WebSearchAgentConfig(AgentModelConfig):
     max_iterations: int = 2
     max_queries_per_step: int = 5
     max_results_per_query: int = 4
+    summarization_model: str | None = None  # defaults to main model if not set
+    summarization_max_response_length: int | None = None  # defaults to max_response_length if not set
 
 
 class AgentsConfig(BaseModel):

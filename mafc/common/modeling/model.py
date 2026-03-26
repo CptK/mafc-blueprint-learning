@@ -1,3 +1,4 @@
+import time
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
@@ -15,6 +16,7 @@ class Response(BaseModel):
     output_token_count: int | None = None
     total_token_count: int | None = None
     total_cost: float
+    duration_ms: float | None = None
 
 
 class APIResponse(BaseModel):
@@ -53,9 +55,16 @@ class Model(ABC):
         self.input_token_cost, self.output_token_cost = get_model_api_pricing(self.name)
 
     @abstractmethod
-    def generate(self, messages: list[Message]) -> Response:
+    def _do_generate(self, messages: list[Message]) -> Response:
         """Send a role-annotated message list to the model and return the response."""
         pass
+
+    def generate(self, messages: list[Message]) -> Response:
+        """Timed wrapper around _do_generate; sets duration_ms on the returned Response."""
+        t0 = time.monotonic()
+        response = self._do_generate(messages)
+        response.duration_ms = (time.monotonic() - t0) * 1000
+        return response
 
     def compute_cost(self, api_response: APIResponse) -> float:
         total_cost = 0.0

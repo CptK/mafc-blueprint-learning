@@ -48,6 +48,7 @@ def plan_step(
         response = _resp.text
         if trace is not None:
             trace.add_usage(_resp, agent.model.name)
+            trace.add_timing("llm_planner_ms", _resp.duration_ms or 0.0)
         if trace is not None and step is not None:
             trace.record_planner_response(response, step=step)
         logger.debug(f"Planner response:\n{response}")
