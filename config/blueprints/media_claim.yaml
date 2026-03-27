@@ -115,12 +115,3 @@ verification_graph:
         refute_conditions: []
         if_fail: return unknown
 
-termination:
-  - if: budget.exhausted == true
-    return: unknown
-  - if: gate.result == support
-    return: label_from_judge_support
-  - if: gate.result == refute
-    return: label_from_judge_refute
-  - if: gate.result == unknown
-    return: unknown

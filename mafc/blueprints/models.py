@@ -167,13 +167,6 @@ class BlueprintVerificationGraph(BlueprintBaseModel):
         return self
 
 
-class BlueprintTerminationRule(BlueprintBaseModel):
-    """Rule describing when blueprint execution should return a final outcome."""
-
-    if_: str = Field(alias="if")
-    return_: str = Field(alias="return")
-
-
 class Blueprint(BlueprintBaseModel):
     """Top-level declarative specification for one fact-checking workflow."""
 
@@ -184,7 +177,6 @@ class Blueprint(BlueprintBaseModel):
     policy_constraints: BlueprintPolicyConstraints = Field(default_factory=BlueprintPolicyConstraints)
     required_checks: list[BlueprintRequiredCheck] = Field(default_factory=list)
     verification_graph: BlueprintVerificationGraph
-    termination: list[BlueprintTerminationRule] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_required_checks(self) -> "Blueprint":

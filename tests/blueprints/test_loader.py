@@ -47,9 +47,6 @@ verification_graph:
         support_conditions: [image_real]
         refute_conditions: [image_real_failed]
         if_fail: return unknown
-termination:
-  - if: budget.exhausted == true
-    return: unknown
 """
 
 

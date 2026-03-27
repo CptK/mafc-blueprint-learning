@@ -436,24 +436,6 @@ details summary {
   text-transform: uppercase;
   margin-bottom: 4px;
 }
-.termination-row {
-  font-size: 12px;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  gap: 8px;
-}
-.termination-row:last-child {
-  border-bottom: none;
-}
-.termination-if {
-  color: var(--muted);
-  flex: 1;
-}
-.termination-return {
-  font-weight: 600;
-  color: var(--accent);
-}
 .node-actions-list {
   display: flex;
   flex-direction: column;

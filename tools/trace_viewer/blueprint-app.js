@@ -82,8 +82,6 @@ function renderSidebarMeta(bp) {
   const negativeExamples = (hints.negative && hints.negative.examples) || [];
   const positiveFeatures = (hints.positive && hints.positive.features) || [];
   const negativeFeatures = (hints.negative && hints.negative.features) || [];
-  const termination = bp.termination || [];
-
   const policyPills = [
     `max ${policy.max_iterations ?? "?"} iterations`,
     ...(policy.allowed_actions || []).map((a) => a),
@@ -143,21 +141,6 @@ function renderSidebarMeta(bp) {
       </details>
     `;
 
-  const terminationHtml =
-    termination.length === 0
-      ? ""
-      : `
-      <div class="bp-section">
-        <h3>Termination</h3>
-        <div>${termination
-          .map(
-            (t) =>
-              `<div class="termination-row"><span class="termination-if">${escapeHtml(t.if || t.if_)}</span><span class="termination-return">${escapeHtml(t.return || t.return_)}</span></div>`
-          )
-          .join("")}</div>
-      </div>
-    `;
-
   metaEl.innerHTML = `
     <p class="bp-description">${escapeHtml(bp.description || "")}</p>
     <div class="pillbar">${policyPills}</div>
@@ -173,8 +156,6 @@ function renderSidebarMeta(bp) {
     </div>
 
     ${hintsHtml}
-
-    ${terminationHtml}
   `;
 }
 
