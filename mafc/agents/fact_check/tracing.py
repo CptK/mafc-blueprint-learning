@@ -356,10 +356,34 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
             iteration=iteration,
         )
 
-    def record_error(self, *, phase: str, message: str, iteration: int | None = None) -> None:
+    def record_repair(
+        self,
+        *,
+        phase: str,
+        prompt: str,
+        response_text: str,
+        iteration: int | None = None,
+    ) -> None:
+        self.record_event(
+            "parse_repair",
+            {"phase": phase, "prompt": prompt, "response_text": response_text},
+            iteration=iteration,
+        )
+
+    def record_error(
+        self,
+        *,
+        phase: str,
+        message: str,
+        iteration: int | None = None,
+        raw_response: str | None = None,
+    ) -> None:
         if iteration is not None and self._current_iteration_index is not None:
             self._current_iteration()["new_errors"].append(message)
-        self.record_event("error", {"phase": phase, "message": message}, iteration=iteration)
+        payload: dict[str, Any] = {"phase": phase, "message": message}
+        if raw_response is not None:
+            payload["raw_response"] = raw_response
+        self.record_event("error", payload, iteration=iteration)
 
     def finish_iteration(self, *, iteration: int, evidence_count_after: int, new_errors: list[str]) -> None:
         record = self._current_iteration()

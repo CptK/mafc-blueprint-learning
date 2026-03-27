@@ -18,6 +18,7 @@ from mafc.agents.fact_check.models import (
     PlannerDecisionType,
 )
 from mafc.agents.fact_check.parsing import try_parse_planner_decision, try_parse_routing_decision
+from mafc.utils.parsing import try_parse_with_repair
 from mafc.agents.fact_check.prompts import (
     build_action_node_prompt,
     build_final_synthesis_prompt,
@@ -295,11 +296,33 @@ class FactCheckAgent(Agent):
         trace.record_planner_response(response_text, state.iteration)
         logger.debug(f"[FactCheckAgent] Iteration {state.iteration} action node response:\n{response_text}")
 
-        decision = try_parse_planner_decision(response_text)
+        _action_repair_prefix = (
+            "Convert the following response to strict JSON with schema:\n"
+            '{"decision_type":"delegate|finalize","rationale":"string",'
+            '"tasks":[{"task_id":"string","agent_type":"string","instruction":"string",'
+            '"follow_up_to":"string|null","rationale":"string|null"}],'
+            '"final_answer":"string|null"}\n'
+            "Only return JSON."
+        )
+        decision, repair_text = try_parse_with_repair(
+            response_text, try_parse_planner_decision, self.model, _action_repair_prefix, trace
+        )
+        if repair_text is not None:
+            trace.record_repair(
+                phase="action_planner_parse",
+                prompt=f"{_action_repair_prefix}\n\nResponse:\n{response_text}",
+                response_text=repair_text,
+                iteration=state.iteration,
+            )
         if decision is None:
             message = f"Action node planner returned invalid output in iteration {state.iteration}."
             errors.append(message)
-            trace.record_error(phase="action_planner_parse", message=message, iteration=state.iteration)
+            trace.record_error(
+                phase="action_planner_parse",
+                message=message,
+                iteration=state.iteration,
+                raw_response=response_text,
+            )
             return True
 
         trace.record_decision(decision, state.iteration)
@@ -380,13 +403,39 @@ class FactCheckAgent(Agent):
         trace.add_timing("llm_router_ms", _resp.duration_ms or 0.0)
         logger.debug(f"[FactCheckAgent] Iteration {state.iteration} routing response:\n{response_text}")
 
-        routing = try_parse_routing_decision(response_text)
+        _routing_repair_prefix = (
+            "Convert the following response to strict JSON with schema:\n"
+            '{"next_node_id":"string","rationale":"string","final_answer":"string|null",'
+            '"check_updates":[{"id":"string","status":"supported|refuted|unclear","reason":"string"}]}\n'
+            "Only return JSON."
+        )
+        routing, repair_text = try_parse_with_repair(
+            response_text, try_parse_routing_decision, self.model, _routing_repair_prefix, trace
+        )
+        if repair_text is not None:
+            trace.record_repair(
+                phase="routing_parse",
+                prompt=f"{_routing_repair_prefix}\n\nResponse:\n{response_text}",
+                response_text=repair_text,
+                iteration=state.iteration,
+            )
         if routing is None:
             message = f"Routing decision could not be parsed in iteration {state.iteration}."
             errors.append(message)
-            trace.record_error(phase="routing_parse", message=message, iteration=state.iteration)
+            trace.record_error(
+                phase="routing_parse",
+                message=message,
+                iteration=state.iteration,
+                raw_response=response_text,
+            )
             return True
 
+        for warning in routing.coercion_warnings:
+            trace.record_error(
+                phase="routing_parse_coercion",
+                message=warning,
+                iteration=state.iteration,
+            )
         trace.record_routing_call(
             messages=messages,
             response_text=response_text,

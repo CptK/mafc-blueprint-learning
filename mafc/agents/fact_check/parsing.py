@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from mafc.agents.fact_check.models import (
     CheckStatus,
@@ -23,6 +23,15 @@ class PlannerCheckUpdatePayload(BaseModel):
     id: str
     status: CheckStatus
     reason: str
+    original_status: str | None = None  # set when status was coerced
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def coerce_status(cls, v: object) -> object:
+        valid = {s.value for s in CheckStatus}
+        if isinstance(v, str) and v not in valid:
+            return CheckStatus.UNCLEAR
+        return v
 
 
 class DelegationTaskPayload(BaseModel):
@@ -92,6 +101,14 @@ def parse_routing_decision(response_text: str) -> RoutingDecision:
     """Parse routing-phase output into a strongly typed routing decision."""
     payload = json.loads(extract_json_object(strip_json_fences(response_text.strip())))
     parsed = RoutingDecisionPayload.model_validate(payload)
+    raw_updates = payload.get("check_updates") or []
+    coercion_warnings: list[str] = []
+    for raw, item in zip(raw_updates, parsed.check_updates):
+        raw_status = raw.get("status") if isinstance(raw, dict) else None
+        if raw_status is not None and raw_status != item.status.value:
+            coercion_warnings.append(
+                f"check_update '{item.id}': invalid status '{raw_status}' coerced to 'unclear'"
+            )
     return RoutingDecision(
         next_node_id=parsed.next_node_id,
         rationale=parsed.rationale,
@@ -100,6 +117,7 @@ def parse_routing_decision(response_text: str) -> RoutingDecision:
             for item in parsed.check_updates
         ],
         final_answer=parsed.final_answer,
+        coercion_warnings=coercion_warnings,
     )
 
 

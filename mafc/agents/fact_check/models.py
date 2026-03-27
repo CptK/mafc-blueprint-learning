@@ -61,6 +61,7 @@ class RoutingDecision:
     rationale: str
     check_updates: list[PlannerCheckUpdate] = field(default_factory=list)
     final_answer: str | None = None
+    coercion_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
