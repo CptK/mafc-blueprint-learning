@@ -63,7 +63,7 @@ verification_graph:
       type: synthesis
       transition:
         - if: "original source is found and attribution is conclusively confirmed or clearly refuted, with media verified if present"
-          to: layer4_gate
+          to: finalize
         - if: "quote source is missing, context is ambiguous, or counter-evidence has not been searched"
           to: layer2_context_search
 
@@ -87,7 +87,7 @@ verification_graph:
       type: synthesis
       transition:
         - if: "all checks are resolved and evidence is sufficient for a verdict"
-          to: layer4_gate
+          to: finalize
         - if: "specific disputes remain around context, authorship, or provenance that targeted search could address"
           to: layer3_targeted_search
 
@@ -105,12 +105,6 @@ verification_graph:
       type: synthesis
       transition:
         - if: continue
-          to: layer4_gate
+          to: finalize
 
-    - id: layer4_gate
-      type: gate
-      rules:
-        support_conditions: [quote_source_found, authorship_verified, context_checked, claim_provenance_checked, text_media_consistent, counterevidence_checked]
-        refute_conditions: []
-        if_fail: return unknown
 

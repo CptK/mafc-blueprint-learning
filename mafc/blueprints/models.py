@@ -106,24 +106,8 @@ class BlueprintSynthesisNode(BlueprintBaseModel):
     transition: list[BlueprintTransition] = Field(default_factory=list)
 
 
-class GateRules(BlueprintBaseModel):
-    """Decision rules for a gate node."""
-
-    support_conditions: list[str] = Field(default_factory=list)
-    refute_conditions: list[str] = Field(default_factory=list)
-    if_fail: str
-
-
-class BlueprintGateNode(BlueprintBaseModel):
-    """Graph node that evaluates support or refutation conditions."""
-
-    id: str
-    type: Literal["gate"]
-    rules: GateRules
-
-
 BlueprintNode = Annotated[
-    BlueprintActionNode | BlueprintSynthesisNode | BlueprintGateNode,
+    BlueprintActionNode | BlueprintSynthesisNode,
     Field(discriminator="type"),
 ]
 
@@ -148,22 +132,12 @@ class BlueprintVerificationGraph(BlueprintBaseModel):
 
         valid_targets = set(node_ids)
         for node in self.nodes:
-            transitions = getattr(node, "transition", [])
-            for transition in transitions:
-                if transition.to not in valid_targets:
+            for transition in node.transition:
+                if transition.to not in valid_targets | {"finalize"}:
                     raise ValueError(
                         f"Node '{node.id}' has transition target '{transition.to}' "
-                        "which does not exist in verification_graph.nodes"
+                        "which is neither a known node id nor 'finalize'"
                     )
-
-            if (
-                isinstance(node, BlueprintGateNode)
-                and node.rules.if_fail not in {"return unknown"} | valid_targets
-            ):
-                raise ValueError(
-                    f"Gate node '{node.id}' has if_fail target '{node.rules.if_fail}' "
-                    "which is neither a known node id nor 'return unknown'"
-                )
         return self
 
 

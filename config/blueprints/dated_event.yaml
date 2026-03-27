@@ -61,7 +61,7 @@ verification_graph:
       type: synthesis
       transition:
         - if: "event occurrence, date, and location are conclusively established or clearly disproved by reliable sources, and media is verified if present"
-          to: layer4_gate
+          to: finalize
         - if: "event details are disputed, sourcing is weak, or date and location require further corroboration"
           to: layer2_corroboration_search
 
@@ -82,7 +82,7 @@ verification_graph:
       type: synthesis
       transition:
         - if: "all event details are verified or refuted and evidence is sufficient for a verdict"
-          to: layer4_gate
+          to: finalize
         - if: "specific factual details remain disputed or unresolved that targeted search could address"
           to: layer3_targeted_search
 
@@ -100,12 +100,6 @@ verification_graph:
       type: synthesis
       transition:
         - if: continue
-          to: layer4_gate
+          to: finalize
 
-    - id: layer4_gate
-      type: gate
-      rules:
-        support_conditions: [event_occurrence_verified, date_location_accurate, event_details_accurate, text_media_consistent, counterevidence_checked]
-        refute_conditions: []
-        if_fail: return unknown
 

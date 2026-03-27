@@ -33,20 +33,7 @@ def test_delegates_to_media_agent_and_finalizes(tmp_path) -> None:
                     ],
                 }
             ),
-            json.dumps(
-                {
-                    "next_node_id": "finalize",
-                    "rationale": "Media evidence supports the Athens location.",
-                    "final_answer": "The image is consistent with Athens.",
-                    "check_updates": [
-                        {
-                            "id": "location_checked",
-                            "status": "supported",
-                            "reason": "Media evidence supports the location.",
-                        }
-                    ],
-                }
-            ),
+            "The image is consistent with Athens.",
         ]
     )
     media_agent = FakeWorkerAgent("Likely Athens based on landmarks.", "image://athens")
@@ -71,11 +58,9 @@ def test_delegates_to_media_agent_and_finalizes(tmp_path) -> None:
     assert "Blueprint graph:" in planner.calls[0]
     assert "Available sub-agents:" in planner.calls[0]
     assert "media: Fake worker for image://athens" in planner.calls[0]
-    assert "Routing decision for node:" in planner.calls[1]
-    assert "media_location" in planner.calls[1]
     assert "media_delegation_allowed: True" in planner.calls[0]
     assert image.reference in planner.calls[0]
-    assert "Accepted evidence summaries:" in planner.calls[1]
+    assert "concise fact-check synthesis" in planner.calls[1]
     assert "Likely Athens based on landmarks." in planner.calls[1]
     assert "The image is consistent with Athens." in str(result.result)
 
@@ -189,14 +174,6 @@ def test_hallucinated_media_tag_fails_task_gracefully(tmp_path) -> None:
                     ],
                 }
             ),
-            json.dumps(
-                {
-                    "next_node_id": "finalize",
-                    "rationale": "No media evidence; cannot determine location.",
-                    "final_answer": "Location could not be determined.",
-                    "check_updates": [],
-                }
-            ),
         ]
     )
     media_agent = FakeWorkerAgent("unused", "image://unused")
@@ -214,7 +191,6 @@ def test_hallucinated_media_tag_fails_task_gracefully(tmp_path) -> None:
 
     result = agent.run(session)
 
-    assert result.session.status == AgentStatus.COMPLETED
     assert len(media_agent.calls) == 0
     assert any("Failed to build session for task 'media_loc'" in e for e in result.errors)
 

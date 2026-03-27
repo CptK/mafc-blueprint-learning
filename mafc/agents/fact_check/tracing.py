@@ -156,7 +156,7 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
             "ended_at": None,
             "node_before": node_before,
             "node_after": node_before,
-            "execution_type": None,  # "action_node" | "synthesis_node" | "gate_node"
+            "execution_type": None,  # "action_node" | "synthesis_node"
             "planner_messages": [],  # action node execution call
             "planner_response": None,
             "decision": None,

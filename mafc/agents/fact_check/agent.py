@@ -28,7 +28,6 @@ from mafc.agents.fact_check.prompts import (
 from mafc.blueprints.models import (
     Blueprint,
     BlueprintActionNode,
-    BlueprintGateNode,
     BlueprintNode,
     BlueprintSynthesisNode,
     BlueprintTransition,
@@ -269,9 +268,6 @@ class FactCheckAgent(Agent):
             trace.record_execution_type("synthesis_node", state.iteration)
             self._execute_synthesis_node(session, state, trace)
             return False
-        if isinstance(current_node, BlueprintGateNode):
-            trace.record_execution_type("gate_node", state.iteration)
-            return False  # gate nodes have no execution — routing handles everything
         return False
 
     def _execute_action_node(
@@ -360,33 +356,8 @@ class FactCheckAgent(Agent):
         return self._llm_routing_call(session, state, options, errors, trace)
 
     def _get_routing_options(self, node: BlueprintNode) -> list[BlueprintTransition]:
-        """Return the routing options for any node type as a uniform list of transitions.
-
-        For gate nodes the support/refute/if_fail rules are converted into synthetic
-        transitions so the routing phase can treat all node types uniformly.
-        """
-        if isinstance(node, BlueprintGateNode):
-            options: list[BlueprintTransition] = []
-            if node.rules.support_conditions:
-                options.append(
-                    BlueprintTransition.model_validate(
-                        {"if": "supported: " + "; ".join(node.rules.support_conditions), "to": "finalize"}
-                    )
-                )
-            if node.rules.refute_conditions:
-                options.append(
-                    BlueprintTransition.model_validate(
-                        {"if": "refuted: " + "; ".join(node.rules.refute_conditions), "to": "finalize"}
-                    )
-                )
-            fail_target = "finalize" if node.rules.if_fail == "return unknown" else node.rules.if_fail
-            options.append(
-                BlueprintTransition.model_validate(
-                    {"if": "inconclusive / conditions not met", "to": fail_target}
-                )
-            )
-            return options
-        return list(getattr(node, "transition", []))
+        """Return the routing options for the current node."""
+        return list(node.transition)
 
     def _llm_routing_call(
         self,

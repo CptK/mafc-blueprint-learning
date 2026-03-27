@@ -18,9 +18,7 @@ def analyze_blueprint_topology(blueprint: Blueprint) -> BlueprintTopology:
     all_node_ids = {node.id for node in blueprint.verification_graph.nodes}
     transitions_by_node: dict[str, set[str]] = {}
     for node in blueprint.verification_graph.nodes:
-        targets = {transition.to for transition in getattr(node, "transition", [])}
-        if hasattr(node, "rules") and node.rules.if_fail in all_node_ids:
-            targets.add(node.rules.if_fail)
+        targets = {transition.to for transition in node.transition if transition.to in all_node_ids}
         transitions_by_node[node.id] = targets
 
     start_node = blueprint.verification_graph.start_node

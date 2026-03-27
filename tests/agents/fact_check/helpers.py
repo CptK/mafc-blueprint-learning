@@ -154,13 +154,7 @@ verification_graph:
           intent: inspect image
       transition:
         - if: found evidence
-          to: verdict_gate
-    - id: verdict_gate
-      type: gate
-      rules:
-        support_conditions: [location_checked]
-        refute_conditions: []
-        if_fail: return unknown
+          to: finalize
 """.strip(),
             encoding="utf-8",
         )

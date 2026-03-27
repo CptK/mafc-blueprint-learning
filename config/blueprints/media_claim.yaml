@@ -64,7 +64,7 @@ verification_graph:
       type: synthesis
       transition:
         - if: "media origin is confirmed, authenticity is established, and the textual claim is fully consistent with the media context — no significant open questions remain"
-          to: layer4_gate
+          to: finalize
         - if: "media origin is unclear, authenticity is unresolved, text-media consistency is in doubt, or counter-evidence has not been searched"
           to: layer2_counter_search
 
@@ -88,7 +88,7 @@ verification_graph:
       type: synthesis
       transition:
         - if: "all inconsistencies are resolved and evidence is sufficient for a verdict"
-          to: layer4_gate
+          to: finalize
         - if: "specific unresolved inconsistencies remain that targeted search could address"
           to: layer3_targeted_search
 
@@ -106,12 +106,6 @@ verification_graph:
       type: synthesis
       transition:
         - if: continue
-          to: layer4_gate
+          to: finalize
 
-    - id: layer4_gate
-      type: gate
-      rules:
-        support_conditions: [media_origin_investigated, media_authenticity_assessed, text_media_consistent, claim_provenance_checked, cross_source_framing_checked, counterevidence_checked]
-        refute_conditions: []
-        if_fail: return unknown
 

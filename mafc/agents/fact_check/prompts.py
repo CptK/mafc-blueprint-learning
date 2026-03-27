@@ -6,7 +6,7 @@ from mafc.agents.agent import format_evidence_block
 from mafc.agents.common import AgentSession
 from mafc.agents.fact_check.models import FactCheckSessionState
 from mafc.agents.web_search.actions import InspectWebSource
-from mafc.blueprints.models import BlueprintActionNode, BlueprintGateNode
+from mafc.blueprints.models import BlueprintActionNode
 
 
 def build_planner_system_instructions() -> str:
@@ -199,17 +199,10 @@ def _render_full_graph(state: FactCheckSessionState) -> str:
         lines.append(f"- node {node.id} ({node.type})")
         if isinstance(node, BlueprintActionNode) and node.actions:
             lines.append("  actions: " + ", ".join(action.action for action in node.actions))
-        if not isinstance(node, BlueprintGateNode) and node.transition:
+        if node.transition:
             lines.append(
                 "  transitions: "
                 + " | ".join(f"{transition.if_} -> {transition.to}" for transition in node.transition)
-            )
-        if isinstance(node, BlueprintGateNode):
-            lines.append(
-                "  rules: "
-                f"support={node.rules.support_conditions}, "
-                f"refute={node.rules.refute_conditions}, "
-                f"if_fail={node.rules.if_fail}"
             )
     return "\n".join(lines) if lines else "- None"
 

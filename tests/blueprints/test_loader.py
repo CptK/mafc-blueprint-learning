@@ -40,13 +40,7 @@ verification_graph:
           query_guidance: use visible landmarks
       transition:
         - if: found new evidence
-          to: verdict_gate
-    - id: verdict_gate
-      type: gate
-      rules:
-        support_conditions: [image_real]
-        refute_conditions: [image_real_failed]
-        if_fail: return unknown
+          to: finalize
 """
 
 
@@ -91,7 +85,7 @@ def test_load_blueprints_from_directory_returns_sorted_results(tmp_path) -> None
 def test_load_blueprint_rejects_missing_transition_target(tmp_path) -> None:
     blueprint_path = tmp_path / "broken.yaml"
     blueprint_path.write_text(
-        VALID_BLUEPRINT_YAML.replace("to: verdict_gate", "to: missing_node"),
+        VALID_BLUEPRINT_YAML.replace("to: finalize", "to: missing_node"),
         encoding="utf-8",
     )
 

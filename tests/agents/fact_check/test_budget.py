@@ -34,14 +34,7 @@ def test_allows_staying_when_budget_has_layer_slack(tmp_path) -> None:
                     ],
                 }
             ),
-            json.dumps(
-                {
-                    "next_node_id": "finalize",
-                    "rationale": "Evidence collected.",
-                    "final_answer": "Stayed once, then finalized.",
-                    "check_updates": [],
-                }
-            ),
+            "Stayed once, then finalized.",
         ]
     )
     agent = FactCheckAgent(
@@ -60,7 +53,7 @@ def test_allows_staying_when_budget_has_layer_slack(tmp_path) -> None:
 
     assert result.result is not None
     assert "stay_allowed: True" in planner.calls[0]
-    assert "Routing decision for node:" in planner.calls[1]
+    assert "concise fact-check synthesis" in planner.calls[1]
 
 
 def test_forces_next_layer_when_budget_has_no_slack(tmp_path) -> None:
@@ -70,7 +63,7 @@ def test_forces_next_layer_when_budget_has_no_slack(tmp_path) -> None:
 name: forced_progress
 description: Force layer progress when slack is gone.
 policy_constraints:
-  max_iterations: 2
+  max_iterations: 1
 verification_graph:
   start_node: layer0
   nodes:
@@ -85,13 +78,7 @@ verification_graph:
       type: synthesis
       transition:
         - if: continue
-          to: layer2
-    - id: layer2
-      type: gate
-      rules:
-        support_conditions: []
-        refute_conditions: []
-        if_fail: return unknown
+          to: finalize
 """.strip(),
         encoding="utf-8",
     )
@@ -128,7 +115,6 @@ verification_graph:
                     ],
                 }
             ),
-            "Evidence gathered from web.",
             "Forced advancement worked.",
         ]
     )

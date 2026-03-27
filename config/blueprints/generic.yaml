@@ -45,7 +45,7 @@ verification_graph:
       type: synthesis
       transition:
         - if: "core claim is already verified or refuted with sufficient evidence"
-          to: layer2_gate
+          to: finalize
         - if: "evidence is insufficient, contradictory, or key aspects of the claim remain uninvestigated"
           to: layer2_deepen
 
@@ -66,12 +66,6 @@ verification_graph:
       type: synthesis
       transition:
         - if: continue
-          to: layer2_gate
+          to: finalize
 
-    - id: layer2_gate
-      type: gate
-      rules:
-        support_conditions: [core_claim_checked, counterevidence_checked]
-        refute_conditions: []
-        if_fail: return unknown
 

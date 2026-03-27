@@ -37,14 +37,7 @@ def test_writes_structured_execution_trace(tmp_path) -> None:
                     ],
                 }
             ),
-            json.dumps(
-                {
-                    "next_node_id": "finalize",
-                    "rationale": "Evidence is sufficient.",
-                    "final_answer": "The image is consistent with Athens.",
-                    "check_updates": [],
-                }
-            ),
+            "The image is consistent with Athens.",
         ]
     )
     trace_dir = tmp_path / "traces"
@@ -73,16 +66,15 @@ def test_writes_structured_execution_trace(tmp_path) -> None:
     assert payload["agent"] == "FactCheckAgent"
     assert payload["status"] == AgentStatus.COMPLETED.value
     assert payload["blueprint"]["name"] == "media_location"
-    assert len(payload["iterations"]) == 2
+    assert len(payload["iterations"]) == 1
     assert payload["iterations"][0]["iteration"] == 1
     assert payload["iterations"][0]["node_before"] == "iter1_search"
-    assert payload["iterations"][0]["node_after"] == "verdict_gate"
+    assert payload["iterations"][0]["routing"]["target_node_id"] == "finalize"
     assert payload["iterations"][0]["planner_messages"][0]["role"] == "system"
     assert payload["iterations"][0]["delegated_tasks"][0]["task_id"] == "media_location"
     assert (
         payload["iterations"][0]["delegated_tasks"][0]["result"]["evidences"][0]["source"] == "image://athens"
     )
-    assert payload["iterations"][1]["routing"]["target_node_id"] == "finalize"
     assert payload["summary"]["result"]["text"] == "The image is consistent with Athens."
     assert any(event["event_type"] == "planner_prompt" for event in payload["events"])
     assert {"source": "run", "target": "iteration:1", "type": "next"} in payload["flow"]["edges"]

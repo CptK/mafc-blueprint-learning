@@ -7,7 +7,6 @@ from mafc.blueprints.models import (
     BlueprintCondition,
     ClaimFeatures,
     BlueprintEntryConditions,
-    BlueprintGateNode,
     BlueprintPolicyConstraints,
     BlueprintRequiredCheck,
     BlueprintSelectorHintSection,
@@ -15,7 +14,6 @@ from mafc.blueprints.models import (
     BlueprintSynthesisNode,
     BlueprintTransition,
     BlueprintVerificationGraph,
-    GateRules,
 )
 from mafc.blueprints.registry import BlueprintRegistry
 from mafc.blueprints.selector import (
@@ -33,7 +31,6 @@ __all__ = [
     "BlueprintCondition",
     "ClaimFeatures",
     "BlueprintEntryConditions",
-    "BlueprintGateNode",
     "BlueprintPolicyConstraints",
     "BlueprintRegistry",
     "BlueprintRejection",
@@ -47,7 +44,6 @@ __all__ = [
     "BlueprintTransition",
     "BlueprintVerificationGraph",
     "BlueprintTopology",
-    "GateRules",
     "analyze_blueprint_topology",
     "extract_claim_features",
     "load_blueprint",
