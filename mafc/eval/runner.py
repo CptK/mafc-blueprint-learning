@@ -21,6 +21,7 @@ from mafc.common.logger import logger
 from mafc.common.modeling import make_model
 from mafc.common.modeling.prompt import Prompt
 from mafc.eval.benchmark import Benchmark
+from mafc.eval.metrics import format_blueprint_stats_report
 from mafc.eval.run_config import BenchmarkRunConfig
 from mafc.eval.veritas.benchmark import VeriTaS
 
@@ -108,6 +109,17 @@ def _extract_cost(agent_result) -> dict[str, Any]:
     }
 
 
+def _extract_blueprint_info(agent_result) -> dict[str, Any]:
+    trace = agent_result.trace or {}
+    bp = trace.get("blueprint") or {}
+    selection = bp.get("selection") or {}
+    return {
+        "blueprint_name": bp.get("name") or "unknown",
+        "selection_mode": selection.get("mode") or "unknown",
+        "n_iterations": len(trace.get("iterations") or []),
+    }
+
+
 def _run_sample(
     config: BenchmarkRunConfig, benchmark, sample, trace_dir: Path | None, agent: FactCheckAgent | None = None
 ) -> dict[str, Any]:
@@ -129,8 +141,10 @@ def _run_sample(
         predicted = _extract_predicted_label(result)
         errors = list(result.errors)
         cost = _extract_cost(result)
+        blueprint_info = _extract_blueprint_info(result)
     except Exception as e:
         errors.append(f"{type(e).__name__}: {e}")
+        blueprint_info = {"blueprint_name": "unknown", "selection_mode": "unknown", "n_iterations": 0}
 
     ground_truth = sample.label.value
     return {
@@ -141,6 +155,7 @@ def _run_sample(
         "errors": errors,
         "duration_ms": round((time.monotonic() - start) * 1000),
         "cost": cost,
+        **blueprint_info,
         **benchmark.sample_extra_fields(sample),
     }
 
@@ -182,6 +197,46 @@ def _compute_summary(results: list[dict[str, Any]], run_duration_s: float, bench
 
     if benchmark is not None:
         summary["metrics"] = benchmark.compute_metrics(results)
+
+    # Per-blueprint stats
+    bp_groups: dict[str, list[dict[str, Any]]] = {}
+    for r in results:
+        bp = r.get("blueprint_name") or "unknown"
+        bp_groups.setdefault(bp, []).append(r)
+
+    blueprint_stats: dict[str, Any] = {}
+    for bp_name, bp_results in sorted(bp_groups.items()):
+        bp_scored = [r for r in bp_results if r.get("predicted") is not None]
+        bp_correct = sum(1 for r in bp_scored if r.get("correct"))
+        bp_cost = sum((r.get("cost") or {}).get("cost_usd", 0.0) for r in bp_results)
+        bp_iters = [r["n_iterations"] for r in bp_results if r.get("n_iterations") is not None]
+        entry: dict[str, Any] = {
+            "count": len(bp_results),
+            "completed": len(bp_scored),
+            "errored": len(bp_results) - len(bp_scored),
+            "correct": bp_correct,
+            "accuracy": round(bp_correct / len(bp_scored), 4) if bp_scored else None,
+            "avg_cost_usd": round(bp_cost / len(bp_results), 6) if bp_results else None,
+            "avg_duration_ms": (
+                round(sum(r["duration_ms"] for r in bp_results) / len(bp_results)) if bp_results else None
+            ),
+        }
+        if bp_iters:
+            entry["avg_iterations"] = round(sum(bp_iters) / len(bp_iters), 2)
+        if benchmark is not None and bp_scored:
+            bp_metrics = benchmark.compute_metrics(bp_results)
+            entry["macro_f1"] = (bp_metrics.get("macro") or {}).get("f1")
+            entry["weighted_f1"] = (bp_metrics.get("weighted") or {}).get("f1")
+        blueprint_stats[bp_name] = entry
+
+    summary["blueprint_stats"] = blueprint_stats
+
+    # Selection mode distribution
+    selection_mode_counts: dict[str, int] = {}
+    for r in results:
+        mode = r.get("selection_mode") or "unknown"
+        selection_mode_counts[mode] = selection_mode_counts.get(mode, 0) + 1
+    summary["selection_mode_counts"] = selection_mode_counts
 
     return summary
 
@@ -297,12 +352,21 @@ def run_benchmark(config: BenchmarkRunConfig, run_dir: Path, skip_ids: set[str] 
 
     # Save human-readable metrics report + confusion matrix PNG plots
     metrics = summary.get("metrics") or {}
+    report_parts: list[str] = []
     if metrics:
-        report = benchmark.format_metrics_report(metrics)
-        if report:
-            report_path = run_dir / "metrics_report.txt"
-            report_path.write_text(report, encoding="utf-8")
-            logger.info(f"[Runner] Metrics report saved to {report_path}")
+        classification_report = benchmark.format_metrics_report(metrics)
+        if classification_report:
+            report_parts.append(classification_report)
+    blueprint_report = format_blueprint_stats_report(
+        summary.get("blueprint_stats") or {},
+        summary.get("selection_mode_counts"),
+    )
+    if blueprint_report:
+        report_parts.append(blueprint_report)
+    if report_parts:
+        report_path = run_dir / "metrics_report.txt"
+        report_path.write_text("\n\n".join(report_parts), encoding="utf-8")
+        logger.info(f"[Runner] Metrics report saved to {report_path}")
         for plot_path in benchmark.save_metric_plots(metrics, run_dir):
             logger.info(f"[Runner] Confusion matrix saved to {plot_path}")
 

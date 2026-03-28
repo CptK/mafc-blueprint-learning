@@ -126,7 +126,7 @@ class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
         cm = metrics.get("confusion_matrix") or {}
         if cm:
             n = self.label_scheme
-            path = run_dir / f"confusion_matrix_{n}class.png"
+            path = run_dir / f"confusion_matrix_{n}class.pdf"
             save_confusion_matrix_png(
                 cm,
                 path,
@@ -137,7 +137,7 @@ class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
         coarsened = metrics.get("coarsened_3class") or {}
         cm3 = coarsened.get("confusion_matrix") or {}
         if cm3:
-            path3 = run_dir / "confusion_matrix_3class_coarsened.png"
+            path3 = run_dir / "confusion_matrix_3class_coarsened.pdf"
             save_confusion_matrix_png(
                 cm3,
                 path3,

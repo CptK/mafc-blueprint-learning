@@ -115,6 +115,35 @@ def regression_metrics(gt_scores: list[float], pred_scores: list[float]) -> dict
 
 
 # ---------------------------------------------------------------------------
+# Blueprint stats report
+# ---------------------------------------------------------------------------
+
+
+def format_blueprint_stats_report(
+    blueprint_stats: dict[str, Any], selection_mode_counts: dict[str, int] | None = None
+) -> str:
+    """Render a human-readable blueprint usage and performance report."""
+    if not blueprint_stats:
+        return ""
+    lines: list[str] = ["=== Blueprint Usage ==="]
+    for bp_name, s in sorted(blueprint_stats.items(), key=lambda kv: -kv[1]["count"]):
+        acc_str = f"{s['accuracy']:.1%}" if s["accuracy"] is not None else " n/a "
+        f1_str = f"  macro-F1={s['macro_f1']:.4f}" if s.get("macro_f1") is not None else ""
+        err_str = f"  err={s['errored']}" if s["errored"] else ""
+        iters_str = f"  avg_iters={s['avg_iterations']:.1f}" if s.get("avg_iterations") is not None else ""
+        cost_str = f"  avg_cost=${s['avg_cost_usd']:.4f}" if s.get("avg_cost_usd") is not None else ""
+        lines.append(
+            f"  {bp_name:<30s}  n={s['count']:>4d}  acc={acc_str}" f"{f1_str}{iters_str}{cost_str}{err_str}"
+        )
+    if selection_mode_counts:
+        lines += ["", "=== Blueprint Selection Mode ==="]
+        total = sum(selection_mode_counts.values())
+        for mode, count in sorted(selection_mode_counts.items(), key=lambda kv: -kv[1]):
+            lines.append(f"  {mode:<25s}  {count:>4d}  ({count / total:.1%})")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Confusion matrix plot
 # ---------------------------------------------------------------------------
 
