@@ -43,20 +43,19 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
     viewer_dir: Path | None = None
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        # Serve from repo root so that relative paths like ../../config/blueprints/
-        # and ../../traces/ (relative to tools/trace_viewer/) resolve correctly.
-        repo_root = self.__class__.viewer_dir.parents[1] if self.__class__.viewer_dir else Path(".")
-        super().__init__(*args, directory=str(repo_root), **kwargs)
+        # Serve from tools/trace_viewer/ as root, matching the GitHub Pages layout.
+        super().__init__(*args, directory=str(self.__class__.viewer_dir or Path(".")), **kwargs)
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        if path in ("/", ""):
-            self.send_response(302)
-            self.send_header("Location", "/tools/trace_viewer/")
-            self.end_headers()
-            return
+        # Map /config/ and /traces/ to the real repo directories.
+        repo_root = self.__class__.viewer_dir.parents[1] if self.__class__.viewer_dir else Path(".")
+        for prefix, real_dir in (("/config/", repo_root / "config"), ("/traces/", repo_root / "traces")):
+            if path.startswith(prefix):
+                self._serve_file(real_dir / path[len(prefix):])
+                return
 
         if path.startswith("/api/media/"):
             parts = path.strip("/").split("/")  # ['api', 'media', kind, id]
@@ -73,6 +72,18 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         super().do_GET()
+
+    def _serve_file(self, file_path: Path) -> None:
+        if not file_path.exists() or not file_path.is_file():
+            self.send_error(404, "Not found")
+            return
+        mime, _ = mimetypes.guess_type(str(file_path))
+        data = file_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mime or "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_media(self, kind: str, media_id: int) -> None:
         if kind not in ("image", "video", "audio"):
@@ -130,8 +141,7 @@ def main() -> None:
 
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer((args.host, args.port), TraceViewerHandler) as httpd:
-        print(f"Serving trace viewer at http://{args.host}:{args.port}/tools/trace_viewer/")
-        print(f"Viewer files: {viewer_dir}")
+        print(f"Serving trace viewer at http://{args.host}:{args.port}/")
         if registry_path.exists():
             print(f"Registry:     {registry_path}")
         else:

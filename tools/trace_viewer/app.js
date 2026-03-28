@@ -16,7 +16,7 @@ const sampleSelectEl = document.getElementById("sampleSelect");
 const appEl = document.querySelector(".app");
 const dividerEl = document.getElementById("divider");
 
-const TRACES_ROOT = "../../traces";
+const TRACES_ROOT = "./traces";
 
 let cy = null;
 let currentModel = null;

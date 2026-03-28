@@ -25,7 +25,7 @@ const NODE_COLORS = {
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 
-const BLUEPRINTS_ROOT = "../../config/blueprints";
+const BLUEPRINTS_ROOT = "./config/blueprints";
 
 async function init() {
   try {
