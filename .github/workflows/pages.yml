@@ -23,11 +23,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Assemble site
+        run: |
+          mkdir _site
+          cp -r tools/trace_viewer/. _site/
+          cp -r config _site/config
+          cp -r traces _site/traces
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
       - uses: actions/deploy-pages@v4
         id: deployment
