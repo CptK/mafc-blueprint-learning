@@ -54,7 +54,7 @@ class TraceViewerHandler(http.server.SimpleHTTPRequestHandler):
         repo_root = self.__class__.viewer_dir.parents[1] if self.__class__.viewer_dir else Path(".")
         for prefix, real_dir in (("/config/", repo_root / "config"), ("/traces/", repo_root / "traces")):
             if path.startswith(prefix):
-                self._serve_file(real_dir / path[len(prefix):])
+                self._serve_file(real_dir / path[len(prefix) :])
                 return
 
         if path.startswith("/api/media/"):
