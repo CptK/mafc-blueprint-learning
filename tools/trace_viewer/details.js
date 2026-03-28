@@ -593,9 +593,9 @@ function renderMediaGrid(images, videos) {
     if (!id) return "";
     const url = `/api/media/${kind}/${id}`;
     if (kind === "image") {
-      return `<a href="${url}" target="_blank"><img class="claim-media-img" src="${url}" alt="${escapeHtml(ref)}" /></a>`;
+      return `<a href="${url}" target="_blank"><img class="claim-media-img" src="${url}" alt="${escapeHtml(ref)}" onerror="this.closest('a').replaceWith(Object.assign(document.createElement('span'),{className:'media-unavailable',textContent:'◉ image not available'}))" /></a>`;
     }
-    return `<video class="claim-media-video" src="${url}" controls></video>`;
+    return `<video class="claim-media-video" src="${url}" controls onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'media-unavailable',textContent:'▶ video not available'}))"></video>`;
   }).join("")}</div>`;
 }
 

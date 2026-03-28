@@ -22,8 +22,10 @@
             <input id="fileInput" type="file" accept=".json,application/json" />
             <span>Open Trace JSON</span>
           </label>
-          <button id="loadSampleBtn" class="button" type="button">Load Embedded Example</button>
-          <a href="/blueprints" class="button">Blueprints &rarr;</a>
+          <a href="./blueprints.html" class="button">Blueprints &rarr;</a>
+          <select id="sampleSelect" class="bp-select">
+            <option value="">— load a sample trace —</option>
+          </select>
           <span id="status" class="subtle">No trace loaded yet.</span>
         </div>
 

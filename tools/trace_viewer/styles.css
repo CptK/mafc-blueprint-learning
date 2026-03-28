@@ -125,6 +125,10 @@ p {
   margin-bottom: 16px;
 }
 
+.controls select.bp-select {
+  flex: 1 1 100%;
+}
+
 .upload,
 .button {
   display: inline-flex;
@@ -492,6 +496,8 @@ details summary {
 }
 select.bp-select {
   appearance: none;
+  width: 100%;
+  min-width: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -534,4 +540,14 @@ select.bp-select {
   .sidebar {
     border-top: 1px solid var(--line);
   }
+}
+
+.media-unavailable {
+  display: inline-block;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+  color: var(--subtle);
+  font-size: 12px;
 }

@@ -1,0 +1,27 @@
+[
+  {
+    "file": "benchmark_25251.fact_check_trace.json",
+    "label": "Donald Trump nombrará a Jair Bolsonaro para un cargo en una comisión internacion…",
+    "blueprint": "generic"
+  },
+  {
+    "file": "benchmark_75344.fact_check_trace.json",
+    "label": "Conagua y el SMN emitieron alertas que pronosticaban lluvias torrenciales y extr…",
+    "blueprint": "generic"
+  },
+  {
+    "file": "benchmark_75898.fact_check_trace.json",
+    "label": "<image:1>  <image:2> Apamarga root extract, consumed on an empty stomach, can di…",
+    "blueprint": "media_claim"
+  },
+  {
+    "file": "benchmark_80107.fact_check_trace.json",
+    "label": "Flaxseed gel and rice water provide mild, temporary, superficial facial hydratio…",
+    "blueprint": "generic"
+  },
+  {
+    "file": "veritas-first_75898.fact_check_trace.json",
+    "label": "<image:1>  <image:2> Apamarga root extract, consumed on an empty stomach, can di…",
+    "blueprint": "media_claim"
+  }
+]

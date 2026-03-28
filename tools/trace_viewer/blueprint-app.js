@@ -25,19 +25,24 @@ const NODE_COLORS = {
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 
+const BLUEPRINTS_ROOT = "../../config/blueprints";
+
 async function init() {
   try {
-    const res = await fetch("/api/blueprints");
-    const list = await res.json();
-    for (const { name, description } of list) {
+    const res = await fetch(`${BLUEPRINTS_ROOT}/index.json`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const names = await res.json();
+    for (const name of names) {
       const opt = document.createElement("option");
       opt.value = name;
       opt.textContent = name;
-      opt.title = description;
       selectEl.appendChild(opt);
     }
-    if (list.length === 0) {
+    if (names.length === 0) {
       statusEl.textContent = "No blueprints found.";
+    } else {
+      selectEl.selectedIndex = 1;
+      selectEl.dispatchEvent(new Event("change"));
     }
   } catch (err) {
     statusEl.textContent = `Failed to load blueprint list: ${err.message}`;
@@ -49,9 +54,10 @@ selectEl.addEventListener("change", async () => {
   if (!name) return;
   try {
     statusEl.textContent = "Loading…";
-    const res = await fetch(`/api/blueprints/${encodeURIComponent(name)}`);
+    const res = await fetch(`${BLUEPRINTS_ROOT}/${encodeURIComponent(name)}.yaml`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const bp = await res.json();
+    const text = await res.text();
+    const bp = jsyaml.load(text);
     currentBlueprint = bp;
     renderBlueprint(bp);
     statusEl.textContent = bp.name;
@@ -167,6 +173,8 @@ function buildGraphElements(bp) {
   const startNode = graph.start_node;
   const elements = [];
 
+  const definedIds = new Set(nodes.map((n) => n.id));
+
   for (const node of nodes) {
     const label = humanizeId(node.id) + "\n[" + capitalize(node.type) + "]";
     elements.push({
@@ -176,6 +184,19 @@ function buildGraphElements(bp) {
         label,
         isStart: node.id === startNode ? "true" : "false",
       },
+    });
+  }
+
+  // Collect transition targets that aren't defined nodes (e.g. implicit "finalize")
+  const syntheticIds = new Set();
+  for (const node of nodes) {
+    for (const t of node.transition || []) {
+      if (t.to && !definedIds.has(t.to)) syntheticIds.add(t.to);
+    }
+  }
+  for (const id of syntheticIds) {
+    elements.push({
+      data: { id, type: "terminal", label: humanizeId(id) + "\n[Terminal]", isStart: "false" },
     });
   }
 
@@ -239,6 +260,15 @@ function renderGraph(bp) {
           shape: "round-rectangle",
           "border-width": 2,
           "border-color": "#4a7a5a",
+        },
+      },
+      {
+        selector: 'node[type = "terminal"]',
+        style: {
+          "background-color": "#f5f5f0",
+          "border-style": "dashed",
+          "border-color": "#aaa",
+          color: "#888",
         },
       },
       {

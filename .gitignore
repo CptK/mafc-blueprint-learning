@@ -2,7 +2,6 @@ data/
 temp/
 config/google_service_account_key.json
 .DS_Store
-traces/
 out/
 config/geolocator_url
 

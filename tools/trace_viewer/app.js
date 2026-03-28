@@ -1,4 +1,3 @@
-import { SAMPLE_TRACE } from "./sample-trace.js";
 import { buildViewModel } from "./view-model.js";
 import { renderDetail } from "./details.js";
 import { renderSummary, createGraph } from "./graph.js";
@@ -13,9 +12,11 @@ const detailMetaEl = document.getElementById("detailMeta");
 const detailBodyEl = document.getElementById("detailBody");
 const statusEl = document.getElementById("status");
 const fileInputEl = document.getElementById("fileInput");
-const loadSampleBtnEl = document.getElementById("loadSampleBtn");
+const sampleSelectEl = document.getElementById("sampleSelect");
 const appEl = document.querySelector(".app");
 const dividerEl = document.getElementById("divider");
+
+const TRACES_ROOT = "../../traces";
 
 let cy = null;
 let currentModel = null;
@@ -33,7 +34,41 @@ fileInputEl.addEventListener("change", async (event) => {
   }
 });
 
-loadSampleBtnEl.addEventListener("click", () => renderTrace(SAMPLE_TRACE, "embedded-example.json"));
+sampleSelectEl.addEventListener("change", async () => {
+  const entry = sampleSelectEl.selectedOptions[0];
+  const file = entry && entry.dataset.file;
+  if (!file) return;
+  try {
+    statusEl.textContent = "Loading…";
+    const res = await fetch(`${TRACES_ROOT}/${file}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    renderTrace(await res.json(), file);
+  } catch (err) {
+    statusEl.textContent = `Failed to load trace: ${err.message}`;
+  }
+});
+
+async function loadSampleIndex() {
+  try {
+    const res = await fetch(`${TRACES_ROOT}/index.json`);
+    if (!res.ok) return;
+    const samples = await res.json();
+    for (const { file, label, blueprint } of samples) {
+      const opt = document.createElement("option");
+      opt.dataset.file = file;
+      opt.textContent = blueprint ? `[${blueprint}] ${label}` : label;
+      sampleSelectEl.appendChild(opt);
+    }
+    if (samples.length > 0) {
+      sampleSelectEl.selectedIndex = 1;
+      sampleSelectEl.dispatchEvent(new Event("change"));
+    }
+  } catch (_) {
+    // silently ignore — sample index is optional
+  }
+}
+
+loadSampleIndex();
 
 setupDividerDrag(dividerEl, appEl, () => cy);
 
