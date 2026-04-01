@@ -23,6 +23,8 @@ class ClaimEntry(TypedDict, total=False):
     veracity: NotRequired[float | MediaScore | None]
     context_coverage: NotRequired[float | MediaScore | None]
     date: NotRequired[str | None]
+    review_url: NotRequired[str | None]
+    article_content: NotRequired[str | None]
 
 
 @dataclass
@@ -31,3 +33,5 @@ class VeriTaSBenchmarkSample(BenchmarkSample):
     gt_veracity: float | None = None
     gt_context_coverage: float | None = None
     gt_media_verdicts: list[dict] = field(default_factory=list)
+    review_url: str | None = None
+    article_content: str | None = None

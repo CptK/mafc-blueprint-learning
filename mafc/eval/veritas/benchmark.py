@@ -314,6 +314,8 @@ class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
                     gt_veracity=gt["veracity"],
                     gt_context_coverage=gt["context_coverage"],
                     gt_media_verdicts=gt["media_verdicts"],
+                    review_url=claim_entry.get("review_url"),
+                    article_content=claim_entry.get("article_content"),
                 )
             )
 
