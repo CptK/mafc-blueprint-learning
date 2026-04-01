@@ -56,13 +56,17 @@ class OpenAIAPI(API):
             ],
         )
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=provider_messages,
-            temperature=kwargs.get("temperature", 1.0),
-            top_p=kwargs.get("top_p", 1.0),
-            max_completion_tokens=max_response_length,
-        )
+        create_kwargs: dict = {
+            "model": self.model,
+            "messages": provider_messages,
+            "temperature": kwargs.get("temperature", 1.0),
+            "top_p": kwargs.get("top_p", 1.0),
+            "max_completion_tokens": max_response_length,
+        }
+        if not kwargs.get("thinking", True):
+            create_kwargs["reasoning_effort"] = "low"
+
+        response = self.client.chat.completions.create(**create_kwargs)
 
         content = response.choices[0].message.content
         if not content:
@@ -97,6 +101,8 @@ class OpenAIModel(Model):
         top_k: int = 50,
         max_response_length: int = 2048,
         video_frames_to_sample: int = 5,
+        thinking: bool = True,
+        **kwargs,
     ):
         super().__init__(
             specifier=specifier,
@@ -106,6 +112,7 @@ class OpenAIModel(Model):
             max_response_length=max_response_length,
             video_frames_to_sample=video_frames_to_sample,
         )
+        self.thinking = thinking
         self.api = OpenAIAPI(model=self.model, context_window=self.context_window)
 
     def _do_generate(self, messages: list[Message]) -> Response:
@@ -115,6 +122,7 @@ class OpenAIModel(Model):
                 temperature=self.temperature,
                 top_p=self.top_p,
                 max_response_length=self.max_response_length,
+                thinking=self.thinking,
             )
         except openai.RateLimitError as e:
             logger.error(
