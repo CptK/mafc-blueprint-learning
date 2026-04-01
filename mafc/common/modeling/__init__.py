@@ -28,7 +28,7 @@ def make_model(name: str, **kwargs) -> Model:
             return OpenAIModel(specifier, **kwargs)
         case "anthropic":
             return AnthropicModel(specifier, **kwargs)
-        case "gemini":
+        case "gemini" | "google":
             return GeminiModel(specifier, **kwargs)
         case "selfhosted":
             return SelfhostedModel(specifier, **kwargs)
