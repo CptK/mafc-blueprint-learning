@@ -168,6 +168,7 @@ class GeminiModel(Model):
         max_response_length: int = 2048,
         video_frames_to_sample: int = 5,
         thinking: bool = True,
+        **kwargs,
     ):
         super().__init__(
             specifier=specifier,
