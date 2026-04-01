@@ -6,7 +6,14 @@ from typing import cast
 
 from ezmm import Image, MultimodalSequence, Video
 from google import genai
-from google.genai.types import Blob, Content, ContentListUnionDict, GenerateContentConfig, Part
+from google.genai.types import (
+    Blob,
+    Content,
+    ContentListUnionDict,
+    GenerateContentConfig,
+    Part,
+    ThinkingConfig,
+)
 
 from mafc.common.modeling.model import API, APIResponse, Model, Response
 from mafc.common.modeling.message import Message
@@ -99,11 +106,13 @@ class GeminiAPI(API):
             if message.role.value != "system"
         ]
 
+        thinking = kwargs.get("thinking", True)
         config = GenerateContentConfig(
             temperature=kwargs.get("temperature", 1.0),
             top_p=kwargs.get("top_p", 1.0),
             max_output_tokens=max_response_length,
             system_instruction="\n\n".join(part for part in system_parts if part) if system_parts else None,
+            thinking_config=ThinkingConfig(thinking_budget=0) if not thinking else None,
         )
 
         try:
@@ -158,6 +167,7 @@ class GeminiModel(Model):
         top_k: int = 50,
         max_response_length: int = 2048,
         video_frames_to_sample: int = 5,
+        thinking: bool = True,
     ):
         super().__init__(
             specifier=specifier,
@@ -167,6 +177,7 @@ class GeminiModel(Model):
             max_response_length=max_response_length,
             video_frames_to_sample=video_frames_to_sample,
         )
+        self.thinking = thinking
         self.api = GeminiAPI(model=self.model, context_window=self.context_window)
 
     def _do_generate(self, messages: list[Message]) -> Response:
@@ -175,6 +186,7 @@ class GeminiModel(Model):
             temperature=self.temperature,
             top_p=self.top_p,
             max_response_length=self.max_response_length,
+            thinking=self.thinking,
         )
 
         return Response(
