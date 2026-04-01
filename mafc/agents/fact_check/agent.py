@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import inspect
 from pathlib import Path
 import time
+import traceback as _traceback
 
 from ezmm import MultimodalSequence
 
@@ -139,6 +140,7 @@ class FactCheckAgent(Agent):
             trace.record_error(
                 phase="run", message=error_message, iteration=state.iteration if state else None
             )
+            logger.error(f"[FactCheckAgent] Exception in run():\n{_traceback.format_exc()}")
             raise
         finally:
             trace.finalize(session=session, state=state, result=result, errors=errors)
@@ -586,7 +588,16 @@ class FactCheckAgent(Agent):
                     )
                     for task_id, worker_agent, child_session, task_scope in delegated_calls
                 ]
-                results = [(task_id, future.result()) for task_id, future in futures]
+                results = []
+                for task_id, future in futures:
+                    try:
+                        results.append((task_id, future.result()))
+                    except Exception as _worker_exc:
+                        logger.error(
+                            f"[FactCheckAgent] Worker thread exception for task '{task_id}':\n"
+                            f"{_traceback.format_exc()}"
+                        )
+                        raise
         trace.add_timing("delegation_ms", (time.monotonic() - _delegation_t0) * 1000)
 
         for task_id, result in results:

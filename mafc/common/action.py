@@ -32,6 +32,8 @@ class Action(ABC):
         # Only save non-None parameters
         init_parameters = dict()
         for param in init_signature.parameters:
+            if param == "self":
+                continue
             value = local_variables[param]
             if value is not None:
                 init_parameters[param] = value
@@ -50,7 +52,7 @@ class Action(ABC):
         return False
 
     def __hash__(self):
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(tuple(sorted(self._init_parameters.items())) if self._init_parameters else ())
 
 
 def get_action_documentation(action_cls: type[Action]) -> str:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import traceback as _traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -144,6 +145,7 @@ def _run_sample(
         blueprint_info = _extract_blueprint_info(result)
     except Exception as e:
         errors.append(f"{type(e).__name__}: {e}")
+        logger.error(f"[Runner] Exception for sample {sample.id}:\n{_traceback.format_exc()}")
         blueprint_info = {"blueprint_name": "unknown", "selection_mode": "unknown", "n_iterations": 0}
 
     ground_truth = sample.label.value
