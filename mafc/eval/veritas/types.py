@@ -25,6 +25,8 @@ class ClaimEntry(TypedDict, total=False):
     date: NotRequired[str | None]
     review_url: NotRequired[str | None]
     article_content: NotRequired[str | None]
+    rectified: NotRequired[bool | None]
+    original_claim: NotRequired[str | None]
 
 
 @dataclass
@@ -35,3 +37,5 @@ class VeriTaSBenchmarkSample(BenchmarkSample):
     gt_media_verdicts: list[dict] = field(default_factory=list)
     review_url: str | None = None
     article_content: str | None = None
+    rectified: bool = False
+    original_claim: str | None = None

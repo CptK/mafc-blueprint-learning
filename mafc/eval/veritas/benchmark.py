@@ -316,6 +316,8 @@ class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
                     gt_media_verdicts=gt["media_verdicts"],
                     review_url=claim_entry.get("review_url"),
                     article_content=claim_entry.get("article_content"),
+                    rectified=bool(claim_entry.get("rectified")),
+                    original_claim=claim_entry.get("original_claim"),
                 )
             )
 
