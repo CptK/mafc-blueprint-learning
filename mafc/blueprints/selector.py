@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-
 from ezmm import MultimodalSequence
 from pydantic import BaseModel, ConfigDict
 
@@ -15,6 +14,7 @@ from mafc.utils.parsing import extract_json_object
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
+from mafc.learning.models import ArticleAnalysis
 
 
 class BlueprintSelectionMode(Enum):
@@ -22,6 +22,7 @@ class BlueprintSelectionMode(Enum):
 
     RULE_BASED = "rule_based"
     LLM_TIEBREAK = "llm_tiebreak"
+    GT_INFORMED = "gt_informed"  # LLM tie-break with ground-truth article analysis
     DEFAULT_FALLBACK = "default_fallback"
 
 
@@ -79,8 +80,16 @@ class BlueprintSelector:
     def select(
         self,
         claim: Claim | MultimodalSequence | str,
+        article_analysis: ArticleAnalysis | None = None,
     ) -> BlueprintSelectionResult:
-        """Select the best blueprint for a claim using filtering and optional LLM tie-break."""
+        """Select the best blueprint for a claim using filtering and optional LLM tie-break.
+
+        Args:
+            claim: The claim to select a blueprint for.
+            article_analysis: Optional ground-truth article analysis. When provided,
+                it is injected into the LLM tie-break prompt to improve selection
+                accuracy. Has no effect on the rule-based hard filtering stage.
+        """
         claim_features = extract_claim_features(claim)
         default_blueprint = self.registry.get(self.default_blueprint_name)
         blueprints = [
@@ -127,7 +136,13 @@ class BlueprintSelector:
             )
 
         return self._select_with_llm(
-            claim, claim_features, survivors, rejected, default_blueprint, all_blueprint_names
+            claim,
+            claim_features,
+            survivors,
+            rejected,
+            default_blueprint,
+            all_blueprint_names,
+            article_analysis,
         )
 
     def _select_with_llm(
@@ -138,9 +153,15 @@ class BlueprintSelector:
         rejected: list[BlueprintRejection],
         default_blueprint: Blueprint,
         all_blueprints: list[str],
+        article_analysis: ArticleAnalysis | None = None,
     ) -> BlueprintSelectionResult:
         """Run the LLM tie-break over the surviving blueprints only."""
-        llm_prompt = self._build_tiebreak_prompt(claim, claim_features, survivors)
+        llm_prompt = self._build_tiebreak_prompt(claim, claim_features, survivors, article_analysis)
+        selection_mode = (
+            BlueprintSelectionMode.GT_INFORMED
+            if article_analysis is not None
+            else BlueprintSelectionMode.LLM_TIEBREAK
+        )
         prompt = Prompt(text=llm_prompt)
         llm_raw_response: str | None = None
         parsed = None
@@ -169,7 +190,7 @@ class BlueprintSelector:
                     )
                 return BlueprintSelectionResult(
                     selected_blueprint=selected_blueprint,
-                    selection_mode=BlueprintSelectionMode.LLM_TIEBREAK,
+                    selection_mode=selection_mode,
                     claim_features=claim_features,
                     surviving_blueprints=[blueprint.name for blueprint in survivors],
                     rejected_blueprints=llm_rejections,
@@ -204,6 +225,7 @@ class BlueprintSelector:
         claim: Claim | MultimodalSequence | str,
         claim_features: ClaimFeatures,
         survivors: list[Blueprint],
+        article_analysis: ArticleAnalysis | None = None,
     ) -> str:
         """Build a compact selection prompt for the LLM tie-break."""
         claim_text = str(claim).strip()
@@ -225,6 +247,16 @@ class BlueprintSelector:
                 )
             )
 
+        gt_section = ""
+        if article_analysis is not None:
+            gt_section = (
+                "\nGround-truth fact-check analysis (use this to inform your selection):\n"
+                f"- Claim type: {article_analysis.claim_type}\n"
+                f"- Evidence types used: {', '.join(article_analysis.evidence_types) or 'none'}\n"
+                f"- Process richness: {article_analysis.process_richness}\n"
+                f"- Verdict summary: {article_analysis.verdict_summary}\n"
+            )
+
         return (
             "You are selecting the most appropriate fact-check blueprint for a claim.\n"
             "Only choose from the provided candidate blueprints.\n"
@@ -232,7 +264,8 @@ class BlueprintSelector:
             "Return strict JSON only with schema:\n"
             '{"selected_blueprint":"name","reason":"short reason","rejected_blueprints":[{"name":"other","reason":"why not"}]}\n\n'
             f"Claim:\n{claim_text}\n\n"
-            f"Extracted claim features:\n{chr(10).join(feature_lines)}\n\n"
+            f"Extracted claim features:\n{chr(10).join(feature_lines)}\n"
+            f"{gt_section}\n"
             f"Candidate blueprints:\n\n{chr(10).join(candidate_blocks)}"
         )
 

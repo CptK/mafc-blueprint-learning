@@ -220,6 +220,80 @@ def test_selector_uses_llm_tiebreak_when_multiple_blueprints_survive(tmp_path) -
     assert "Where was this image taken?" in model.calls[0]
 
 
+def test_selector_uses_gt_informed_mode_when_article_analysis_provided(tmp_path) -> None:
+    from mafc.learning.models import ArticleAnalysis
+
+    registry = _load_registry(tmp_path)
+    model = SequencedModel(outputs=["""
+{
+  "selected_blueprint": "media_location",
+  "reason": "Article analysis confirms media authenticity focus.",
+  "rejected_blueprints": [
+    {"name": "hybrid_media", "reason": "Not the best fit."}
+  ]
+}
+""".strip()])
+    selector = BlueprintSelector(model=model, registry=registry, default_blueprint_name="default")
+    image = _registered_image()
+    analysis = ArticleAnalysis(
+        claim_type="media_authenticity",
+        verdict_summary="The image was taken in Greece, not in conflict zone.",
+        key_evidence=["Reverse image search confirmed location."],
+        evidence_types=["reverse_image_search", "geolocation"],
+    )
+
+    result = selector.select(
+        MultimodalSequence("Where was this image taken?", image),
+        article_analysis=analysis,
+    )
+
+    assert result.selected_blueprint.name == "media_location"
+    assert result.selection_mode == BlueprintSelectionMode.GT_INFORMED
+    prompt = model.calls[0]
+    assert "media_authenticity" in prompt
+    assert "reverse_image_search" in prompt
+
+
+def test_selector_without_article_analysis_still_uses_llm_tiebreak(tmp_path) -> None:
+    registry = _load_registry(tmp_path)
+    model = SequencedModel(outputs=["""
+{
+  "selected_blueprint": "media_location",
+  "reason": "Best fit.",
+  "rejected_blueprints": []
+}
+""".strip()])
+    selector = BlueprintSelector(model=model, registry=registry, default_blueprint_name="default")
+    image = _registered_image()
+
+    result = selector.select(MultimodalSequence("Where was this image taken?", image))
+
+    assert result.selection_mode == BlueprintSelectionMode.LLM_TIEBREAK
+    assert "media_authenticity" not in model.calls[0]
+    assert "reverse_image_search" not in model.calls[0]
+
+
+def test_selector_article_analysis_not_injected_for_rule_based(tmp_path) -> None:
+    """When only one blueprint survives hard filtering, article_analysis has no effect."""
+    from mafc.learning.models import ArticleAnalysis
+
+    registry = _load_registry(tmp_path)
+    model = SequencedModel(outputs=[])
+    selector = BlueprintSelector(model=model, registry=registry, default_blueprint_name="default")
+    analysis = ArticleAnalysis(
+        claim_type="statistic",
+        verdict_summary="The statistic is correct.",
+        key_evidence=["Official data confirmed."],
+        evidence_types=["official_records"],
+    )
+
+    result = selector.select("Who won the election?", article_analysis=analysis)
+
+    assert result.selected_blueprint.name == "web_general"
+    assert result.selection_mode == BlueprintSelectionMode.RULE_BASED
+    assert model.calls == []  # no LLM call made
+
+
 def test_selector_falls_back_to_default_on_invalid_llm_response(tmp_path) -> None:
     registry = _load_registry(tmp_path)
     selector = BlueprintSelector(
