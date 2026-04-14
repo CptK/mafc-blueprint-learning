@@ -99,7 +99,7 @@ def _make_article_analysis(**overrides) -> ArticleAnalysis:
         notes=None,
     )
     base.update(overrides)
-    return ArticleAnalysis(**base)
+    return ArticleAnalysis(**base)  # type: ignore[arg-type]
 
 
 def _make_model(response_text: str) -> MagicMock:
