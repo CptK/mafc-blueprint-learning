@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from mafc.blueprints.models import ClaimFeatures
+    from mafc.common.claim import Claim
+    from mafc.learning.blueprint_fit_assessor import BlueprintFitResult
 
 
 @dataclass
@@ -79,3 +84,21 @@ class ArticleAnalysis:
 
     notes: str | None = None
     """Anything unusual, ambiguous, or hard to categorize that the analyzer flagged."""
+
+
+@dataclass
+class ClaimLearningRecord:
+    """Per-claim state that accumulates across learning iterations."""
+
+    claim: Claim
+    article_analysis: ArticleAnalysis | None = None
+    """Pre-extracted from the ground-truth article. Static across iterations."""
+
+    claim_features: ClaimFeatures | None = None
+    """Extracted once and reused across iterations."""
+
+    assigned_blueprint: str | None = None
+    """Name of the blueprint selected for this claim in the last iteration."""
+
+    fit_result: BlueprintFitResult | None = None
+    """Fit assessment produced in the last iteration."""
