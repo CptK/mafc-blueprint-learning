@@ -31,6 +31,32 @@ class BlueprintRegistry:
         except KeyError as exc:
             raise KeyError(f"Unknown blueprint '{name}'") from exc
 
+    def replace(self, old_name: str, blueprint: Blueprint) -> None:
+        """Replace the blueprint registered under old_name with blueprint, preserving insertion order.
+
+        old_name and blueprint.name may differ when the updater renames the blueprint.
+        Raises if old_name is unknown or if blueprint.name is already taken by a different slot.
+        """
+        if old_name not in self._blueprints_by_name:
+            raise KeyError(f"Cannot replace unknown blueprint '{old_name}'; use register() instead.")
+        if blueprint.name != old_name and blueprint.name in self._blueprints_by_name:
+            raise ValueError(f"Cannot replace '{old_name}' with '{blueprint.name}': name already registered.")
+        # Rebuild the dict to swap the key in-place, preserving insertion order.
+        self._blueprints_by_name = {
+            (blueprint.name if k == old_name else k): (blueprint if k == old_name else v)
+            for k, v in self._blueprints_by_name.items()
+        }
+
+    def remove(self, name: str) -> None:
+        """Remove a blueprint by name. Raises if the name is unknown."""
+        if name not in self._blueprints_by_name:
+            raise KeyError(f"Cannot remove unknown blueprint '{name}'.")
+        del self._blueprints_by_name[name]
+
+    def contains(self, name: str) -> bool:
+        """Return True if a blueprint with this name is registered."""
+        return name in self._blueprints_by_name
+
     def get_all(self) -> list[Blueprint]:
         """Return all registered blueprints in insertion order."""
         return list(self._blueprints_by_name.values())
