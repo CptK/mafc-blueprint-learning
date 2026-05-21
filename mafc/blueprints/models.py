@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BlueprintBaseModel(BaseModel):
@@ -34,8 +35,31 @@ class BlueprintCondition(BlueprintBaseModel):
     """One feature predicate used in blueprint entry or selection logic."""
 
     feature: str
-    op: str
+    op: str = Field(validation_alias=AliasChoices("op", "operator"))
     value: Any
+
+
+def _parse_condition_string(s: str) -> dict:
+    """Convert a plain-string condition like 'has_image' or 'text_length > 50' to a dict."""
+    s = s.strip()
+    match = re.match(r"^(\w+)\s*(==|!=|>=|<=|>|<)\s*(.+)$", s)
+    if match:
+        feature, op, value_str = match.groups()
+        value_str = value_str.strip()
+        if value_str.lower() == "true":
+            value: Any = True
+        elif value_str.lower() == "false":
+            value = False
+        else:
+            try:
+                value = int(value_str)
+            except ValueError:
+                try:
+                    value = float(value_str)
+                except ValueError:
+                    value = value_str
+        return {"feature": feature, "op": op, "value": value}
+    return {"feature": s, "op": "==", "value": True}
 
 
 class BlueprintEntryConditions(BlueprintBaseModel):
@@ -43,6 +67,14 @@ class BlueprintEntryConditions(BlueprintBaseModel):
 
     all: list[BlueprintCondition] = Field(default_factory=list)
     any: list[BlueprintCondition] = Field(default_factory=list)
+
+    @field_validator("all", "any", mode="before")
+    @classmethod
+    def normalize_condition_list(cls, v: Any) -> Any:
+        """Convert plain-string conditions to structured dicts (LLM sometimes omits op/value)."""
+        if not isinstance(v, list):
+            return v
+        return [_parse_condition_string(item) if isinstance(item, str) else item for item in v]
 
 
 class BlueprintSelectorHintSection(BlueprintBaseModel):
@@ -57,6 +89,35 @@ class BlueprintSelectorHints(BlueprintBaseModel):
 
     positive: BlueprintSelectorHintSection = Field(default_factory=BlueprintSelectorHintSection)
     negative: BlueprintSelectorHintSection = Field(default_factory=BlueprintSelectorHintSection)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_hint_structure(cls, data: Any) -> Any:
+        """Repair common LLM structural mistakes in selector_hints output.
+
+        Handles:
+        - 'features' placed at the top-level of selector_hints instead of inside
+          positive/negative sections.
+        - positive/negative given as a flat list of strings (treat as examples).
+        - positive/negative given as a single-element list wrapping a dict.
+        """
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        top_features: list[str] = data.pop("features", None) or []
+        for key in ("positive", "negative"):
+            v = data.get(key)
+            if v is None:
+                continue
+            if isinstance(v, list) and len(v) == 1 and isinstance(v[0], dict):
+                v = v[0]
+            if isinstance(v, list):
+                v = {"features": list(top_features), "examples": [s for s in v if isinstance(s, str)]}
+            elif isinstance(v, dict) and top_features and "features" not in v:
+                v = dict(v)
+                v["features"] = list(top_features)
+            data[key] = v
+        return data
 
 
 class BlueprintPolicyConstraints(BlueprintBaseModel):
@@ -117,6 +178,33 @@ class BlueprintVerificationGraph(BlueprintBaseModel):
 
     start_node: str
     nodes: list[BlueprintNode] = Field(default_factory=list)
+
+    @field_validator("nodes", mode="before")
+    @classmethod
+    def normalize_nodes(cls, v: Any) -> Any:
+        """Flatten nodes where the LLM wrapped fields under the type key.
+
+        E.g. {synthesis: {id: x, transition: [...]}, type: synthesis}
+          -> {id: x, transition: [...], type: synthesis}
+        """
+        if not isinstance(v, list):
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                node_type = item.get("type")
+                if node_type and node_type in item and isinstance(item[node_type], dict):
+                    merged = dict(item[node_type])
+                    merged["type"] = node_type
+                    for k, val in item.items():
+                        if k != node_type:
+                            merged.setdefault(k, val)
+                    result.append(merged)
+                else:
+                    result.append(item)
+            else:
+                result.append(item)
+        return result
 
     @model_validator(mode="after")
     def validate_graph(self) -> "BlueprintVerificationGraph":
