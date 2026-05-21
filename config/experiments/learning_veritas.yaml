@@ -1,0 +1,38 @@
+data:
+  data_path: /mnt/vast/workspaces/PI_Rohrbach/mk79honu/data/VeriTaS/veritas_2025_q4_200_with-reviews
+  split: 2025_q4
+  label_scheme: 3
+  train_fraction: 1.0
+  seed: 42
+  first_n: 500  # remove to use full dataset
+
+model:
+  name: qwen_3.5_122b
+  temperature: 0.7
+  max_response_length: 64000
+
+blueprints:
+  config_dir: config/blueprints
+  default_blueprint: generic
+  selector_max_response_length: 64000
+
+learning:
+  max_epochs: 2
+  minibatch_size: 20
+  update_threshold: 3     # flush a blueprint's buffer mid-epoch after this many claims
+  consolidate_every: 2    # run prune+merge every N epochs
+  use_article_analysis_for_selection: true  # true = GT-informed selection (train only)
+  workers: 8              # parallel workers for per-claim selector+fit_assessor calls
+
+synthesizer:
+  min_cluster_size: 3     # minimum claims per cluster to synthesize a new blueprint
+
+consolidator:
+  enabled: true
+  prune_threshold: 2      # remove blueprints assigned fewer than this many claims in an epoch
+  protected_names:
+    - generic
+
+output:
+  dir: out/learning
+  save_epoch_snapshots: true
