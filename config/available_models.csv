@@ -1,15 +1,18 @@
 Shorthand,Platform,Name, Context window,Cost per 1M input tokens,Cost per 1M output tokens
+gpt_5.5,OPENAI,gpt-5.5-2026-04-23,1_000_000,5.0,30.0
 gpt_52,OPENAI,gpt-5.2-2025-12-11, 272_000,1.75,14.00
 gpt_5_mini,OPENAI,gpt-5-mini-2025-08-07, 272_000,0.25,2.00
 gpt_5,OPENAI,gpt-5-2025-08-07, 272_000,1.25,10.00
+claude_4.7_opus,ANTHROPIC,claude-opus-4-7,1_000_000,5.0,25.0
 claude_4.6_opus,ANTHROPIC,claude-opus-4-6,200_000,5.0,25.0
-claude_4.6_sonnet,ANTHROPIC,claude-sonnet-4-6,200_000,3.0,15.0
+claude_4.6_sonnet,ANTHROPIC,claude-sonnet-4-6,1_000_000,3.0,15.0
 claude_4.5_haiku,ANTHROPIC,claude-haiku-4-5-20251001,200_000,1.0,5.0
+gemini_3.5_flash,GOOGLE,gemini-3.5-flash,1_000_000,1.5,9.0
 gemini_3.1_pro,GOOGLE,gemini-3.1-pro-preview,1_000_000,2.0,12.0
 gemini_3_flash,GOOGLE,gemini-3-flash-preview,1_000_000,0.5,3.0
 gemini_3.1_flash_lite,GOOGLE,gemini-3.1-flash-lite-preview,1_000_000,0.25,1.5
 llama4_maverick,SELFHOSTED,meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8,1_000_000,0,0
 qwen_3.5_397b,SELFHOSTED,Qwen/Qwen3.5-397B-A17B-FP8,131072,0,0
-qwen_3.5_122b,SELFHOSTED,Qwen/Qwen3.5-122B-A10B-FP8,262_000,0,0
-qwen_3.5_35b_a3b,SELFHOSTED,Qwen/Qwen3.5-35B-A3B-FP8,262_000,0,0
+qwen_3.5_122b,SELFHOSTED,Qwen/Qwen3.5-122B-A10B-FP8,250_000,0,0
+qwen_3.5_35b_a3b,SELFHOSTED,Qwen/Qwen3.5-35B-A3B-FP8,250_000,0,0
 gemma_31b,SELFHOSTED,google/gemma-4-31B-it,262144,0,0
