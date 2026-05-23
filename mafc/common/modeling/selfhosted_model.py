@@ -61,7 +61,7 @@ class SelfhostedAPI(API):
                 json={"model": self.model, "prompt": text, "add_special_tokens": False},
             )
             resp.raise_for_status()
-            return resp.json()["tokens"]
+            return list(resp.json()["tokens"])
         except Exception as e:
             logger.debug(f"[Selfhosted] /tokenize failed: {e}")
             return None
@@ -74,7 +74,7 @@ class SelfhostedAPI(API):
                 json={"model": self.model, "tokens": tokens},
             )
             resp.raise_for_status()
-            return resp.json()["prompt"]
+            return str(resp.json()["prompt"])
         except Exception as e:
             logger.debug(f"[Selfhosted] /detokenize failed: {e}")
             return None
