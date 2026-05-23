@@ -60,7 +60,13 @@ class RemoteSearchPlatform(SearchPlatform):
 
     is_local = False
 
-    def __init__(self, activate_cache: bool = True, max_search_results: int = 10, **kwargs):
+    def __init__(
+        self,
+        activate_cache: bool = True,
+        max_search_results: int = 10,
+        cache_dir: Path | str | None = None,
+        **kwargs,
+    ):
         super().__init__()
         self.max_search_results = max_search_results
         self.conn: sqlite3.Connection | None = None
@@ -69,7 +75,7 @@ class RemoteSearchPlatform(SearchPlatform):
 
         self.search_cached_first = activate_cache
         self.cache_file_name = f"{self.name}_cache.db"
-        self.path_to_cache = Path(temp_dir) / self.cache_file_name
+        self.path_to_cache = Path(cache_dir if cache_dir is not None else temp_dir) / self.cache_file_name
         self.n_cache_hits = 0
         self.n_cache_write_errors = 0
 
@@ -110,7 +116,7 @@ class RemoteSearchPlatform(SearchPlatform):
         assert self.cur is not None
         assert self.conn is not None
         stmt = """
-            CREATE TABLE Query(hash TEXT PRIMARY KEY, results BLOB);
+            CREATE TABLE IF NOT EXISTS Query(hash TEXT PRIMARY KEY, results BLOB);
         """
         with self._cache_lock:
             self.cur.execute(stmt)
