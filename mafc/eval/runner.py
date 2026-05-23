@@ -17,6 +17,7 @@ from mafc.agents.fact_check.agent import FactCheckAgent
 from mafc.agents.judge.agent import JudgeAgent
 from mafc.agents.media.agent import MediaAgent
 from mafc.agents.web_search.agent import WebSearchAgent
+from mafc.tools.web_search.google_search import GoogleSearchPlatform
 from mafc.blueprints import BlueprintRegistry, BlueprintSelector
 from mafc.common.logger import logger
 from mafc.common.modeling import make_model
@@ -28,7 +29,7 @@ from mafc.eval.veritas.benchmark import VeriTaS
 
 
 def _build_fact_check_agent(
-    config: BenchmarkRunConfig, benchmark: Benchmark, trace_dir: Path | None
+    config: BenchmarkRunConfig, benchmark: Benchmark, trace_dir: Path | None, cache_dir: Path | None = None
 ) -> FactCheckAgent:
     fc_cfg = config.agents.fact_check
     ws_cfg = config.agents.web_search
@@ -76,6 +77,7 @@ def _build_fact_check_agent(
         max_iterations=ws_cfg.max_iterations,
         max_queries_per_step=ws_cfg.max_queries_per_step,
         max_results_per_query=ws_cfg.max_results_per_query,
+        search_tool=GoogleSearchPlatform(cache_dir=cache_dir),
     )
     judge_agent = JudgeAgent(
         model=judge_model,
@@ -286,8 +288,9 @@ def run_benchmark(config: BenchmarkRunConfig, run_dir: Path, skip_ids: set[str] 
         pbar.set_postfix_str(f"{status} {result['claim_id']} | ${cost_usd:.4f}")
         pbar.update(1)
 
+    cache_dir = run_dir / "temp"
     if config.run.concurrency <= 1:
-        agent = _build_fact_check_agent(config, benchmark, trace_dir)
+        agent = _build_fact_check_agent(config, benchmark, trace_dir, cache_dir=cache_dir)
         for sample in samples:
             result = _run_sample(config, benchmark, sample, trace_dir, agent=agent)
             _handle_result(result)
@@ -301,7 +304,7 @@ def run_benchmark(config: BenchmarkRunConfig, run_dir: Path, skip_ids: set[str] 
 
         def _submit(sample):
             if not hasattr(_thread_local, "agent"):
-                _thread_local.agent = _build_fact_check_agent(config, benchmark, trace_dir)
+                _thread_local.agent = _build_fact_check_agent(config, benchmark, trace_dir, cache_dir=cache_dir)
             return _run_sample(config, benchmark, sample, trace_dir, agent=_thread_local.agent)
 
         with ThreadPoolExecutor(max_workers=config.run.concurrency) as executor:
