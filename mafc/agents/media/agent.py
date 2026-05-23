@@ -12,7 +12,7 @@ from mafc.agents.media.planner import plan_media_tools
 from mafc.agents.media.utils import build_evidences_from_tool_result
 from mafc.agents.media.tracing import MediaTraceRecorder
 from mafc.utils.media import extract_media_items
-from mafc.utils.parsing import extract_json_object, strip_json_fences
+from mafc.utils.parsing import extract_json_object, strip_json_fences, try_parse_with_repair
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
@@ -204,7 +204,16 @@ class MediaAgent(Agent):
             response_text = _resp.text.strip()
         except Exception:
             return "\n\n".join(evidence_blocks), list(evidences), None
-        parsed = self._parse_synthesis_response(response_text, evidence_id_to_item)
+        _repair_prompt = (
+            "The previous response was not valid JSON. "
+            'Return strict JSON only with schema: {"answer": "string", "relevant_evidence_ids": ["ev_1"]}'
+        )
+        parsed, _ = try_parse_with_repair(
+            response_text,
+            lambda text: self._parse_synthesis_response(text, evidence_id_to_item),
+            self.summarization_model,
+            _repair_prompt,
+        )
         if parsed is None:
             return response_text, list(evidences), _resp
         answer, relevant_evidences = parsed
