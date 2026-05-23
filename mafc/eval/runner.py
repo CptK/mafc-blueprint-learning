@@ -304,7 +304,9 @@ def run_benchmark(config: BenchmarkRunConfig, run_dir: Path, skip_ids: set[str] 
 
         def _submit(sample):
             if not hasattr(_thread_local, "agent"):
-                _thread_local.agent = _build_fact_check_agent(config, benchmark, trace_dir, cache_dir=cache_dir)
+                _thread_local.agent = _build_fact_check_agent(
+                    config, benchmark, trace_dir, cache_dir=cache_dir
+                )
             return _run_sample(config, benchmark, sample, trace_dir, agent=_thread_local.agent)
 
         with ThreadPoolExecutor(max_workers=config.run.concurrency) as executor:
