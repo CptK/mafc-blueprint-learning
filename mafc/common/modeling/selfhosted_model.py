@@ -1,15 +1,19 @@
+import httpx
 import openai
 from openai import OpenAI
 import time
 from typing import cast
+from urllib.parse import urlparse
 
+from ezmm import MultimodalSequence
+from ezmm.common.items import Image
 from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMessageParam
 from mafc.common.modeling.model import API, APIResponse, Model, Response
 from mafc.common.modeling.message import Message
 from mafc.common.modeling.utils import messages_with_videos_as_frames
 from mafc.common.logger import logger
 import config.globals as globals
-from mafc.common.modeling.openai_model import format_input
+from mafc.common.modeling.openai_model import count_image_tokens, format_input as _tiktoken_format_input
 
 
 def _resolve_selfhosted_url(model_name: str) -> str:
@@ -41,13 +45,90 @@ class SelfhostedAPI(API):
         self.context_window = context_window
         url = _resolve_selfhosted_url(model)
         self.client = OpenAI(base_url=url, api_key="none", timeout=300)
+        # vLLM tokenize/detokenize endpoints live at the server root (no /v1 prefix)
+        parsed = urlparse(url.rstrip("/"))
+        server_root = f"{parsed.scheme}://{parsed.netloc}"
+        self._tokenize_url = f"{server_root}/tokenize"
+        self._detokenize_url = f"{server_root}/detokenize"
+        self._http = httpx.Client(timeout=10.0)
         _ = self.client.chat  # warm up lazy openai submodule imports in this thread
+
+    def _tokenize(self, text: str) -> list[int] | None:
+        """Tokenize text via vLLM /tokenize. Returns token IDs, or None on failure."""
+        try:
+            resp = self._http.post(
+                self._tokenize_url,
+                json={"model": self.model, "prompt": text, "add_special_tokens": False},
+            )
+            resp.raise_for_status()
+            return resp.json()["tokens"]
+        except Exception as e:
+            logger.debug(f"[Selfhosted] /tokenize failed: {e}")
+            return None
+
+    def _detokenize(self, tokens: list[int]) -> str | None:
+        """Detokenize token IDs via vLLM /detokenize. Returns text, or None on failure."""
+        try:
+            resp = self._http.post(
+                self._detokenize_url,
+                json={"model": self.model, "tokens": tokens},
+            )
+            resp.raise_for_status()
+            return resp.json()["prompt"]
+        except Exception as e:
+            logger.debug(f"[Selfhosted] /detokenize failed: {e}")
+            return None
+
+    def _format_input(self, content: MultimodalSequence, token_budget: int) -> list[dict]:
+        """Format message content, truncating text via the model's own tokenizer.
+
+        If /tokenize is unavailable, falls back to tiktoken with a 15% safety margin
+        to compensate for cross-tokenizer drift.
+        """
+        content_formatted: list[dict] = []
+        remaining = token_budget
+
+        for block in content.to_list():
+            if remaining <= 0:
+                break
+
+            if isinstance(block, str):
+                tokens = self._tokenize(block)
+                if tokens is None:
+                    logger.warning(
+                        "[Selfhosted] /tokenize unavailable; falling back to tiktoken with 15% margin."
+                    )
+                    return _tiktoken_format_input(content, int(token_budget * 0.85))
+
+                if len(tokens) <= remaining:
+                    remaining -= len(tokens)
+                    content_formatted.append({"type": "text", "text": block})
+                else:
+                    truncated_text = self._detokenize(tokens[:remaining])
+                    if truncated_text is None:
+                        # /detokenize unavailable: estimate truncation point from char/token ratio
+                        chars_per_token = len(block) / len(tokens) if tokens else 4.0
+                        truncated_text = block[: int(remaining * chars_per_token)]
+                    content_formatted.append({"type": "text", "text": truncated_text})
+                    remaining = 0
+
+            elif isinstance(block, Image):
+                image_tokens = int(count_image_tokens(block))
+                if image_tokens > remaining:
+                    break
+                image_encoded = block.get_base64_encoded()
+                content_formatted.append(
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_encoded}"}}
+                )
+                remaining -= image_tokens
+
+        return content_formatted
 
     def __call__(self, messages: list[Message], **kwargs) -> APIResponse:
         max_response_length = kwargs.get("max_response_length", 2048)
-        # Subtract overhead for chat-template tokens (role markers etc.) and
-        # tokenizer mismatch between tiktoken and the model's actual tokenizer.
-        input_budget = self.context_window - max_response_length - 200
+        # Small overhead for chat-template markers; text truncation uses the model's
+        # own tokenizer via /tokenize so no cross-tokenizer drift margin is needed.
+        input_budget = self.context_window - max_response_length - 500
         provider_messages = cast(
             list[ChatCompletionMessageParam],
             [
@@ -55,7 +136,7 @@ class SelfhostedAPI(API):
                     "role": message.role.value,
                     "content": cast(
                         list[ChatCompletionContentPartParam],
-                        format_input(message.content, context_window=input_budget),
+                        self._format_input(message.content, token_budget=input_budget),
                     ),
                 }
                 for message in messages
