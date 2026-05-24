@@ -17,6 +17,9 @@ class DataConfig(BaseModel):
     train_fraction: float = 0.8
     seed: int = 42
     first_n: int | None = None
+    dev_fraction: float = 0.0
+    """Fraction of the (shuffled) training samples held out for per-epoch evaluation via
+    ``BlueprintExecutor``. 0.0 disables dev eval entirely. Requires ``execution.enabled``."""
 
 
 class ModelConfig(BaseModel):

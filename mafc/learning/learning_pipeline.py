@@ -74,6 +74,15 @@ class EpochStats:
     blueprints_merged: int = 0
     """Blueprint pairs collapsed by the consolidator."""
 
+    # ---- Per-epoch dev evaluation ----
+    # Populated by the script's on_epoch_end callback after the pipeline finishes
+    # the epoch's own bookkeeping. None when no dev set is configured.
+    dev_macro_f1: float | None = None
+    dev_accuracy: float | None = None
+    dev_avg_cost_usd: float | None = None
+    dev_n_completed: int = 0
+    dev_n_errored: int = 0
+
 
 @dataclass
 class _State:
