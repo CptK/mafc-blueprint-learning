@@ -116,6 +116,7 @@ class LearningPipeline:
         use_article_analysis_for_selection: bool = False,
         frozen_blueprint_names: set[str] | None = None,
         workers: int = 4,
+        post_select_hook: Callable[[ClaimLearningRecord], None] | None = None,
     ) -> None:
         self.registry = registry
         self.selector = selector
@@ -130,6 +131,10 @@ class LearningPipeline:
         self.use_article_analysis_for_selection = use_article_analysis_for_selection
         self.frozen_blueprint_names: set[str] = frozen_blueprint_names or set()
         self.workers = workers
+        self.post_select_hook = post_select_hook
+        """Called from a worker thread after a record is assigned a blueprint but
+        before fit assessment, with the mutated ``ClaimLearningRecord``. Used by
+        the Phase 0+ execution feedback to populate ``rec.execution_result``."""
 
     def run(
         self,
@@ -230,6 +235,15 @@ class LearningPipeline:
             article_analysis=article_analysis_for_selection,
         )
         rec.assigned_blueprint = selection.selected_blueprint.name
+
+        if self.post_select_hook is not None:
+            try:
+                self.post_select_hook(rec)
+            except Exception as exc:
+                logger.warning(
+                    f"[LearningPipeline] post_select_hook failed for "
+                    f"claim={getattr(rec.claim, 'id', None)}: {type(exc).__name__}: {exc}"
+                )
 
         fit_result = self.fit_assessor.assess(
             blueprint=selection.selected_blueprint,
