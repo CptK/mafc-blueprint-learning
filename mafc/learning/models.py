@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from mafc.blueprints.models import ClaimFeatures
     from mafc.common.claim import Claim
     from mafc.learning.blueprint_fit_assessor import BlueprintFitResult
+    from mafc.learning.execution import ExecutionResult
 
 
 @dataclass
@@ -102,3 +103,10 @@ class ClaimLearningRecord:
 
     fit_result: BlueprintFitResult | None = None
     """Fit assessment produced in the last iteration."""
+
+    execution_result: ExecutionResult | None = None
+    """Outcome of executing the assigned blueprint on this claim, if available.
+
+    Populated by Phase 0+ infrastructure when ``BlueprintExecutor`` is enabled
+    in the learning config. ``None`` for pure analysis-only learning runs.
+    """
