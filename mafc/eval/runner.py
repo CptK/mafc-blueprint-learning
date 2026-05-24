@@ -5,163 +5,26 @@ from __future__ import annotations
 import json
 import threading
 import time
-import traceback as _traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 from tqdm import tqdm
 
-from mafc.agents.common import AgentSession
 from mafc.agents.fact_check.agent import FactCheckAgent
-from mafc.agents.judge.agent import JudgeAgent
-from mafc.agents.media.agent import MediaAgent
-from mafc.agents.web_search.agent import WebSearchAgent
-from mafc.tools.web_search.google_search import GoogleSearchPlatform
-from mafc.blueprints import BlueprintRegistry, BlueprintSelector
 from mafc.common.logger import logger
-from mafc.common.modeling import make_model
-from mafc.common.modeling.prompt import Prompt
-from mafc.eval.benchmark import Benchmark
 from mafc.eval.metrics import format_blueprint_stats_report
 from mafc.eval.run_config import BenchmarkRunConfig
+from mafc.eval.single import build_fact_check_agent, run_fact_check
 from mafc.eval.veritas.benchmark import VeriTaS
-
-
-def _build_fact_check_agent(
-    config: BenchmarkRunConfig, benchmark: Benchmark, trace_dir: Path | None, cache_dir: Path | None = None
-) -> FactCheckAgent:
-    fc_cfg = config.agents.fact_check
-    ws_cfg = config.agents.web_search
-    media_cfg = config.agents.media
-    judge_cfg = config.agents.judge
-    bp_cfg = config.blueprints
-
-    planner_model = make_model(
-        fc_cfg.model, temperature=fc_cfg.temperature, max_response_length=fc_cfg.max_response_length
-    )
-    worker_model = make_model(
-        ws_cfg.model, temperature=ws_cfg.temperature, max_response_length=ws_cfg.max_response_length
-    )
-    summarization_model = (
-        make_model(
-            ws_cfg.summarization_model,
-            temperature=ws_cfg.summarization_temperature or ws_cfg.temperature,
-            top_p=ws_cfg.summarization_top_p or ws_cfg.top_p,
-            top_k=ws_cfg.summarization_top_k or ws_cfg.top_k,
-            max_response_length=ws_cfg.summarization_max_response_length or ws_cfg.max_response_length,
-            thinking=ws_cfg.summarization_thinking,
-            presence_penalty=ws_cfg.summarization_presence_penalty,
-        )
-        if ws_cfg.summarization_model
-        else worker_model
-    )
-    media_model = make_model(
-        media_cfg.model, temperature=media_cfg.temperature, max_response_length=media_cfg.max_response_length
-    )
-    judge_model = make_model(
-        judge_cfg.model, temperature=judge_cfg.temperature, max_response_length=judge_cfg.max_response_length
-    )
-    selector_model = make_model(
-        bp_cfg.selector_model, max_response_length=bp_cfg.selector_max_response_length
-    )
-
-    registry = BlueprintRegistry.from_path(bp_cfg.config_dir)
-    selector = BlueprintSelector(model=selector_model, registry=registry, default_blueprint_name="generic")
-
-    media_agent = MediaAgent(model=media_model, summarization_model=media_model)
-    web_search_agent = WebSearchAgent(
-        main_model=worker_model,
-        summarization_model=summarization_model,
-        n_workers=ws_cfg.workers,
-        max_iterations=ws_cfg.max_iterations,
-        max_queries_per_step=ws_cfg.max_queries_per_step,
-        max_results_per_query=ws_cfg.max_results_per_query,
-        search_tool=GoogleSearchPlatform(cache_dir=cache_dir),
-    )
-    judge_agent = JudgeAgent(
-        model=judge_model,
-        class_definitions=benchmark.class_definitions,
-        extra_judge_rules=benchmark.extra_judge_rules,
-    )
-    return FactCheckAgent(
-        model=planner_model,
-        blueprint_selector=selector,
-        delegation_agents={"media": [media_agent], "web_search": [web_search_agent]},
-        judge_agent=judge_agent,
-        n_workers=fc_cfg.workers,
-        trace_dir=str(trace_dir) if trace_dir else None,
-    )
-
-
-def _extract_predicted_label(agent_result) -> str | None:
-    judge_run = (agent_result.trace or {}).get("judge_run") or {}
-    decision = judge_run.get("decision") or {}
-    return decision.get("label") or None
-
-
-def _extract_cost(agent_result) -> dict[str, Any]:
-    trace_summary = (agent_result.trace or {}).get("summary") or {}
-    return {
-        "cost_usd": trace_summary.get("total_cost_usd", 0.0),
-        "input_tokens": trace_summary.get("total_input_tokens", 0),
-        "output_tokens": trace_summary.get("total_output_tokens", 0),
-        "total_tokens": (
-            trace_summary.get("total_input_tokens", 0) + trace_summary.get("total_output_tokens", 0)
-        ),
-    }
-
-
-def _extract_blueprint_info(agent_result) -> dict[str, Any]:
-    trace = agent_result.trace or {}
-    bp = trace.get("blueprint") or {}
-    selection = bp.get("selection") or {}
-    return {
-        "blueprint_name": bp.get("name") or "unknown",
-        "selection_mode": selection.get("mode") or "unknown",
-        "n_iterations": len(trace.get("iterations") or []),
-    }
 
 
 def _run_sample(
     config: BenchmarkRunConfig, benchmark, sample, trace_dir: Path | None, agent: FactCheckAgent | None = None
 ) -> dict[str, Any]:
-    start = time.monotonic()
-    errors: list[str] = []
-    predicted: str | None = None
-    cost: dict[str, Any] = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-
-    try:
-        if agent is None:
-            agent = _build_fact_check_agent(config, benchmark, trace_dir)
-        session = AgentSession(
-            id=f"benchmark:{sample.id}",
-            goal=Prompt(text="Fact-check this claim using the selected blueprint."),
-            claim=sample.input,
-            cutoff_date=sample.input.date.date() if sample.input.date is not None else None,
-        )
-        result = agent.run(session, true_label=sample.label.value)
-        predicted = _extract_predicted_label(result)
-        errors = list(result.errors)
-        cost = _extract_cost(result)
-        blueprint_info = _extract_blueprint_info(result)
-    except Exception as e:
-        errors.append(f"{type(e).__name__}: {e}")
-        logger.error(f"[Runner] Exception for sample {sample.id}:\n{_traceback.format_exc()}")
-        blueprint_info = {"blueprint_name": "unknown", "selection_mode": "unknown", "n_iterations": 0}
-
-    ground_truth = sample.label.value
-    return {
-        "claim_id": sample.id,
-        "ground_truth": ground_truth,
-        "predicted": predicted,
-        "correct": predicted == ground_truth if predicted is not None else False,
-        "errors": errors,
-        "duration_ms": round((time.monotonic() - start) * 1000),
-        "cost": cost,
-        **blueprint_info,
-        **benchmark.sample_extra_fields(sample),
-    }
+    if agent is None:
+        agent = build_fact_check_agent(config, benchmark, trace_dir)
+    return run_fact_check(sample, agent, benchmark=benchmark)
 
 
 def _compute_summary(results: list[dict[str, Any]], run_duration_s: float, benchmark=None) -> dict[str, Any]:
@@ -290,7 +153,7 @@ def run_benchmark(config: BenchmarkRunConfig, run_dir: Path, skip_ids: set[str] 
 
     cache_dir = run_dir / "temp"
     if config.run.concurrency <= 1:
-        agent = _build_fact_check_agent(config, benchmark, trace_dir, cache_dir=cache_dir)
+        agent = build_fact_check_agent(config, benchmark, trace_dir, cache_dir=cache_dir)
         for sample in samples:
             result = _run_sample(config, benchmark, sample, trace_dir, agent=agent)
             _handle_result(result)
@@ -304,7 +167,9 @@ def run_benchmark(config: BenchmarkRunConfig, run_dir: Path, skip_ids: set[str] 
 
         def _submit(sample):
             if not hasattr(_thread_local, "agent"):
-                _thread_local.agent = _build_fact_check_agent(config, benchmark, trace_dir, cache_dir=cache_dir)
+                _thread_local.agent = build_fact_check_agent(
+                    config, benchmark, trace_dir, cache_dir=cache_dir
+                )
             return _run_sample(config, benchmark, sample, trace_dir, agent=_thread_local.agent)
 
         with ThreadPoolExecutor(max_workers=config.run.concurrency) as executor:
