@@ -15,6 +15,8 @@ from mafc.common.logger import logger
 import config.globals as globals
 from mafc.common.modeling.openai_model import count_image_tokens, format_input as _tiktoken_format_input
 
+format_input = _tiktoken_format_input
+
 
 def _resolve_selfhosted_url(model_name: str) -> str:
     """Return the vLLM endpoint URL for a given model name.
@@ -61,7 +63,7 @@ class SelfhostedAPI(API):
                 json={"model": self.model, "prompt": text, "add_special_tokens": False},
             )
             resp.raise_for_status()
-            return resp.json()["tokens"]
+            return list(resp.json()["tokens"])
         except Exception as e:
             logger.debug(f"[Selfhosted] /tokenize failed: {e}")
             return None
@@ -74,7 +76,7 @@ class SelfhostedAPI(API):
                 json={"model": self.model, "tokens": tokens},
             )
             resp.raise_for_status()
-            return resp.json()["prompt"]
+            return str(resp.json()["prompt"])
         except Exception as e:
             logger.debug(f"[Selfhosted] /detokenize failed: {e}")
             return None
@@ -98,7 +100,7 @@ class SelfhostedAPI(API):
                     logger.warning(
                         "[Selfhosted] /tokenize unavailable; falling back to tiktoken with 15% margin."
                     )
-                    return _tiktoken_format_input(content, int(token_budget * 0.85))
+                    return format_input(content, int(token_budget * 0.85))
 
                 if len(tokens) <= remaining:
                     remaining -= len(tokens)
