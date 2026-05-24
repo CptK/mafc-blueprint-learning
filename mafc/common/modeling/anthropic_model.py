@@ -13,6 +13,13 @@ from mafc.common.logger import logger
 
 encoding = tiktoken.get_encoding("cl100k_base")
 
+# Models that do not accept `temperature` or `top_p` sampling parameters.
+_NO_SAMPLING_PARAMS: frozenset[str] = frozenset(
+    {
+        "claude-opus-4-7",
+    }
+)
+
 
 def _resolve_anthropic_key() -> str | None:
     return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("anthropic_api_key")
@@ -50,7 +57,8 @@ def format_input(content: MultimodalSequence, context_window: int) -> list[dict]
                 remaining = 0
             else:
                 remaining -= len(tokens)
-            content_formatted.append({"type": "text", "text": block})
+            if block:  # skip empty strings — Anthropic rejects empty text blocks
+                content_formatted.append({"type": "text", "text": block})
 
         elif isinstance(block, Image):
             img_tokens = count_image_tokens_estimate(block)
@@ -94,33 +102,36 @@ class AnthropicAPI(API):
         system_parts = [
             str(message.content).strip() for message in messages if message.role == MessageRole.SYSTEM
         ]
-        anthropic_messages = [
-            {
-                "role": message.role.value,
-                "content": format_input(message.content, context_window=input_budget),
-            }
-            for message in messages
-            if message.role != MessageRole.SYSTEM
-        ]
+        anthropic_messages = []
+        for message in messages:
+            if message.role == MessageRole.SYSTEM:
+                continue
+            content_blocks = format_input(message.content, context_window=input_budget)
+            if not content_blocks:
+                # Budget exhausted before this message — insert a minimal placeholder
+                # so Anthropic doesn't reject an empty content array.
+                content_blocks = [{"type": "text", "text": "[truncated]"}]
+            anthropic_messages.append({"role": message.role.value, "content": content_blocks})
 
         try:
-            # Anthropic models do not allow specifying both temperature and top_p simultaneously.
-            # Prefer temperature when both are provided; otherwise pass whichever is set.
-            temp = kwargs.get("temperature")
-            topp = kwargs.get("top_p")
-
             create_kwargs = {
                 "model": self.model,
                 "messages": anthropic_messages,
                 "max_tokens": max_response_length,
             }
-            if temp is not None and topp is not None:
-                logger.warning("Both temperature and top_p specified; using temperature for Anthropic.")
-                topp = None
-            if temp is not None:
-                create_kwargs["temperature"] = temp
-            elif topp is not None:
-                create_kwargs["top_p"] = topp
+
+            if self.model not in _NO_SAMPLING_PARAMS:
+                # Anthropic models do not allow specifying both temperature and top_p simultaneously.
+                # Prefer temperature when both are provided; otherwise pass whichever is set.
+                temp = kwargs.get("temperature")
+                topp = kwargs.get("top_p")
+                if temp is not None and topp is not None:
+                    logger.warning("Both temperature and top_p specified; using temperature for Anthropic.")
+                    topp = None
+                if temp is not None:
+                    create_kwargs["temperature"] = temp
+                elif topp is not None:
+                    create_kwargs["top_p"] = topp
             if system_parts:
                 create_kwargs["system"] = "\n\n".join(part for part in system_parts if part)
 
