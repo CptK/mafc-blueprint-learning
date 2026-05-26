@@ -46,7 +46,7 @@ class SelfhostedAPI(API):
         self.model = model
         self.context_window = context_window
         url = _resolve_selfhosted_url(model)
-        self.client = OpenAI(base_url=url, api_key="none", timeout=300)
+        self.client = OpenAI(base_url=url, api_key="none", timeout=600)
         # vLLM tokenize/detokenize endpoints live at the server root (no /v1 prefix)
         parsed = urlparse(url.rstrip("/"))
         server_root = f"{parsed.scheme}://{parsed.netloc}"
