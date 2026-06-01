@@ -61,6 +61,20 @@ class BlueprintRegistry:
         """Return all registered blueprints in insertion order."""
         return list(self._blueprints_by_name.values())
 
+    def replace_all(self, blueprints: list[Blueprint]) -> None:
+        """Atomically replace the registry contents with ``blueprints``.
+
+        Used by rollback to restore a snapshotted registry without breaking
+        existing references (selectors, pipelines hold a reference to this
+        registry object; rebinding them on every rollback would be intrusive).
+        """
+        new_map: dict[str, Blueprint] = {}
+        for bp in blueprints:
+            if bp.name in new_map:
+                raise ValueError(f"Duplicate blueprint name in replace_all: '{bp.name}'")
+            new_map[bp.name] = bp
+        self._blueprints_by_name = new_map
+
     @classmethod
     def from_path(cls, path: str | Path) -> "BlueprintRegistry":
         """Build a registry from one blueprint file or a directory of blueprints."""
