@@ -123,7 +123,7 @@ def compute_agent_fingerprint(config: BenchmarkRunConfig) -> str:
 
     Two configs that produce equivalent agent behaviour should hash to the same
     fingerprint; any change that could alter a fact-check result (model name,
-    temperature, max iterations) should change it.
+    temperature, max iterations, the benchmark's label space) should change it.
     """
     payload = {
         "fact_check": config.agents.fact_check.model_dump(),
@@ -134,6 +134,9 @@ def compute_agent_fingerprint(config: BenchmarkRunConfig) -> str:
             "selector_model": config.blueprints.selector_model,
             "selector_max_response_length": config.blueprints.selector_max_response_length,
         },
+        # Label scheme affects the verdict label space the agent is allowed to
+        # emit, so two runs with different schemes must NOT share cache entries.
+        "label_scheme": config.benchmark.label_scheme,
     }
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]

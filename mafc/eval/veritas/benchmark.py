@@ -23,16 +23,30 @@ from mafc.eval.veritas.labels import (
     CLASS_DEFINITIONS_7,
     EXTRA_JUDGE_RULES_3,
     EXTRA_JUDGE_RULES_7,
-    THRESHOLDS_7,
 )
 
 
 def _classify_integrity_7(score: float) -> Veritas7Label:
-    """Classify an integrity score into a 7-class label using threshold bins."""
-    for threshold, label in THRESHOLDS_7:
-        if score < threshold:
-            return label
-    return Veritas7Label.INTACT_CERTAIN
+    """Classify an integrity score into a 7-class label.
+
+    Brackets per official schema (n/6 thresholds, right-closed on intact side):
+      >5/6: certain  |  (3/6,5/6]: rather certain  |  (1/6,3/6]: rather uncertain
+      [-1/6,1/6]: unknown
+      [-3/6,-1/6): rather uncertain  |  [-5/6,-3/6): rather certain  |  <-5/6: certain
+    """
+    if score > 5 / 6:
+        return Veritas7Label.INTACT_CERTAIN
+    if score > 3 / 6:
+        return Veritas7Label.INTACT_RATHER_CERTAIN
+    if score > 1 / 6:
+        return Veritas7Label.INTACT_RATHER_UNCERTAIN
+    if score >= -1 / 6:
+        return Veritas7Label.UNKNOWN
+    if score >= -3 / 6:
+        return Veritas7Label.COMPROMISED_RATHER_UNCERTAIN
+    if score >= -5 / 6:
+        return Veritas7Label.COMPROMISED_RATHER_CERTAIN
+    return Veritas7Label.COMPROMISED_CERTAIN
 
 
 class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
@@ -62,9 +76,9 @@ class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
 
     available_actions = []
 
-    # Thresholds for three-class classification
-    INTACT_THRESHOLD = 0.33
-    COMPROMISED_THRESHOLD = -0.33
+    # Thresholds for three-class classification (exclusive: >1/3 intact, <-1/3 compromised)
+    INTACT_THRESHOLD = 1 / 3
+    COMPROMISED_THRESHOLD = -1 / 3
 
     def __init__(self, data_path: str, variant: str = "q1_2024", label_scheme: int = 3):
         """
@@ -295,9 +309,9 @@ class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
                 continue
             elif self.label_scheme == 7:
                 label: Veritas7Label | Veritas3Label = _classify_integrity_7(integrity)
-            elif integrity >= self.INTACT_THRESHOLD:
+            elif integrity > self.INTACT_THRESHOLD:
                 label = Veritas3Label.INTACT
-            elif integrity <= self.COMPROMISED_THRESHOLD:
+            elif integrity < self.COMPROMISED_THRESHOLD:
                 label = Veritas3Label.COMPROMISED
             else:
                 label = Veritas3Label.UNKNOWN
