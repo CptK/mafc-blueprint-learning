@@ -27,6 +27,7 @@ from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.learning.models import ArticleAnalysis, ClaimLearningRecord
+from mafc.learning.outcomes import partition_by_outcome
 from mafc.utils.parsing import extract_json_object, strip_json_fences
 
 _BLUEPRINT_FIELD_REFERENCE = """\
@@ -249,6 +250,76 @@ Fit assessment:
 {article_section}\
 """
 
+# Phase-4 outcome-aware claim template — adds the prior-run outcome fields
+# alongside the existing fit/article information.
+_OUTCOME_CLAIM_TEMPLATE = """\
+[Claim {i}]
+Text: {claim_text}
+True label: {true_label}{outcome_extra}
+
+Fit assessment:
+  fit_level: {fit_level}
+  missing_capabilities: {missing}
+  covered_capabilities: {covered}
+  reason: {reason}
+{article_section}\
+"""
+
+# Headers for the three outcome-grouped sections in the outcomes-on prompt.
+_OUTCOME_HEADERS = {
+    "correct": "Claims where the prior fact-check produced the CORRECT verdict",
+    "incorrect": "Claims where the prior fact-check produced the WRONG verdict",
+    "unknown": "Claims with UNKNOWN prior outcome (execution not run or errored)",
+}
+
+_OUTCOME_DIRECTIVE = """\
+The claims above are grouped by the prior fact-check's outcome with the current blueprint. \
+Revise the blueprint to improve performance on the WRONG-verdict cases without regressing \
+the CORRECT cases. If the failures share a root cause (e.g. missing action type, \
+under-specified intent, weak required check), address it. If the failures look unrelated \
+or the batch is dominated by correct outcomes, prefer a minimal revision over an aggressive \
+one. If no concrete improvement is supported by the failures, leave the blueprint largely \
+unchanged and explain why in 'reasoning'.\
+"""
+
+# Outcomes-on variant of the user prompt — the structured outcome sections
+# replace the flat claim listing, and an extra directive is appended.
+_USER_PROMPT_TEMPLATE_OUTCOMES = """\
+The following blueprint is currently assigned to {n} claims. \
+Based on the prior-run outcomes, fit assessments, and article analyses below, \
+produce an improved version.
+
+---CURRENT BLUEPRINT---
+```json
+{blueprint_json}
+```
+---END CURRENT BLUEPRINT---
+
+---ASSIGNED CLAIMS BY OUTCOME ({n} total: {n_correct} correct, {n_incorrect} incorrect, {n_unknown} unknown)---
+{outcome_sections}
+---END ASSIGNED CLAIMS---
+
+{outcome_directive}
+{hint_section}
+Return a single JSON object with this shape:
+
+{{
+  "reasoning": string,
+  // What you changed and why. Reference specific WRONG-verdict claims that drove the change. Note if the batch supports no change.
+
+  "should_split": boolean,
+  // true if the batch splits into two distinct subgroups needing different strategies.
+
+  "split_rationale": string | null,
+  // If should_split is true: describe the two subgroups and how their needs differ.
+
+  "updated_blueprint": object
+  // The complete updated blueprint as a nested JSON object — NOT a string, NOT YAML.
+}}
+
+Return only the JSON object, no additional text, no markdown fences.\
+"""
+
 _ARTICLE_SECTION_TEMPLATE = """\
 Article analysis (process_richness={richness}):
   claim_type: {claim_type}
@@ -340,6 +411,82 @@ def _format_claim_section(records: list[ClaimLearningRecord]) -> str:
     return "\n".join(parts)
 
 
+def _format_outcome_claim(i: int, rec: ClaimLearningRecord, bucket: str) -> str:
+    """Render one claim for the outcomes-on prompt, with outcome-specific extras.
+
+    The 'incorrect' bucket gets the predicted label and judge reason added — these
+    are the failure details the LLM needs to revise against. 'correct' and
+    'unknown' buckets get only the true label as context.
+    """
+    claim_text: str = str(rec.claim).strip()
+    if len(claim_text) > 400:
+        claim_text = claim_text[:400] + "…"
+
+    if rec.fit_result is not None:
+        fit_level: str = rec.fit_result.fit_level
+        missing = ", ".join(rec.fit_result.missing_capabilities) or "none"
+        covered = ", ".join(rec.fit_result.covered_capabilities) or "none"
+        reason = rec.fit_result.reason
+    else:
+        fit_level = missing = covered = reason = "N/A"
+
+    er = rec.execution_result
+    true_label = er.ground_truth if er is not None else "N/A"
+    outcome_extra = ""
+    if bucket == "incorrect" and er is not None:
+        judge_reason = er.judge_reason or "(not recorded)"
+        # Compact the judge reason — it can be very long.
+        if len(judge_reason) > 600:
+            judge_reason = judge_reason[:600] + "…"
+        outcome_extra = f"\nPredicted label (wrong): {er.predicted_label}" f"\nJudge reason: {judge_reason}"
+
+    article_section: str = (
+        _format_article_section(rec.article_analysis) + "\n" if rec.article_analysis is not None else ""
+    )
+
+    return _OUTCOME_CLAIM_TEMPLATE.format(
+        i=i,
+        claim_text=claim_text,
+        true_label=true_label,
+        outcome_extra=outcome_extra,
+        fit_level=fit_level,
+        missing=missing,
+        covered=covered,
+        reason=reason,
+        article_section=article_section,
+    )
+
+
+def _format_outcome_grouped_section(
+    records: list[ClaimLearningRecord],
+    error_threshold: float | None = None,
+) -> tuple[str, int, int, int]:
+    """Build the outcome-grouped claim section + return the bucket sizes.
+
+    Only non-empty buckets are rendered; their order is fixed (incorrect first
+    because it carries the actionable signal, then correct, then unknown).
+    """
+    correct, incorrect, unknown = partition_by_outcome(records, error_threshold=error_threshold)
+    sections: list[str] = []
+    # Stable ordering with explicit indexing across buckets so the LLM can
+    # cross-reference [Claim N] in its reasoning unambiguously.
+    counter = 1
+    for bucket_name, bucket_records in (
+        ("incorrect", incorrect),
+        ("correct", correct),
+        ("unknown", unknown),
+    ):
+        if not bucket_records:
+            continue
+        header = f"### {_OUTCOME_HEADERS[bucket_name]} ({len(bucket_records)} claim(s))"
+        body = "\n".join(
+            _format_outcome_claim(counter + j, r, bucket_name) for j, r in enumerate(bucket_records)
+        )
+        counter += len(bucket_records)
+        sections.append(f"{header}\n\n{body}")
+    return "\n\n".join(sections), len(correct), len(incorrect), len(unknown)
+
+
 def _format_pydantic_errors(e: ValidationError) -> str:
     """Render a Pydantic ValidationError as a compact, model-friendly bullet list."""
     lines: list[str] = []
@@ -401,8 +548,21 @@ def _parse_update_response(text: str) -> BlueprintUpdateResult:
 class BlueprintUpdater:
     """Improves a blueprint using a batch of claims and their fit assessments."""
 
-    def __init__(self, model: Model) -> None:
+    def __init__(
+        self,
+        model: Model,
+        use_execution_outcomes: bool = False,
+        outcome_error_threshold: float | None = None,
+    ) -> None:
         self.model: Model = model
+        self.use_execution_outcomes: bool = use_execution_outcomes
+        """When true, the user-turn prompt partitions records by prior-run outcome
+        (correct / incorrect / unknown) so the LLM can target failures specifically.
+        Default false preserves the Phase 0-2 prompt byte-for-byte."""
+        self.outcome_error_threshold: float | None = outcome_error_threshold
+        """When set, the outcome partitioner uses score-error bucketing
+        (``abs(predicted_score - gt_score) <= threshold``) instead of strict
+        label equality. ``None`` keeps the legacy label-equality semantics."""
 
     def update(
         self,
@@ -490,10 +650,35 @@ class BlueprintUpdater:
         records: list[ClaimLearningRecord],
         extra_user_hint: str | None = None,
     ) -> str:
-        """Render the full user-turn prompt from the current blueprint and claim batch."""
+        """Render the full user-turn prompt from the current blueprint and claim batch.
+
+        When ``use_execution_outcomes`` is true and at least one record carries
+        execution-outcome data, the prompt switches to outcome-grouped sections;
+        otherwise it falls back to the original flat claim listing.
+        """
         blueprint_json = json.dumps(blueprint.model_dump(by_alias=True), indent=2, ensure_ascii=False)
-        claims_section = _format_claim_section(records)
         hint_section = f"\n{extra_user_hint}\n" if extra_user_hint else ""
+
+        if self.use_execution_outcomes:
+            outcome_sections, n_c, n_i, n_u = _format_outcome_grouped_section(
+                records, error_threshold=self.outcome_error_threshold
+            )
+            # If we have no signal at all (everything in 'unknown'), the outcomes
+            # framing adds noise without information. Fall back to the original
+            # prompt so the LLM doesn't see a misleading "all unknown" categorisation.
+            if n_c + n_i > 0:
+                return _USER_PROMPT_TEMPLATE_OUTCOMES.format(
+                    n=len(records),
+                    n_correct=n_c,
+                    n_incorrect=n_i,
+                    n_unknown=n_u,
+                    blueprint_json=blueprint_json,
+                    outcome_sections=outcome_sections,
+                    outcome_directive=_OUTCOME_DIRECTIVE,
+                    hint_section=hint_section,
+                )
+
+        claims_section = _format_claim_section(records)
         return _USER_PROMPT_TEMPLATE.format(
             n=len(records),
             blueprint_json=blueprint_json,

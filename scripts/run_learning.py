@@ -38,15 +38,26 @@ from mafc.blueprints.registry import BlueprintRegistry
 from mafc.blueprints.selector import BlueprintSelector
 from mafc.common.logger import logger
 from mafc.common.modeling import make_model
+from mafc.eval.metrics import classification_block
+from mafc.eval.run_config import BenchmarkRunConfig
+from mafc.eval.single import build_fact_check_agent, compute_agent_fingerprint
 from mafc.eval.veritas.benchmark import VeriTaS
+from mafc.eval.veritas.metrics import VERDICT_TO_NUMERIC_3, VERDICT_TO_NUMERIC_7
 from mafc.learning.article_analyzer import ArticleAnalyzer
 from mafc.learning.blueprint_consolidator import BlueprintConsolidator
 from mafc.learning.blueprint_fit_assessor import BlueprintFitAssessor
 from mafc.learning.blueprint_updater import BlueprintUpdater
+from mafc.learning.execution import (
+    BlueprintExecutionCache,
+    BlueprintExecutor,
+    _MutableSingleBlueprintSelector,
+)
 from mafc.learning.learning_pipeline import EpochStats, LearningPipeline
 from mafc.learning.models import ActionEvidenceLink, ArticleAnalysis, ClaimLearningRecord
 from mafc.learning.new_blueprint_synthesizer import NewBlueprintSynthesizer
 from mafc.learning.run_config import LearningRunConfig
+from mafc.learning.scorecard import BlueprintScorecard
+from mafc.learning.snapshot import restore_registry_in_place, snapshot_registry
 
 faulthandler.enable()
 
@@ -148,16 +159,38 @@ def _extract_analyses(
         )
 
     completed = 0
+    failures = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_analyze_one, s): s for s in pending}
         for future in as_completed(futures):
-            claim_id, result = future.result()
+            sample = futures[future]
+            try:
+                claim_id, result = future.result()
+            except Exception as exc:
+                # Transient API failures (Gemini 5xx, rate limits, etc.) should not
+                # abort the whole extraction. The failed sample stays out of the
+                # cache so the next run picks it up via the `s.id not in cache` filter.
+                logger.warning(
+                    f"[Extraction] Analysis failed for claim {sample.id}: " f"{type(exc).__name__}: {exc}"
+                )
+                failures += 1
+                completed += 1
+                continue
             if result is not None:
                 cache[claim_id] = result
             completed += 1
             if completed % 10 == 0 or completed == len(pending):
-                logger.info(f"[Extraction] {completed}/{len(pending)} done.")
+                logger.info(
+                    f"[Extraction] {completed}/{len(pending)} done"
+                    + (f" ({failures} failed)" if failures else "")
+                    + "."
+                )
                 _save_analysis_cache(cache, cache_path)
+    if failures:
+        logger.warning(
+            f"[Extraction] {failures}/{len(pending)} samples failed extraction. "
+            "Re-run with --analyses-cache pointing at the saved cache to retry."
+        )
 
     _save_analysis_cache(cache, cache_path)
     logger.info(f"[Extraction] Done. Cache has {len(cache)} entries.")
@@ -167,6 +200,97 @@ def _extract_analyses(
 # ---------------------------------------------------------------------------
 # Blueprint saving
 # ---------------------------------------------------------------------------
+
+
+def _run_dev_eval(
+    executor: "BlueprintExecutor",
+    selector: BlueprintSelector,
+    dev_records: list[ClaimLearningRecord],
+    dev_labels: dict[str, str],
+    dev_gt_scores: dict[str, float],
+    label_set: list[str],
+    workers: int,
+) -> tuple[dict, BlueprintScorecard]:
+    """Score every dev record through (real selector → forced-blueprint executor).
+
+    Mirrors production: ``selector.select`` runs without article_analysis so the
+    selector sees what it would see at inference time, then the executor runs the
+    blueprint the selector picked. Cache is shared with training so repeated dev
+    claims across epochs are cheap unless the blueprint pool mutated.
+
+    Returns a dict carrying both classification (accuracy, macro_f1) and
+    regression (mse, mae) views. MSE/MAE are computed when records carry
+    paired predicted_score / gt_score (set by the executor when
+    label_to_numeric is configured).
+    """
+    dev_scorecard = BlueprintScorecard()
+    y_true: list[str] = []
+    y_pred: list[str] = []
+    gt_scores: list[float] = []
+    pred_scores: list[float] = []
+    n_errored = 0
+    total_cost_usd = 0.0
+    n_total = len(dev_records)
+
+    def _eval_one(rec: ClaimLearningRecord):
+        cid = getattr(rec.claim, "id", None)
+        if cid is None or cid not in dev_labels:
+            return None
+        selection = selector.select(rec.claim, article_analysis=None)
+        blueprint = selection.selected_blueprint
+        result = executor.run(
+            rec.claim,
+            blueprint,
+            true_label=dev_labels[cid],
+            claim_id=cid,
+            gt_score=dev_gt_scores.get(cid),
+        )
+        rec.assigned_blueprint = blueprint.name
+        rec.execution_result = result
+        return result
+
+    if workers <= 1:
+        results = [_eval_one(rec) for rec in dev_records]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_eval_one, rec) for rec in dev_records]
+            results = [f.result() for f in as_completed(futures)]
+
+    for result in results:
+        if result is None:
+            continue
+        dev_scorecard.record(result)
+        total_cost_usd += result.cost_usd
+        if result.predicted_label is None:
+            n_errored += 1
+            continue
+        y_true.append(result.ground_truth)
+        y_pred.append(result.predicted_label)
+        if result.predicted_score is not None and result.gt_score is not None:
+            gt_scores.append(result.gt_score)
+            pred_scores.append(result.predicted_score)
+
+    completed = len(y_true)
+    metrics = {
+        "n_total": n_total,
+        "n_completed": completed,
+        "n_errored": n_errored,
+        "accuracy": None,
+        "macro_f1": None,
+        "mse": None,
+        "mae": None,
+        "n_scored": len(gt_scores),
+        "avg_cost_usd": (total_cost_usd / n_total) if n_total else None,
+    }
+    if completed:
+        block = classification_block(y_true, y_pred, label_set)
+        metrics["accuracy"] = block["accuracy"]
+        metrics["macro_f1"] = block["macro"]["f1"]
+    if gt_scores:
+        diffs = [(p - g) for p, g in zip(pred_scores, gt_scores)]
+        metrics["mse"] = sum(d * d for d in diffs) / len(diffs)
+        metrics["mae"] = sum(abs(d) for d in diffs) / len(diffs)
+    return metrics, dev_scorecard
 
 
 def _save_blueprints(registry: BlueprintRegistry, directory: Path) -> None:
@@ -192,19 +316,19 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         help="Override path for the article analyses cache JSON.",
     )
-    parser.add_argument(
-        "--extraction-workers",
-        type=int,
-        default=4,
-        metavar="N",
-        help="Parallel workers for article analysis extraction (default: 4).",
-    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     config = LearningRunConfig.from_yaml(args.config)
+
+    # Apply the configured console log level BEFORE anything else logs. The
+    # default in mafc.common.logger is DEBUG, which dumps full action-node
+    # prompts and responses per fact-check iteration — that's tens of MB on
+    # any non-smoke run. ``logger.set_log_level`` only affects the stdout
+    # handler; file handlers (and per-fact-check traces) keep their detail.
+    logger.set_log_level(config.output.log_level.lower())  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
     # Output directory
@@ -215,7 +339,7 @@ def main() -> None:
     shutil.copy(args.config, run_dir / "config.yaml")
     ezmm.set_ezmm_path(run_dir / "temp")
 
-    logger.info(f"[Setup] Run directory: {run_dir}")
+    logger.info(f"[Setup] Run directory: {run_dir} (log_level={config.output.log_level})")
 
     # ------------------------------------------------------------------
     # Load data and split
@@ -233,11 +357,23 @@ def main() -> None:
     indices = list(range(len(samples)))
     rng.shuffle(indices)
     split = int(len(indices) * config.data.train_fraction)
-    train_samples = [samples[i] for i in indices[:split]]
+    train_pool_samples = [samples[i] for i in indices[:split]]
     test_samples = [samples[i] for i in indices[split:]]
 
+    # Phase 1: carve a dev set off the (already-shuffled) training pool so dev
+    # IDs are reproducible across runs with the same seed and never overlap
+    # the test set.
+    dev_n = int(round(len(train_pool_samples) * config.data.dev_fraction))
+    if dev_n > 0 and config.data.dev_fraction > 0.0:
+        dev_samples = train_pool_samples[:dev_n]
+        train_samples = train_pool_samples[dev_n:]
+    else:
+        dev_samples = []
+        train_samples = train_pool_samples
+
     logger.info(
-        f"[Setup] Dataset: {len(samples)} total — " f"{len(train_samples)} train / {len(test_samples)} test"
+        f"[Setup] Dataset: {len(samples)} total — "
+        f"{len(train_samples)} train / {len(dev_samples)} dev / {len(test_samples)} test"
     )
 
     # Save the split so evaluation can use the same test set later.
@@ -245,9 +381,11 @@ def main() -> None:
         json.dump(
             {
                 "train_ids": [s.id for s in train_samples],
+                "dev_ids": [s.id for s in dev_samples],
                 "test_ids": [s.id for s in test_samples],
                 "seed": config.data.seed,
                 "train_fraction": config.data.train_fraction,
+                "dev_fraction": config.data.dev_fraction,
             },
             f,
             indent=2,
@@ -272,7 +410,7 @@ def main() -> None:
         analysis_cache,
         analyzer,
         cache_path,
-        workers=args.extraction_workers,
+        workers=config.learning.workers,
     )
 
     # ------------------------------------------------------------------
@@ -285,6 +423,20 @@ def main() -> None:
         )
         for s in train_samples
     ]
+    # Dev records intentionally carry no article_analysis — Phase 1 dev eval
+    # simulates production where no gold article is available at inference time.
+    dev_records = [ClaimLearningRecord(claim=s.input, article_analysis=None) for s in dev_samples]
+    # Ground-truth label lookup so the executor (Phase 0+) can score outcomes.
+    train_labels: dict[str, str] = {s.id: s.label.value for s in train_samples}
+    dev_labels: dict[str, str] = {s.id: s.label.value for s in dev_samples}
+    # Continuous ground-truth integrity score (VeriTaS ensemble aggregation, in
+    # [-1, +1]). Needed for MSE-gated rollback and score-error outcome bucketing.
+    train_gt_scores: dict[str, float] = {
+        s.id: s.gt_score for s in train_samples if getattr(s, "gt_score", None) is not None
+    }
+    dev_gt_scores: dict[str, float] = {
+        s.id: s.gt_score for s in dev_samples if getattr(s, "gt_score", None) is not None
+    }
 
     # ------------------------------------------------------------------
     # Build learning components
@@ -299,14 +451,28 @@ def main() -> None:
         registry=registry,
         default_blueprint_name=config.blueprints.default_blueprint,
     )
+    # Phase-4: outcome-aware mutators. Validated against execution.enabled below
+    # so we can fail-fast with a clear error instead of silently disabling.
+    if config.learning.use_execution_outcomes and not config.execution.enabled:
+        raise ValueError(
+            "learning.use_execution_outcomes=true requires execution.enabled=true "
+            "(the updater and synthesizer read ClaimLearningRecord.execution_result, "
+            "which is only populated when the executor runs)."
+        )
     fit_assessor = BlueprintFitAssessor(model)
-    updater = BlueprintUpdater(model)
+    updater = BlueprintUpdater(
+        model,
+        use_execution_outcomes=config.learning.use_execution_outcomes,
+        outcome_error_threshold=config.learning.outcome_error_threshold,
+    )
     generic_bp = registry.get(config.blueprints.default_blueprint)
     synthesizer = NewBlueprintSynthesizer(
         model=model,
         updater=updater,
         generic_blueprint=generic_bp,
         min_cluster_size=config.synthesizer.min_cluster_size,
+        use_execution_outcomes=config.learning.use_execution_outcomes,
+        outcome_error_threshold=config.learning.outcome_error_threshold,
     )
     consolidator = (
         BlueprintConsolidator(
@@ -318,6 +484,92 @@ def main() -> None:
         if config.consolidator.enabled
         else None
     )
+    # ------------------------------------------------------------------
+    # Optional Phase-0 execution feedback (observe-only)
+    # ------------------------------------------------------------------
+    executor: BlueprintExecutor | None = None
+    scorecard: BlueprintScorecard | None = None
+    label_set: list[str] | None = None
+    if config.execution.enabled:
+        if config.execution.agents is None or config.execution.blueprints is None:
+            raise ValueError(
+                "execution.enabled=true requires execution.agents and execution.blueprints "
+                "sections in the config."
+            )
+        # Repackage as a BenchmarkRunConfig so we can reuse build_fact_check_agent + fingerprint.
+        bench_cfg = BenchmarkRunConfig.model_validate(
+            {
+                "benchmark": {
+                    "name": "veritas",
+                    "split": config.data.split,
+                    "label_scheme": config.data.label_scheme,
+                    "data_path": config.data.data_path,
+                },
+                "agents": config.execution.agents.model_dump(),
+                "blueprints": config.execution.blueprints.model_dump(),
+                "run": config.execution.run.model_dump(),
+            }
+        )
+
+        execution_trace_dir = run_dir / "execution_traces" if config.execution.write_traces else None
+        if execution_trace_dir is not None:
+            execution_trace_dir.mkdir(parents=True, exist_ok=True)
+        execution_cache_dir = (
+            Path(config.execution.cache_dir)
+            if config.execution.cache_dir
+            else Path(config.output.dir) / "execution_cache"
+        )
+        cache = BlueprintExecutionCache(
+            root=execution_cache_dir,
+            agent_fingerprint=compute_agent_fingerprint(bench_cfg),
+        )
+        logger.info(
+            f"[Setup] Execution feedback ON: cache={execution_cache_dir} " f"fingerprint={cache.fingerprint}"
+        )
+
+        def _agent_factory(forced_selector: _MutableSingleBlueprintSelector):
+            agent = build_fact_check_agent(
+                bench_cfg, benchmark, execution_trace_dir, cache_dir=run_dir / "search_cache"
+            )
+            # Replace the LLM-driven selector built by build_fact_check_agent with
+            # our forced-blueprint adapter so the executor controls routing.
+            agent.blueprint_selector = forced_selector  # type: ignore[assignment]
+            return agent
+
+        # Map predicted-label strings to their scalar positions so the executor
+        # can populate ``ExecutionResult.predicted_score`` for MSE-based gating
+        # and score-error outcome bucketing. VeriTaS-specific today; making it
+        # data-driven from the benchmark is a Phase-5 concern.
+        label_to_numeric = VERDICT_TO_NUMERIC_7 if config.data.label_scheme == 7 else VERDICT_TO_NUMERIC_3
+
+        executor = BlueprintExecutor(
+            agent_factory=_agent_factory,
+            registry=registry,
+            cache=cache,
+            default_blueprint_name=config.blueprints.default_blueprint,
+            label_to_numeric=label_to_numeric,
+        )
+        scorecard = BlueprintScorecard()
+        label_set = sorted({s.label.value for s in train_samples})
+
+    def _post_select(rec: ClaimLearningRecord) -> None:
+        if executor is None or rec.assigned_blueprint is None:
+            return
+        claim_id = getattr(rec.claim, "id", None)
+        if claim_id is None or claim_id not in train_labels:
+            return
+        blueprint = registry.get(rec.assigned_blueprint)
+        result = executor.run(
+            rec.claim,
+            blueprint,
+            true_label=train_labels[claim_id],
+            claim_id=claim_id,
+            gt_score=train_gt_scores.get(claim_id),
+        )
+        rec.execution_result = result
+        if scorecard is not None:
+            scorecard.record(result)
+
     pipeline = LearningPipeline(
         registry=registry,
         selector=selector,
@@ -330,29 +582,151 @@ def main() -> None:
         max_epochs=config.learning.max_epochs,
         consolidate_every=config.learning.consolidate_every,
         use_article_analysis_for_selection=config.learning.use_article_analysis_for_selection,
-        frozen_blueprint_names={config.blueprints.default_blueprint},
+        frozen_blueprint_names=(
+            {bp.name for bp in registry.get_all()}
+            if config.learning.freeze_all_blueprints
+            else {config.blueprints.default_blueprint}
+        ),
         workers=config.learning.workers,
+        post_select_hook=_post_select if executor is not None else None,
+        outcome_error_threshold=config.learning.outcome_error_threshold,
     )
+
+    # ------------------------------------------------------------------
+    # Phase 2: rollback bookkeeping
+    # ------------------------------------------------------------------
+    rollback_enabled = config.learning.rollback_on_regression
+    gate_metric = config.learning.gate_metric
+    if gate_metric not in ("macro_f1", "mse"):
+        raise ValueError(f"Unsupported learning.gate_metric: {gate_metric!r}. Expected 'macro_f1' or 'mse'.")
+    if rollback_enabled:
+        if not config.execution.enabled:
+            raise ValueError(
+                "learning.rollback_on_regression=true requires execution.enabled=true "
+                "(rollback uses the dev metric produced by dev eval)."
+            )
+        if config.data.dev_fraction <= 0.0 or not dev_records:
+            raise ValueError(
+                "learning.rollback_on_regression=true requires data.dev_fraction>0 "
+                "with a non-empty dev split."
+            )
+        if gate_metric == "mse" and not dev_gt_scores:
+            raise ValueError(
+                "learning.gate_metric='mse' requires continuous ground-truth scores on dev "
+                "samples (none of the dev samples carry gt_score). VeriTaS exposes this; "
+                "check data.label_scheme and the benchmark variant."
+            )
+    # Single dir reused across epochs — only the most recent pre-epoch state matters.
+    rollback_snapshot_dir = run_dir / "rollback_snapshot"
+    best_dev_macro_f1: float | None = None
+    best_dev_mse: float | None = None
 
     # ------------------------------------------------------------------
     # Run
     # ------------------------------------------------------------------
     epoch_stats_log: list[dict] = []
 
+    def on_epoch_begin(epoch: int, reg: BlueprintRegistry) -> None:
+        if rollback_enabled:
+            snapshot_registry(reg, rollback_snapshot_dir)
+
     def on_epoch_end(epoch: int, stats: EpochStats, reg: BlueprintRegistry) -> None:
+        nonlocal best_dev_macro_f1, best_dev_mse
+        # Phase 1: dev evaluation against the registry as it stands at end-of-epoch.
+        if executor is not None and dev_records and label_set is not None:
+            logger.info(f"[Dev] Evaluating {len(dev_records)} dev claims (epoch {epoch + 1})...")
+            metrics, dev_scorecard = _run_dev_eval(
+                executor=executor,
+                selector=selector,
+                dev_records=dev_records,
+                dev_labels=dev_labels,
+                dev_gt_scores=dev_gt_scores,
+                label_set=label_set,
+                workers=config.learning.workers,
+            )
+            stats.dev_macro_f1 = metrics["macro_f1"]
+            stats.dev_accuracy = metrics["accuracy"]
+            stats.dev_mse = metrics["mse"]
+            stats.dev_mae = metrics["mae"]
+            stats.dev_avg_cost_usd = metrics["avg_cost_usd"]
+            stats.dev_n_completed = metrics["n_completed"]
+            stats.dev_n_errored = metrics["n_errored"]
+            dev_scorecard.save_json(
+                run_dir / "dev_scorecard" / f"epoch_{epoch + 1:02d}.json", labels=label_set
+            )
+            mse_str = f"{stats.dev_mse:.4f}" if stats.dev_mse is not None else "n/a"
+            mae_str = f"{stats.dev_mae:.4f}" if stats.dev_mae is not None else "n/a"
+            logger.info(
+                f"[Dev] epoch {epoch + 1} macro_f1={stats.dev_macro_f1} "
+                f"accuracy={stats.dev_accuracy} mse={mse_str} mae={mae_str} "
+                f"completed={stats.dev_n_completed}/{metrics['n_total']} "
+                f"errored={stats.dev_n_errored}"
+            )
+
+        # Phase 2: rollback decision. Direction depends on the configured gate
+        # metric — macro_f1 is higher-is-better, MSE is lower-is-better.
+        stats.gate_metric = gate_metric
+        if rollback_enabled:
+            margin = config.learning.rollback_margin
+            if gate_metric == "macro_f1" and stats.dev_macro_f1 is not None:
+                stats.dev_macro_f1_best_before = best_dev_macro_f1
+                if best_dev_macro_f1 is not None and stats.dev_macro_f1 < best_dev_macro_f1 - margin:
+                    restore_registry_in_place(reg, rollback_snapshot_dir)
+                    stats.rolled_back = True
+                    logger.warning(
+                        f"[Rollback] epoch {epoch + 1} dev_macro_f1={stats.dev_macro_f1:.4f} "
+                        f"< best={best_dev_macro_f1:.4f} - margin={margin} — registry restored."
+                    )
+                elif best_dev_macro_f1 is None or stats.dev_macro_f1 > best_dev_macro_f1:
+                    best_dev_macro_f1 = stats.dev_macro_f1
+            elif gate_metric == "mse" and stats.dev_mse is not None:
+                stats.dev_mse_best_before = best_dev_mse
+                if best_dev_mse is not None and stats.dev_mse > best_dev_mse + margin:
+                    restore_registry_in_place(reg, rollback_snapshot_dir)
+                    stats.rolled_back = True
+                    logger.warning(
+                        f"[Rollback] epoch {epoch + 1} dev_mse={stats.dev_mse:.4f} "
+                        f"> best={best_dev_mse:.4f} + margin={margin} — registry restored."
+                    )
+                elif best_dev_mse is None or stats.dev_mse < best_dev_mse:
+                    best_dev_mse = stats.dev_mse
+
+        # Snapshots are written AFTER the rollback decision so blueprints/epoch_NN
+        # always reflects the kept state (post-rollback if a rollback fired).
+        if config.output.save_epoch_snapshots:
+            _save_blueprints(reg, run_dir / "blueprints" / f"epoch_{epoch + 1:02d}")
+        if scorecard is not None:
+            scorecard.save_json(run_dir / "scorecard" / f"epoch_{epoch + 1:02d}.json", labels=label_set)
+
+        # Log cumulative executor stats AFTER dev eval so the line reflects
+        # both train and dev activity for this epoch.
+        if executor is not None:
+            stats_snapshot = executor.stats()
+            logger.info(
+                f"[Execution] epoch {epoch + 1} cache_hits={stats_snapshot.get('cache_hits', 0)} "
+                f"executed={stats_snapshot.get('executed', 0)} "
+                f"total_runs={stats_snapshot.get('total_runs', 0)}"
+            )
+
+        # Persist epoch_stats AFTER dev metrics + rollback decision land so the
+        # file always reflects the full epoch summary.
         epoch_stats_log.append(dataclasses.asdict(stats))
         with open(run_dir / "epoch_stats.json", "w") as f:
             json.dump(epoch_stats_log, f, indent=2)
-        if config.output.save_epoch_snapshots:
-            _save_blueprints(reg, run_dir / "blueprints" / f"epoch_{epoch + 1:02d}")
 
     logger.info("[Run] Starting learning pipeline...")
-    all_stats = pipeline.run(train_records, on_epoch_end=on_epoch_end)
+    all_stats = pipeline.run(
+        train_records,
+        on_epoch_end=on_epoch_end,
+        on_epoch_begin=on_epoch_begin,
+    )
 
     # ------------------------------------------------------------------
-    # Save final blueprints
+    # Save final blueprints + scorecard
     # ------------------------------------------------------------------
     _save_blueprints(registry, run_dir / "blueprints" / "final")
+    if scorecard is not None:
+        scorecard.save_json(run_dir / "scorecard" / "final.json", labels=label_set)
 
     # ------------------------------------------------------------------
     # Summary

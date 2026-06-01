@@ -36,3 +36,13 @@ def snapshot_registry(registry: BlueprintRegistry, directory: Path) -> Path:
 def restore_registry(directory: Path) -> BlueprintRegistry:
     """Load a registry from a snapshot directory written by ``snapshot_registry``."""
     return BlueprintRegistry(load_blueprints(directory))
+
+
+def restore_registry_in_place(registry: BlueprintRegistry, directory: Path) -> None:
+    """Restore ``registry`` to the state captured in ``directory`` without rebinding.
+
+    The rollback path needs the existing ``BlueprintRegistry`` instance to keep its
+    object identity so the selector and pipeline (both hold a reference) continue
+    to see the restored state without being rewired.
+    """
+    registry.replace_all(load_blueprints(directory))

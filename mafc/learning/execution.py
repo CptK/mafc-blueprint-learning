@@ -69,6 +69,15 @@ class ExecutionResult:
     judge_reason: str | None = None
     errors: list[str] = field(default_factory=list)
     trace_path: str | None = None
+    gt_score: float | None = None
+    """Continuous ground-truth score for ordinal benchmarks (e.g. VeriTaS
+    integrity in [-1, +1]). Populated from ``benchmark.sample_extra_fields``
+    when the benchmark exposes one. ``None`` for purely categorical benchmarks."""
+    predicted_score: float | None = None
+    """Numeric mapping of ``predicted_label`` for ordinal benchmarks. Set by
+    ``BlueprintExecutor`` after the fact-check returns, using the
+    ``label_to_numeric`` mapping supplied at construction. ``None`` when no
+    mapping is configured or the predicted label isn't in the mapping."""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -89,12 +98,21 @@ class ExecutionResult:
             judge_reason=d.get("judge_reason"),
             errors=list(d.get("errors") or []),
             trace_path=d.get("trace_path"),
+            gt_score=d.get("gt_score"),
+            predicted_score=d.get("predicted_score"),
         )
 
     @classmethod
     def from_result_dict(cls, result: dict[str, Any]) -> ExecutionResult:
         """Build from the dict shape returned by ``run_fact_check``."""
         cost = result.get("cost") or {}
+        # ``run_fact_check`` already merges ``benchmark.sample_extra_fields``
+        # into the result dict; for VeriTaS that includes ``gt_integrity_score``.
+        gt_score = result.get("gt_integrity_score")
+        try:
+            gt_score = float(gt_score) if gt_score is not None else None
+        except (TypeError, ValueError):
+            gt_score = None
         return cls(
             claim_id=str(result["claim_id"]),
             blueprint_name=result.get("blueprint_name") or "unknown",
@@ -109,6 +127,8 @@ class ExecutionResult:
             judge_reason=result.get("judge_reason"),
             errors=list(result.get("errors") or []),
             trace_path=result.get("trace_path"),
+            gt_score=gt_score,
+            predicted_score=None,  # Filled in by BlueprintExecutor.run if mapping configured.
         )
 
 
@@ -288,11 +308,18 @@ class BlueprintExecutor:
         registry: BlueprintRegistry,
         cache: BlueprintExecutionCache,
         default_blueprint_name: str = "generic",
+        label_to_numeric: dict[str, float] | None = None,
     ) -> None:
         self._agent_factory = agent_factory
         self._registry = registry
         self._cache = cache
         self._default = default_blueprint_name
+        self._label_to_numeric = label_to_numeric
+        """Optional mapping from predicted-label strings to scalar values for
+        ordinal benchmarks. When provided, ``run()`` annotates the returned
+        ``ExecutionResult.predicted_score`` so downstream MSE-based gating and
+        error-magnitude outcome bucketing have a numeric prediction. ``None``
+        for purely categorical benchmarks."""
         self._thread_local = threading.local()
         self._total_runs = 0
         self._cache_hits = 0
@@ -314,6 +341,7 @@ class BlueprintExecutor:
         *,
         true_label: str,
         claim_id: str | None = None,
+        gt_score: float | None = None,
     ) -> ExecutionResult:
         cid = claim_id or claim.id
         if cid is None:
@@ -326,6 +354,17 @@ class BlueprintExecutor:
         with self._stats_lock:
             self._total_runs += 1
         if cached is not None:
+            # Old cache entries may pre-date the score plumbing; lazily fill in
+            # predicted_score (from the configured mapping) and gt_score (from
+            # the caller) so the rest of the pipeline sees consistent data.
+            if (
+                cached.predicted_score is None
+                and self._label_to_numeric
+                and cached.predicted_label is not None
+            ):
+                cached.predicted_score = self._label_to_numeric.get(cached.predicted_label)
+            if cached.gt_score is None and gt_score is not None:
+                cached.gt_score = gt_score
             with self._stats_lock:
                 self._cache_hits += 1
             return cached
@@ -334,7 +373,14 @@ class BlueprintExecutor:
         selector.set(blueprint)
         sample = _ExecutorSample(id=cid, input=claim, label=_LabelShim(true_label))
         result_dict = run_fact_check(sample, agent)
+        if gt_score is not None:
+            # Surface the continuous ground-truth score via the same field
+            # ``VeriTaS.sample_extra_fields`` would have populated when a
+            # benchmark instance is passed to ``run_fact_check`` directly.
+            result_dict["gt_integrity_score"] = gt_score
         exec_result = ExecutionResult.from_result_dict(result_dict)
+        if self._label_to_numeric and exec_result.predicted_label is not None:
+            exec_result.predicted_score = self._label_to_numeric.get(exec_result.predicted_label)
         # Cache any run that produced a verdict. Non-fatal errors (e.g. a
         # ScrapeMM failure on one source while the agent still finalises from
         # others) are kept on the result but don't disqualify the cache entry —

@@ -53,6 +53,7 @@ from mafc.learning.blueprint_fit_assessor import BlueprintFitAssessor
 from mafc.learning.blueprint_updater import BlueprintUpdater
 from mafc.learning.models import ClaimLearningRecord
 from mafc.learning.new_blueprint_synthesizer import NewBlueprintSynthesizer
+from mafc.learning.outcomes import partition_by_outcome
 
 
 @dataclass
@@ -79,9 +80,45 @@ class EpochStats:
     # the epoch's own bookkeeping. None when no dev set is configured.
     dev_macro_f1: float | None = None
     dev_accuracy: float | None = None
+    dev_mse: float | None = None
+    """Mean squared error of predicted_score vs gt_score across dev claims.
+    None when the executor was not configured with a label_to_numeric mapping
+    or no dev claim produced a scored verdict."""
+    dev_mae: float | None = None
+    """Mean absolute error counterpart of dev_mse. Tracked for observability;
+    only dev_mse is consulted by the rollback gate when gate_metric=mse."""
     dev_avg_cost_usd: float | None = None
     dev_n_completed: int = 0
     dev_n_errored: int = 0
+
+    # ---- Phase-2 rollback bookkeeping ----
+    # Populated by the script's on_epoch_end callback when rollback is enabled.
+    rolled_back: bool = False
+    """True when this epoch's mutations were reverted because the gate metric
+    regressed beyond ``rollback_margin``."""
+    dev_macro_f1_best_before: float | None = None
+    """Running best dev_macro_f1 *prior to* this epoch's dev eval. Populated
+    only when gate_metric=macro_f1."""
+    dev_mse_best_before: float | None = None
+    """Running best dev_mse *prior to* this epoch's dev eval. Populated
+    only when gate_metric=mse. Smaller is better."""
+    gate_metric: str | None = None
+    """Which metric this epoch's rollback decision consulted (mirrored from
+    config so log readers don't need to cross-reference)."""
+
+    # ---- Phase-4 outcome-aware learning bookkeeping ----
+    # Populated by the pipeline's flush logic when use_execution_outcomes=true.
+    n_updates_with_failures: int = 0
+    """Updater flushes this epoch where the input buffer contained ≥1
+    record with an ``incorrect`` execution outcome."""
+    n_updates_all_correct: int = 0
+    """Updater flushes this epoch where the input buffer was 100% correct
+    outcomes (no failures, no unknowns). A high ratio here suggests the
+    blueprint has stabilised for its assigned claims."""
+    synthesis_categories: dict[str, int] = field(default_factory=dict)
+    """Counts of synthesizer category tags emitted this epoch
+    (``fixes-failures`` / ``specializes-easy-cases`` / ``mixed`` /
+    ``unspecified``)."""
 
 
 @dataclass
@@ -126,6 +163,7 @@ class LearningPipeline:
         frozen_blueprint_names: set[str] | None = None,
         workers: int = 4,
         post_select_hook: Callable[[ClaimLearningRecord], None] | None = None,
+        outcome_error_threshold: float | None = None,
     ) -> None:
         self.registry = registry
         self.selector = selector
@@ -141,6 +179,11 @@ class LearningPipeline:
         self.frozen_blueprint_names: set[str] = frozen_blueprint_names or set()
         self.workers = workers
         self.post_select_hook = post_select_hook
+        self.outcome_error_threshold: float | None = outcome_error_threshold
+        """Threshold passed to ``partition_by_outcome`` when computing
+        ``EpochStats.n_updates_with_failures`` / ``n_updates_all_correct``.
+        Matches the threshold used by the updater so the bookkeeping reflects
+        the same notion of "correct" as the actual mutator."""
         """Called from a worker thread after a record is assigned a blueprint but
         before fit assessment, with the mutated ``ClaimLearningRecord``. Used by
         the Phase 0+ execution feedback to populate ``rec.execution_result``."""
@@ -149,6 +192,7 @@ class LearningPipeline:
         self,
         train_records: list[ClaimLearningRecord],
         on_epoch_end: Callable[[int, EpochStats, BlueprintRegistry], None] | None = None,
+        on_epoch_begin: Callable[[int, BlueprintRegistry], None] | None = None,
     ) -> list[EpochStats]:
         """Run the learning loop and return per-epoch statistics.
 
@@ -158,11 +202,17 @@ class LearningPipeline:
             on_epoch_end: Optional callback invoked after each epoch (including
                 consolidation). Receives (epoch_index, stats, registry). Use for
                 saving per-epoch snapshots.
+            on_epoch_begin: Optional callback invoked before each epoch starts,
+                with the registry in its pre-epoch state. Receives
+                (epoch_index, registry). Used by Phase-2 rollback to capture
+                the registry snapshot the epoch's mutations could be reverted to.
         """
         all_stats: list[EpochStats] = []
 
         for epoch in range(self.max_epochs):
             logger.info(f"[LearningPipeline] === Epoch {epoch + 1}/{self.max_epochs} ===")
+            if on_epoch_begin is not None:
+                on_epoch_begin(epoch, self.registry)
             state = _State()
             stats = EpochStats(
                 epoch=epoch,
@@ -293,6 +343,16 @@ class LearningPipeline:
             if not should_flush:
                 continue
 
+            # Phase-4 bookkeeping: classify the buffer before flushing so we
+            # can later attribute updates to failure-driven vs all-correct.
+            correct, incorrect, _unknown = partition_by_outcome(
+                buf, error_threshold=self.outcome_error_threshold
+            )
+            if incorrect:
+                stats.n_updates_with_failures += 1
+            elif correct and not _unknown:
+                stats.n_updates_all_correct += 1
+
             blueprint = self.registry.get(bp_name)
             result = self.updater.update(blueprint, buf)
             if result is not None and result.updated_blueprint is not None:
@@ -323,9 +383,11 @@ class LearningPipeline:
                 syn.blueprint = syn.blueprint.model_copy(update={"name": name})
             self.registry.register(syn.blueprint)
             stats.blueprints_created += 1
+            stats.synthesis_categories[syn.category] = stats.synthesis_categories.get(syn.category, 0) + 1
             logger.info(
                 f"[LearningPipeline] Created new blueprint '{name}' "
-                f"(cluster='{syn.cluster_label}', size={syn.cluster_size})."
+                f"(cluster='{syn.cluster_label}', size={syn.cluster_size}, "
+                f"category={syn.category})."
             )
 
         state.unmatched_pool = []

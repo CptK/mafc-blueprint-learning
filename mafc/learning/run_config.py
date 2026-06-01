@@ -47,6 +47,45 @@ class LearningConfig(BaseModel):
     execution cache: a second invocation must produce identical
     (claim, assigned_blueprint) pairs and therefore 100% cache hits.
     """
+    rollback_on_regression: bool = False
+    """When true, the script takes a registry snapshot at the
+    start of each epoch and restores it after the epoch if dev_macro_f1
+    regresses below the running best by more than ``rollback_margin``.
+    Requires ``data.dev_fraction > 0`` and ``execution.enabled = true``.
+    Default ``false`` preserves the Phase-0/1 behaviour for ablations.
+    """
+    rollback_margin: float = 0.0
+    """Tolerance band around the running-best gate metric. Direction depends
+    on ``gate_metric``: for ``macro_f1`` a rollback fires when
+    ``dev_macro_f1 < best_so_far - margin``; for ``mse`` it fires when
+    ``dev_mse > best_so_far + margin``. Set to a small positive value to
+    absorb stochastic noise on small dev sets.
+    """
+    gate_metric: str = "macro_f1"
+    """Which dev metric the rollback wrapper consults. ``"macro_f1"`` keeps
+    the Phase-2 behaviour for backwards compatibility. ``"mse"`` switches to
+    mean squared error against the continuous ground-truth integrity score
+    (lower is better) — the right choice when the eval metric is MSE on
+    ordinal labels (e.g. VeriTaS 7-class). MSE mode requires the executor's
+    ``label_to_numeric`` mapping to be populated and each sample to carry a
+    continuous ground-truth score.
+    """
+    outcome_error_threshold: float | None = None
+    """Phase-4 outcome bucketing mode. ``None`` uses strict label equality
+    (the original behaviour: ``correct`` iff predicted_label == ground_truth).
+    A float value switches to score-error bucketing: a record is ``correct``
+    iff ``abs(predicted_score - gt_score) <= threshold``. For VeriTaS 7-class
+    on [-1, +1], 1/3 ≈ 0.333 is a natural threshold (off-by-one-bin counts
+    as a near miss; anything bigger is a miss).
+    """
+    use_execution_outcomes: bool = False
+    """Phase-4 gate. When true, BlueprintUpdater and NewBlueprintSynthesizer
+    read ``ClaimLearningRecord.execution_result`` and partition records by
+    outcome (correct / incorrect / unknown) when building their prompts.
+    Requires ``execution.enabled = true``. Default ``false`` preserves the
+    Phase 0-2 behaviour and produces byte-identical updater/synthesizer
+    prompts for ablations.
+    """
 
 
 class SynthesizerConfig(BaseModel):
@@ -62,6 +101,10 @@ class ConsolidatorConfig(BaseModel):
 class OutputConfig(BaseModel):
     dir: str = "out/learning"
     save_epoch_snapshots: bool = True
+    log_level: str = "INFO"
+    """Console log level for the slurm stdout file. Default INFO so per-iteration
+    agent prompts and responses (emitted via ``logger.debug``) stay out of the
+    multi-megabyte run logs. Set to ``DEBUG`` to surface them again."""
 
 
 class ExecutionConfig(BaseModel):
