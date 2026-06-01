@@ -91,7 +91,7 @@ class EpochStats:
     dev_n_completed: int = 0
     dev_n_errored: int = 0
 
-    # ---- Phase-2 rollback bookkeeping ----
+    # ---- Rollback bookkeeping ----
     # Populated by the script's on_epoch_end callback when rollback is enabled.
     rolled_back: bool = False
     """True when this epoch's mutations were reverted because the gate metric
@@ -106,7 +106,7 @@ class EpochStats:
     """Which metric this epoch's rollback decision consulted (mirrored from
     config so log readers don't need to cross-reference)."""
 
-    # ---- Phase-4 outcome-aware learning bookkeeping ----
+    # ---- Outcome-aware learning bookkeeping ----
     # Populated by the pipeline's flush logic when use_execution_outcomes=true.
     n_updates_with_failures: int = 0
     """Updater flushes this epoch where the input buffer contained ≥1
@@ -185,8 +185,7 @@ class LearningPipeline:
         Matches the threshold used by the updater so the bookkeeping reflects
         the same notion of "correct" as the actual mutator."""
         """Called from a worker thread after a record is assigned a blueprint but
-        before fit assessment, with the mutated ``ClaimLearningRecord``. Used by
-        the Phase 0+ execution feedback to populate ``rec.execution_result``."""
+        before fit assessment, with the mutated ``ClaimLearningRecord``."""
 
     def run(
         self,
@@ -204,7 +203,7 @@ class LearningPipeline:
                 saving per-epoch snapshots.
             on_epoch_begin: Optional callback invoked before each epoch starts,
                 with the registry in its pre-epoch state. Receives
-                (epoch_index, registry). Used by Phase-2 rollback to capture
+                (epoch_index, registry). Used by rollback to capture
                 the registry snapshot the epoch's mutations could be reverted to.
         """
         all_stats: list[EpochStats] = []
@@ -343,7 +342,7 @@ class LearningPipeline:
             if not should_flush:
                 continue
 
-            # Phase-4 bookkeeping: classify the buffer before flushing so we
+            # Bookkeeping: classify the buffer before flushing so we
             # can later attribute updates to failure-driven vs all-correct.
             correct, incorrect, _unknown = partition_by_outcome(
                 buf, error_threshold=self.outcome_error_threshold

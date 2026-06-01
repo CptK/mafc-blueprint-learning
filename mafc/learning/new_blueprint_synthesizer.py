@@ -58,7 +58,7 @@ action intents, and graph structure) could serve all its members well. \
 Claims that are genuine one-offs with no coherent peers should be left ungrouped.\
 """
 
-# Phase-4 addendum injected into the system prompt when outcomes are present.
+# Addendum injected into the system prompt when outcomes are present.
 # The clusterer should weight the verdict-outcome signal: cluster claims that
 # failed under the current registry together (so a single new blueprint can
 # fix them), and group claims that succeeded under the default by their own
@@ -166,7 +166,7 @@ class BlueprintSynthesisResult:
     update_result: BlueprintUpdateResult
     """Full updater output, including reasoning and should_split flag."""
     category: str = "unspecified"
-    """Phase-4 outcome-distribution tag. ``"unspecified"`` when outcomes are off.
+    """Outcome-distribution tag. ``"unspecified"`` when outcomes are off.
     Otherwise: ``"fixes-failures"`` (cluster dominated by incorrect outcomes —
     the new blueprint exists to fix them), ``"specializes-easy-cases"`` (cluster
     dominated by correct outcomes — default handles them today, blueprint is a
@@ -268,7 +268,7 @@ class NewBlueprintSynthesizer:
         """When true, the clustering prompt is annotated with per-claim outcome
         tags so the LLM can prefer to group failures together, and each result
         carries a category derived from its cluster's outcome distribution.
-        Default false preserves the Phase 0-2 prompts byte-for-byte."""
+        Default false."""
         self.outcome_error_threshold: float | None = outcome_error_threshold
         """Score-error threshold used by ``partition_by_outcome`` when computing
         each cluster's category tag. ``None`` keeps the strict label-equality
@@ -304,7 +304,7 @@ class NewBlueprintSynthesizer:
 
             cluster_records = [records[i] for i in cluster.claim_indices]
 
-            # Phase-4: derive category from cluster outcome distribution. With
+            # derive category from cluster outcome distribution. With
             # outcomes off, this stays "unspecified" because all buckets fall
             # into the unknown class.
             if self.use_execution_outcomes:

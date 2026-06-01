@@ -14,8 +14,7 @@ Three pieces:
   forces a chosen blueprint per call and consults the cache before running.
 
 The executor reuses ``mafc.eval.single.run_fact_check`` so its results are
-identical in shape to what the standalone benchmark runner produces — this is
-the gate-condition for Phase 0.
+identical in shape to what the standalone benchmark runner produces.
 """
 
 from __future__ import annotations

@@ -250,7 +250,7 @@ Fit assessment:
 {article_section}\
 """
 
-# Phase-4 outcome-aware claim template — adds the prior-run outcome fields
+# Outcome-aware claim template — adds the prior-run outcome fields
 # alongside the existing fit/article information.
 _OUTCOME_CLAIM_TEMPLATE = """\
 [Claim {i}]
@@ -558,7 +558,7 @@ class BlueprintUpdater:
         self.use_execution_outcomes: bool = use_execution_outcomes
         """When true, the user-turn prompt partitions records by prior-run outcome
         (correct / incorrect / unknown) so the LLM can target failures specifically.
-        Default false preserves the Phase 0-2 prompt byte-for-byte."""
+        Default false."""
         self.outcome_error_threshold: float | None = outcome_error_threshold
         """When set, the outcome partitioner uses score-error bucketing
         (``abs(predicted_score - gt_score) <= threshold``) instead of strict

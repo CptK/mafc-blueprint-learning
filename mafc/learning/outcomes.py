@@ -2,7 +2,7 @@
 
 Partitioning a ``ClaimLearningRecord`` by its ``execution_result`` answers
 "was the blueprint actually right on this claim?" — the signal the updater
-and synthesizer consult in Phase 4 to bias their revisions toward fixing
+and synthesizer consult to bias their revisions toward fixing
 failures without regressing successes.
 
 The three buckets are stable across modes:

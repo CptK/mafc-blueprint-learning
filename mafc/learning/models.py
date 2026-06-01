@@ -107,6 +107,6 @@ class ClaimLearningRecord:
     execution_result: ExecutionResult | None = None
     """Outcome of executing the assigned blueprint on this claim, if available.
 
-    Populated by Phase 0+ infrastructure when ``BlueprintExecutor`` is enabled
+    Populated by when ``BlueprintExecutor`` is enabled
     in the learning config. ``None`` for pure analysis-only learning runs.
     """

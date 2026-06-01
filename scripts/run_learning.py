@@ -360,7 +360,7 @@ def main() -> None:
     train_pool_samples = [samples[i] for i in indices[:split]]
     test_samples = [samples[i] for i in indices[split:]]
 
-    # Phase 1: carve a dev set off the (already-shuffled) training pool so dev
+    # Carve a dev set off the (already-shuffled) training pool so dev
     # IDs are reproducible across runs with the same seed and never overlap
     # the test set.
     dev_n = int(round(len(train_pool_samples) * config.data.dev_fraction))
@@ -423,10 +423,10 @@ def main() -> None:
         )
         for s in train_samples
     ]
-    # Dev records intentionally carry no article_analysis — Phase 1 dev eval
+    # Dev records intentionally carry no article_analysis
     # simulates production where no gold article is available at inference time.
     dev_records = [ClaimLearningRecord(claim=s.input, article_analysis=None) for s in dev_samples]
-    # Ground-truth label lookup so the executor (Phase 0+) can score outcomes.
+    # Ground-truth label lookup so the executor can score outcomes.
     train_labels: dict[str, str] = {s.id: s.label.value for s in train_samples}
     dev_labels: dict[str, str] = {s.id: s.label.value for s in dev_samples}
     # Continuous ground-truth integrity score (VeriTaS ensemble aggregation, in
@@ -451,7 +451,7 @@ def main() -> None:
         registry=registry,
         default_blueprint_name=config.blueprints.default_blueprint,
     )
-    # Phase-4: outcome-aware mutators. Validated against execution.enabled below
+    # Outcome-aware mutators. Validated against execution.enabled below
     # so we can fail-fast with a clear error instead of silently disabling.
     if config.learning.use_execution_outcomes and not config.execution.enabled:
         raise ValueError(
@@ -485,7 +485,7 @@ def main() -> None:
         else None
     )
     # ------------------------------------------------------------------
-    # Optional Phase-0 execution feedback (observe-only)
+    # execution feedback (observe-only)
     # ------------------------------------------------------------------
     executor: BlueprintExecutor | None = None
     scorecard: BlueprintScorecard | None = None
@@ -539,7 +539,7 @@ def main() -> None:
         # Map predicted-label strings to their scalar positions so the executor
         # can populate ``ExecutionResult.predicted_score`` for MSE-based gating
         # and score-error outcome bucketing. VeriTaS-specific today; making it
-        # data-driven from the benchmark is a Phase-5 concern.
+        # data-driven from the benchmark
         label_to_numeric = VERDICT_TO_NUMERIC_7 if config.data.label_scheme == 7 else VERDICT_TO_NUMERIC_3
 
         executor = BlueprintExecutor(
@@ -593,7 +593,7 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # Phase 2: rollback bookkeeping
+    # Rollback bookkeeping
     # ------------------------------------------------------------------
     rollback_enabled = config.learning.rollback_on_regression
     gate_metric = config.learning.gate_metric
@@ -632,7 +632,7 @@ def main() -> None:
 
     def on_epoch_end(epoch: int, stats: EpochStats, reg: BlueprintRegistry) -> None:
         nonlocal best_dev_macro_f1, best_dev_mse
-        # Phase 1: dev evaluation against the registry as it stands at end-of-epoch.
+        # dev evaluation against the registry as it stands at end-of-epoch.
         if executor is not None and dev_records and label_set is not None:
             logger.info(f"[Dev] Evaluating {len(dev_records)} dev claims (epoch {epoch + 1})...")
             metrics, dev_scorecard = _run_dev_eval(
@@ -663,7 +663,7 @@ def main() -> None:
                 f"errored={stats.dev_n_errored}"
             )
 
-        # Phase 2: rollback decision. Direction depends on the configured gate
+        # Rollback decision. Direction depends on the configured gate
         # metric — macro_f1 is higher-is-better, MSE is lower-is-better.
         stats.gate_metric = gate_metric
         if rollback_enabled:

@@ -43,16 +43,14 @@ class LearningConfig(BaseModel):
     workers: int = 4
     freeze_all_blueprints: bool = False
     """If true, every blueprint in the registry is treated as frozen so the
-    updater never mutates them. Used by Phase-0 smoke runs to verify the
-    execution cache: a second invocation must produce identical
-    (claim, assigned_blueprint) pairs and therefore 100% cache hits.
+    updater never mutates them.
     """
     rollback_on_regression: bool = False
     """When true, the script takes a registry snapshot at the
     start of each epoch and restores it after the epoch if dev_macro_f1
     regresses below the running best by more than ``rollback_margin``.
     Requires ``data.dev_fraction > 0`` and ``execution.enabled = true``.
-    Default ``false`` preserves the Phase-0/1 behaviour for ablations.
+    Default ``false``.
     """
     rollback_margin: float = 0.0
     """Tolerance band around the running-best gate metric. Direction depends
@@ -63,7 +61,7 @@ class LearningConfig(BaseModel):
     """
     gate_metric: str = "macro_f1"
     """Which dev metric the rollback wrapper consults. ``"macro_f1"`` keeps
-    the Phase-2 behaviour for backwards compatibility. ``"mse"`` switches to
+    the backwards compatibility. ``"mse"`` switches to
     mean squared error against the continuous ground-truth integrity score
     (lower is better) — the right choice when the eval metric is MSE on
     ordinal labels (e.g. VeriTaS 7-class). MSE mode requires the executor's
@@ -71,7 +69,7 @@ class LearningConfig(BaseModel):
     continuous ground-truth score.
     """
     outcome_error_threshold: float | None = None
-    """Phase-4 outcome bucketing mode. ``None`` uses strict label equality
+    """Outcome bucketing mode. ``None`` uses strict label equality
     (the original behaviour: ``correct`` iff predicted_label == ground_truth).
     A float value switches to score-error bucketing: a record is ``correct``
     iff ``abs(predicted_score - gt_score) <= threshold``. For VeriTaS 7-class
@@ -79,12 +77,10 @@ class LearningConfig(BaseModel):
     as a near miss; anything bigger is a miss).
     """
     use_execution_outcomes: bool = False
-    """Phase-4 gate. When true, BlueprintUpdater and NewBlueprintSynthesizer
+    """When true, BlueprintUpdater and NewBlueprintSynthesizer
     read ``ClaimLearningRecord.execution_result`` and partition records by
     outcome (correct / incorrect / unknown) when building their prompts.
-    Requires ``execution.enabled = true``. Default ``false`` preserves the
-    Phase 0-2 behaviour and produces byte-identical updater/synthesizer
-    prompts for ablations.
+    Requires ``execution.enabled = true``. Default ``false``.
     """
 
 
@@ -108,13 +104,9 @@ class OutputConfig(BaseModel):
 
 
 class ExecutionConfig(BaseModel):
-    """Optional Phase-0+ execution feedback configuration.
-
-    When ``enabled`` is true the learning loop runs a real fact-check (with the
+    """When ``enabled`` is true the learning loop runs a real fact-check (with the
     selected blueprint forced) on each training record and stores the outcome
-    on the ``ClaimLearningRecord``. Phase 0 uses this only as a side effect
-    (recorded into the scorecard); later phases will gate updater decisions on
-    these results.
+    on the ``ClaimLearningRecord``.
 
     The ``agents``/``blueprints``/``run`` sections mirror ``BenchmarkRunConfig``
     so existing eval configs can be lifted in with minimal duplication.

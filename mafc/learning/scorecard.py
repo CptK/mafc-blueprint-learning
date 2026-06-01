@@ -1,10 +1,7 @@
 """Per-blueprint scorecard built from ``ExecutionResult``s.
 
 Tracks rolling outcome statistics for every blueprint that has been executed
-during a learning run. Phase 0 uses it as a side-effect observability sink so
-the loop can prove that execution feedback agrees with the standalone eval
-runner; later phases will drive selector tie-breaks and consolidation
-decisions from the same data.
+during a learning run.
 
 Stores raw ``(y_true, y_pred)`` pairs per blueprint so per-class metrics
 (precision, recall, F1, macro-F1) can be computed on demand without
