@@ -87,8 +87,20 @@ EXTRA_JUDGE_RULES_7 = """* Holistic Integrity Assessment with Uncertainty: The i
     - Compromised (rather certain): Claim appears inaccurate with strong but not fully definitive evidence
     - Compromised (certain): Claim is clearly inaccurate, misleading, or contains manipulated media
     * Media Impact: Even if text is accurate, misused media can compromise integrity.
-    * Confidence Calibration: Choose the uncertainty level that best reflects the strength of available evidence.
-      Only use "certain" when evidence is overwhelming and unambiguous.
+    * Confidence Calibration — apply these anchors strictly:
+      Use "certain" only when BOTH conditions hold:
+        (a) A direct primary source (official document/transcript, original upload, authoritative database entry)
+            unambiguously confirms or refutes the claim with no meaningful alternative interpretation.
+        (b) The evidence leaves no residual doubt — not merely a consistent picture, but definitive proof.
+      Use "rather certain" when the direction is clear and evidence is strong, but at least one caveat applies:
+        - No single primary source; conclusion rests on multiple corroborating secondary sources.
+        - A primary source exists but requires a small inferential step to apply to the specific claim.
+        - Minor alternative interpretations cannot be fully ruled out.
+      Use "rather uncertain" when evidence is limited, indirect, or not from authoritative sources,
+        or when the conclusion depends on significant inference beyond what the evidence directly states.
+      Use "unknown" when evidence is absent, contradictory, or insufficient to determine direction.
+      Default toward "rather certain" over "certain" when in doubt — reserve "certain" for cases
+        where a fact-checker would stake their reputation on the finding without qualification.
 """
 
 THRESHOLDS_7 = [
