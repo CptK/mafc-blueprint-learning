@@ -3,6 +3,7 @@ gpt_5.5,OPENAI,gpt-5.5-2026-04-23,1_000_000,5.0,30.0
 gpt_52,OPENAI,gpt-5.2-2025-12-11, 272_000,1.75,14.00
 gpt_5_mini,OPENAI,gpt-5-mini-2025-08-07, 272_000,0.25,2.00
 gpt_5,OPENAI,gpt-5-2025-08-07, 272_000,1.25,10.00
+claude_4.8_opus,ANTHROPIC,claude-opus-4-8,1_000_000,5.0,25.0
 claude_4.7_opus,ANTHROPIC,claude-opus-4-7,1_000_000,5.0,25.0
 claude_4.6_opus,ANTHROPIC,claude-opus-4-6,200_000,5.0,25.0
 claude_4.6_sonnet,ANTHROPIC,claude-sonnet-4-6,1_000_000,3.0,15.0
