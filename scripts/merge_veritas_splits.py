@@ -8,6 +8,9 @@ import sys
 from pathlib import Path
 
 
+OPTIONAL_CLAIM_ID_MAPS = ["article_analyses.json", "embeddings.json"]
+
+
 def merge_splits(source_dirs: list[Path], target_dir: Path) -> None:
     if target_dir.exists():
         print(f"Error: target directory already exists: {target_dir}", file=sys.stderr)
@@ -20,6 +23,7 @@ def merge_splits(source_dirs: list[Path], target_dir: Path) -> None:
     all_claims: list[dict] = []
     seen_claim_ids: set[int] = set()
     seen_media_files: set[str] = set()
+    optional_maps: dict[str, dict] = {name: {} for name in OPTIONAL_CLAIM_ID_MAPS}
     total_meta = {"claim_counts": {"intact": 0, "nei": 0, "compromised": 0, "total": 0},
                   "media_counts": {"images": 0, "videos": 0},
                   "sources": []}
@@ -60,6 +64,14 @@ def merge_splits(source_dirs: list[Path], target_dir: Path) -> None:
                 if src_file.exists():
                     shutil.copy2(src_file, dst_file)
 
+        for filename in OPTIONAL_CLAIM_ID_MAPS:
+            opt_path = source_dir / filename
+            if opt_path.exists():
+                with open(opt_path) as f:
+                    optional_maps[filename].update(json.load(f))
+            else:
+                print(f"  Warning: {filename} not found in {source_dir.name}, skipping")
+
         meta_path = source_dir / "meta.json"
         if meta_path.exists():
             with open(meta_path) as f:
@@ -80,6 +92,13 @@ def merge_splits(source_dirs: list[Path], target_dir: Path) -> None:
 
     with open(target_dir / "claims.json", "w") as f:
         json.dump({"claims": all_claims}, f, ensure_ascii=False, indent=2)
+
+    for filename, data in optional_maps.items():
+        if data:
+            with open(target_dir / filename, "w") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        else:
+            print(f"  Warning: no data found for {filename} across any source, skipping")
 
     # Recount media from actual claims to reflect de-duplication
     total_meta["claim_counts"]["total"] = len(all_claims)
