@@ -69,11 +69,29 @@ class RunConfig(BaseModel):
     log_level: str = "INFO"
 
 
+class StrategyConfig(BaseModel):
+    """Strategy.md baseline: a single free-text playbook instead of a blueprint pool.
+
+    When present, the runner builds a StrategyAgent that hands ``path``'s document
+    to the planner and runs ``max_rounds`` planning rounds (1 = one-shot).
+    """
+
+    path: str  # path to the Strategy.md document
+    max_rounds: int = 1
+
+
 class BenchmarkRunConfig(BaseModel):
     benchmark: BenchmarkConfig
     agents: AgentsConfig
-    blueprints: BlueprintsConfig
+    blueprints: BlueprintsConfig | None = None
+    strategy: StrategyConfig | None = None
     run: RunConfig = RunConfig()
+
+    @model_validator(mode="after")
+    def _validate_strategy_or_blueprints(self) -> "BenchmarkRunConfig":
+        if self.blueprints is None and self.strategy is None:
+            raise ValueError("config must define either 'blueprints' or 'strategy'")
+        return self
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "BenchmarkRunConfig":

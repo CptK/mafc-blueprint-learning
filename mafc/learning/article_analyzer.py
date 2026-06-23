@@ -65,10 +65,34 @@ Return a JSON object with these fields:
   // "source_lookup", "metadata_analysis", "expert_consultation",
   // "official_records", "social_media_search", "web_search",
   // "date_verification", "quote_verification", "context_check"
+  //
+  // Critical distinctions — classify by HOW the evidence was obtained, not by WHAT was verified:
+  //
+  // "expert_consultation" — the fact-checker ACTIVELY CONTACTED a person or institution
+  //   (official, expert, spokesperson, or any named individual) to request a statement,
+  //   confirmation, denial, or opinion. Use this whenever someone was reached out to,
+  //   regardless of whether the subject is a quote, an event, an official matter, or a
+  //   health claim. Examples: emailing an embassy, calling a police officer, messaging a
+  //   UNICEF spokesperson on WhatsApp, interviewing a doctor.
+  //
+  // "official_records" — the fact-checker LOOKED UP an existing published document,
+  //   database, or registry WITHOUT active outreach to a person. Examples: checking court
+  //   filings, searching a government statistics portal, reviewing a published official
+  //   advisory, consulting a public register.
+  //
+  // "quote_verification" — the fact-checker located and examined a PRIMARY SOURCE
+  //   (transcript, archived article, video recording) to check whether a specific quote
+  //   or statement actually appears in it, without contacting anyone. Examples: finding
+  //   the original speech on YouTube, pulling the archived newspaper article, reading the
+  //   original interview transcript.
+  //
+  // "source_lookup" — finding the original source of a piece of media or information
+  //   (image, video, news story) to establish provenance. Distinct from expert_consultation
+  //   (no active outreach) and from reverse_image_search (no image search tool used).
 
   "action_evidence_links": null | [
     {{
-      "action": string,          // same vocabulary as evidence_types
+      "action": string,          // same vocabulary and definitions as evidence_types above
       "finding": string,         // what the action revealed
       "query_or_input": string | null,  // search query or input used, if mentioned
       "was_decisive": boolean    // did this directly determine the verdict?
@@ -188,18 +212,23 @@ class ArticleAnalyzer:
         ]
 
         response = self.model.generate(messages)
-        result, repaired = try_parse_with_repair(
-            response_text=response.text.strip(),
+        raw_text = response.text.strip()
+        result, repair_text = try_parse_with_repair(
+            response_text=raw_text,
             parse_fn=_parse_article_analysis,
             model=self.model,
             repair_prompt_prefix=_REPAIR_PROMPT,
         )
 
         if result is None:
-            logger.warning(f"{label} Failed to parse article analysis after repair.")
+            logger.warning(
+                f"{label} Failed to parse article analysis after repair.\n"
+                f"  Initial response ({len(raw_text)} chars) tail: {raw_text[-200:]!r}\n"
+                f"  Repair response ({len(repair_text or '')} chars) tail: {(repair_text or '')[-200:]!r}"
+            )
             return None
 
-        if repaired:
+        if repair_text is not None:
             logger.debug(f"{label} Repaired JSON parse.")
 
         logger.debug(

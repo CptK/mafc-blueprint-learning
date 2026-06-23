@@ -33,6 +33,7 @@ from mafc.common.logger import logger
 from mafc.common.modeling import make_model
 from mafc.common.modeling.prompt import Prompt
 from mafc.eval.run_config import BenchmarkRunConfig
+from mafc.single_file_strategy.agent import StrategyAgent
 from mafc.tools.web_search.google_search import GoogleSearchPlatform
 
 
@@ -50,7 +51,7 @@ def build_fact_check_agent(
     benchmark: Any,
     trace_dir: Path | None,
     cache_dir: Path | None = None,
-) -> FactCheckAgent:
+) -> FactCheckAgent | StrategyAgent:
     """Build a FactCheckAgent with every sub-agent wired from ``config``.
 
     ``benchmark`` is used for the judge's class definitions and extra rules.
@@ -86,12 +87,6 @@ def build_fact_check_agent(
     judge_model = make_model(
         judge_cfg.model, temperature=judge_cfg.temperature, max_response_length=judge_cfg.max_response_length
     )
-    selector_model = make_model(
-        bp_cfg.selector_model, max_response_length=bp_cfg.selector_max_response_length
-    )
-
-    registry = BlueprintRegistry.from_path(bp_cfg.config_dir)
-    selector = BlueprintSelector(model=selector_model, registry=registry, default_blueprint_name="generic")
 
     media_agent = MediaAgent(model=media_model, summarization_model=media_model)
     web_search_agent = WebSearchAgent(
@@ -108,10 +103,32 @@ def build_fact_check_agent(
         class_definitions=benchmark.class_definitions,
         extra_judge_rules=benchmark.extra_judge_rules,
     )
+    # Strategy.md baseline: a standalone fact-checker driven by the playbook plus
+    # the web_search and media tools — no blueprint machinery.
+    if config.strategy is not None:
+        strategy_md = Path(config.strategy.path).read_text(encoding="utf-8")
+        return StrategyAgent(
+            model=planner_model,
+            strategy_md=strategy_md,
+            web_search_agent=web_search_agent,
+            media_agent=media_agent,
+            judge_agent=judge_agent,
+            max_rounds=config.strategy.max_rounds,
+            n_workers=fc_cfg.workers,
+            trace_dir=str(trace_dir) if trace_dir else None,
+        )
+
+    delegation_agents = {"media": [media_agent], "web_search": [web_search_agent]}
+    assert bp_cfg is not None  # guaranteed by BenchmarkRunConfig validation when strategy is None
+    selector_model = make_model(
+        bp_cfg.selector_model, max_response_length=bp_cfg.selector_max_response_length
+    )
+    registry = BlueprintRegistry.from_path(bp_cfg.config_dir)
+    selector = BlueprintSelector(model=selector_model, registry=registry, default_blueprint_name="generic")
     return FactCheckAgent(
         model=planner_model,
         blueprint_selector=selector,
-        delegation_agents={"media": [media_agent], "web_search": [web_search_agent]},
+        delegation_agents=delegation_agents,
         judge_agent=judge_agent,
         n_workers=fc_cfg.workers,
         trace_dir=str(trace_dir) if trace_dir else None,
