@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import faulthandler
+import os
 import resource
 import shutil
 import threading
@@ -40,6 +41,38 @@ for _name in ("get", "get_by_path", "add_item", "get_cached", "update_file_path"
         return _locked
 
     setattr(ItemRegistry, _name, _make_locked(_orig))
+
+# Bound the ItemRegistry's in-memory item cache with a simple LRU policy. ezmm
+# caches every loaded Image/Video item — each holding its fully decoded bitmap —
+# in a process-wide dict that is never evicted. Over a long run this grows
+# without bound until the OS OOM-kills the process (seen as `zsh: killed`, plus
+# a spurious multiprocessing "leaked semaphore" warning from torch's tracker at
+# shutdown). Capping the cache to the N most-recently-used items bounds memory;
+# evicted items reload transparently from disk on the next ItemRegistry.get().
+_ITEM_CACHE_MAX = int(os.environ.get("MAFC_ITEM_CACHE_MAX", "512"))
+
+
+def _lru_get_cached(self, kind, identifier):
+    with _registry_lock:
+        key = (kind, identifier)
+        item = self.cache.get(key)
+        if item is not None:  # touch -> most-recently-used (end of insertion order)
+            self.cache.pop(key, None)
+            self.cache[key] = item
+        return item
+
+
+def _lru_add_to_cache(self, item, identifier):
+    with _registry_lock:
+        key = (item.kind, identifier)
+        self.cache.pop(key, None)  # refresh recency if already present
+        self.cache[key] = item
+        while len(self.cache) > _ITEM_CACHE_MAX:
+            self.cache.pop(next(iter(self.cache)), None)  # evict least-recently-used
+
+
+ItemRegistry._get_cached = _lru_get_cached
+ItemRegistry._add_to_cache = _lru_add_to_cache
 
 DEFAULT_OUT_DIR = "out"
 
