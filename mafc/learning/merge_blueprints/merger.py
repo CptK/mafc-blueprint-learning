@@ -28,6 +28,7 @@ from tqdm import tqdm
 from mafc.blueprints.models import Blueprint, BlueprintAction
 from mafc.common.logger import logger
 from mafc.common.modeling.model import Model
+from mafc.learning.merge_blueprints.consolidate import ActionConsolidator, CheckConsolidator
 from mafc.learning.merge_blueprints.matching import BranchMatcher
 from mafc.learning.merge_blueprints.tree import (
     EntryBranch,
@@ -62,10 +63,15 @@ class BlueprintTreeMerger:
         model: Model,
         seed_first: tuple[str, ...] = ("generic",),
         reconcile: bool = True,
+        consolidate: bool = True,
+        max_actions: int = 4,
     ) -> None:
         self.matcher = BranchMatcher(model)
         self.seed_first = seed_first
         self.reconcile = reconcile
+        self.consolidate = consolidate
+        self.consolidator = ActionConsolidator(model, max_actions=max_actions)
+        self.check_consolidator = CheckConsolidator(model)
 
     # ------------------------------------------------------------------
 
@@ -104,6 +110,10 @@ class BlueprintTreeMerger:
         if self.reconcile:
             logger.info("[TreeMerger] Reconciling sibling branches...")
             self._reconcile(tree)
+
+        if self.consolidate:
+            logger.info("[TreeMerger] Consolidating action nodes...")
+            self._consolidate(tree, progress=progress)
 
         return TreeMergeResult(tree=tree, blueprint=tree.to_blueprint(name, description))
 
@@ -198,6 +208,34 @@ class BlueprintTreeMerger:
             self._reconcile_node(edge.child, tree, seen)
 
     # ------------------------------------------------------------------
+    # Consolidation pass
+    # ------------------------------------------------------------------
+
+    def _consolidate(self, tree: MergedStrategyTree, progress: bool = False) -> None:
+        """Rewrite over-stuffed/verbose action nodes into concise action lists."""
+        nodes: dict[int, MergeNode] = {}
+        for entry in tree.entries:
+            _collect_action_nodes(entry.start, nodes, set())
+
+        targets = [n for n in nodes.values() if self.consolidator.needs_consolidation(n.actions)]
+        iterator = (
+            tqdm(targets, desc="Consolidating actions", unit="node", dynamic_ncols=True)
+            if progress
+            else targets
+        )
+        for node in iterator:
+            before = len(node.actions)
+            node.actions = self.consolidator.consolidate(node.actions)
+            if progress:
+                iterator.set_postfix_str(f"{node.id}: {before}->{len(node.actions)}")
+
+        before_checks = len(tree.required_checks)
+        tree.required_checks = self.check_consolidator.consolidate(tree.required_checks)
+        logger.info(
+            f"[TreeMerger] required checks consolidated: {before_checks} -> {len(tree.required_checks)}"
+        )
+
+    # ------------------------------------------------------------------
     # Ordering
     # ------------------------------------------------------------------
 
@@ -214,6 +252,16 @@ class BlueprintTreeMerger:
 # ---------------------------------------------------------------------------
 # Node/edge merge helpers
 # ---------------------------------------------------------------------------
+
+
+def _collect_action_nodes(node: MergeNode, out: dict[int, MergeNode], seen: set[int]) -> None:
+    if node.is_finalize or id(node) in seen:
+        return
+    seen.add(id(node))
+    if node.type == "actions":
+        out[id(node)] = node
+    for edge in node.edges:
+        _collect_action_nodes(edge.child, out, seen)
 
 
 def _union_actions(base: MergeNode, signal: MergeNode) -> None:

@@ -69,6 +69,14 @@ def main() -> None:
         help="Skip the final pass that merges sibling branches split apart by merge order.",
     )
     parser.add_argument(
+        "--no-consolidate", action="store_true",
+        help="Skip the pass that rewrites verbose action nodes into concise action lists.",
+    )
+    parser.add_argument(
+        "--max-actions", type=int, default=4,
+        help="Max actions per node after consolidation (default: 4).",
+    )
+    parser.add_argument(
         "--max-tokens", type=int, default=4096,
         help="Max response tokens for the LLM seams (default: 4096).",
     )
@@ -92,6 +100,8 @@ def main() -> None:
         model=model,
         seed_first=seed_first,
         reconcile=not args.no_reconcile,
+        consolidate=not args.no_consolidate,
+        max_actions=args.max_actions,
     )
     result = merger.merge(
         blueprints, name=args.name, description=args.description, progress=True
