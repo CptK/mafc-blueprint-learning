@@ -11,6 +11,11 @@ from mafc.common.logger import logger
 from mafc.tools.web_search.common import Query, WebSource, SearchResults
 from mafc.utils.parsing import get_base_domain
 
+# Number of evenly-spaced keyframes to reverse-search for a video. A single frame
+# (often a title/black intro frame) is a weak basis for finding a video's true
+# origin; sampling several frames and merging the matches is far more reliable.
+_VIDEO_RIS_FRAMES = 4
+
 
 @dataclass
 class GoogleRisResults(SearchResults):
@@ -76,22 +81,59 @@ class GoogleVisionAPI:
 
         media = query.media
         if isinstance(media, Video):
-            image_bytes = media.sample_frames(1, format="jpeg")[0]
+            try:
+                frame_contents = list(media.sample_frames(_VIDEO_RIS_FRAMES, format="jpeg"))
+            except Exception as e:  # noqa: BLE001 — fall back to a single frame on any sampling error
+                logger.warning(f"[Google Vision API] Video frame sampling failed ({e}); using one frame.")
+                frame_contents = list(media.sample_frames(1, format="jpeg"))
         elif isinstance(media, Image):
-            image_bytes = media.get_base64_encoded()
+            frame_contents = [media.get_base64_encoded()]
         else:
             logger.error(f"[Google Vision API] Unsupported media type for Google Vision API: {type(media)}.")
             return GoogleRisResults(sources=[], query=query, entities={}, best_guess_labels=[])
 
-        image = vision.Image(content=image_bytes)
-        # `web_detection` exists at runtime, but some type stubs do not expose it.
-        response = cast(Any, self.client).web_detection(image=image)
-        if response.error.message:
-            logger.warning(
-                f"{response.error.message}\nCheck Google Cloud Vision API documentation for more info."
-            )
+        per_frame: list[GoogleRisResults] = []
+        for content in frame_contents:
+            image = vision.Image(content=content)
+            # `web_detection` exists at runtime, but some type stubs do not expose it.
+            response = cast(Any, self.client).web_detection(image=image)
+            if response.error.message:
+                logger.warning(
+                    f"{response.error.message}\nCheck Google Cloud Vision API documentation for more info."
+                )
+                continue
+            per_frame.append(_parse_results(response.web_detection, query))
 
-        return _parse_results(response.web_detection, query)
+        if not per_frame:
+            return GoogleRisResults(sources=[], query=query, entities={}, best_guess_labels=[])
+        # Preserve identity for the single-frame (image) case; merge multiple keyframes.
+        return per_frame[0] if len(per_frame) == 1 else _merge_ris_results(per_frame, query)
+
+
+def _merge_ris_results(results: list[GoogleRisResults], query: Query) -> GoogleRisResults:
+    """Merge reverse-image results from several video keyframes into one.
+
+    Deduplicates sources by URL (preserving first-seen order), keeps the highest
+    score per entity, and unions best-guess labels — then sorts entities by score.
+    """
+    sources: list[WebSource] = []
+    seen_urls: set[str] = set()
+    entities: dict[str, float] = {}
+    labels: list[str] = []
+    for result in results:
+        for source in result.sources:
+            url = getattr(source, "url", None) or source.reference
+            if url not in seen_urls:
+                seen_urls.add(url)
+                sources.append(source)
+        for name, score in result.entities.items():
+            if score > entities.get(name, 0.0):
+                entities[name] = score
+        for label in result.best_guess_labels:
+            if label not in labels:
+                labels.append(label)
+    entities = dict(sorted(entities.items(), key=lambda kv: kv[1], reverse=True))
+    return GoogleRisResults(sources=sources, query=query, entities=entities, best_guess_labels=labels)
 
 
 google_vision_api = GoogleVisionAPI()

@@ -93,6 +93,67 @@ def test_search_uses_parse_results_for_image(monkeypatch) -> None:
     assert out is expected
 
 
+def test_merge_ris_results_dedupes_sources_and_keeps_max_score() -> None:
+    from mafc.tools.web_search.common import WebSource
+
+    q = Query(text="q", media=object())
+    r1 = google_vision.GoogleRisResults(
+        sources=[WebSource(reference="https://a.com")],
+        query=q,
+        entities={"X": 0.5},
+        best_guess_labels=["L1"],
+    )
+    r2 = google_vision.GoogleRisResults(
+        sources=[WebSource(reference="https://a.com"), WebSource(reference="https://b.com")],
+        query=q,
+        entities={"X": 0.9, "Y": 0.3},
+        best_guess_labels=["L1", "L2"],
+    )
+
+    merged = google_vision._merge_ris_results([r1, r2], q)
+
+    assert [s.url for s in merged.sources] == ["https://a.com", "https://b.com"]
+    assert merged.entities == {"X": 0.9, "Y": 0.3}  # max score kept, sorted desc
+    assert merged.best_guess_labels == ["L1", "L2"]
+
+
+def test_search_samples_multiple_frames_for_video(monkeypatch) -> None:
+    class FakeImage:
+        pass
+
+    class FakeVideo:
+        def __init__(self):
+            self.requested = None
+
+        def sample_frames(self, n, format="jpeg"):
+            self.requested = n
+            return [f"frame{i}".encode() for i in range(n)]
+
+    calls = {"n": 0}
+
+    class FakeClient:
+        def web_detection(self, image):
+            calls["n"] += 1
+            return SimpleNamespace(
+                error=SimpleNamespace(message=""),
+                web_detection=SimpleNamespace(
+                    web_entities=[], best_guess_labels=[], pages_with_matching_images=[]
+                ),
+            )
+
+    monkeypatch.setattr("mafc.tools.web_search.google_vision.Image", FakeImage)
+    monkeypatch.setattr("mafc.tools.web_search.google_vision.Video", FakeVideo)
+    monkeypatch.setattr("mafc.tools.web_search.google_vision.vision.Image", lambda content: content)
+
+    vid = FakeVideo()
+    api = google_vision.GoogleVisionAPI()
+    api.client = FakeClient()
+    api.search(Query(text="x", media=vid))
+
+    assert vid.requested == google_vision._VIDEO_RIS_FRAMES
+    assert calls["n"] == google_vision._VIDEO_RIS_FRAMES  # one detection per keyframe
+
+
 def test_parse_results_and_filter_unique_pages() -> None:
     page1 = SimpleNamespace(url="https://www.example.com/a", page_title="A")
     page2 = SimpleNamespace(url="https://m.example.com/b", page_title="B")
