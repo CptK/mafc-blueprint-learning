@@ -23,6 +23,8 @@ google-cloud-vision
 pyyaml
 mypy
 pypdf
+requests
+beautifulsoup4
 uvicorn
 pillow
 fastapi

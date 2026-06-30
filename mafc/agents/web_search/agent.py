@@ -14,6 +14,8 @@ from mafc.tools.tool import Tool
 from mafc.tools.web_search.google_search import GoogleSearchPlatform
 from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
+from mafc.tools.web_search.integrations.requests_retriever import RequestsRetriever
+from mafc.tools.web_search.integrations.fallback_retriever import FallbackRetriever
 from mafc.common.modeling.model import Model, Response
 from mafc.utils.parsing import extract_json_object, is_failed_model_text
 from mafc.utils.media import build_media_json_instruction, deduplicate_media, parse_media_relevance
@@ -69,7 +71,13 @@ class WebSearchAgent(Agent):
     ):
         super().__init__(main_model, n_workers=n_workers)
         self.search_tool = search_tool or GoogleSearchPlatform()
-        self.retriever = retriever or ScrapeMMRetriever(n_workers=n_workers)
+        # Cheap-first: a plain HTTP fetch handles most static article/news/gov pages
+        # (which the scraper backend often fails on via anti-bot/timeout); fall back
+        # to ScrapeMM for the pages it can't (JS-only shells, login/anti-bot walls).
+        self.retriever = retriever or FallbackRetriever(
+            [RequestsRetriever(n_workers=n_workers), ScrapeMMRetriever(n_workers=n_workers)],
+            n_workers=n_workers,
+        )
         self.summarization_model = summarization_model or main_model
         self.max_iterations = max_iterations
         self.max_queries_per_step = max_queries_per_step
