@@ -23,6 +23,8 @@ from mafc.eval.veritas.labels import (
     CLASS_DEFINITIONS_7,
     EXTRA_JUDGE_RULES_3,
     EXTRA_JUDGE_RULES_7,
+    LABEL_NUMERIC_3,
+    LABEL_NUMERIC_7,
 )
 
 
@@ -101,10 +103,12 @@ class VeriTaS(Benchmark[VeriTaSBenchmarkSample]):
             self.class_mapping = CLASS_MAPPING_7
             self.class_definitions = CLASS_DEFINITIONS_7
             self.extra_judge_rules = EXTRA_JUDGE_RULES_7
+            self.label_numeric = LABEL_NUMERIC_7
         else:
             self.class_mapping = CLASS_MAPPING_3
             self.class_definitions = CLASS_DEFINITIONS_3
             self.extra_judge_rules = EXTRA_JUDGE_RULES_3
+            self.label_numeric = LABEL_NUMERIC_3
 
         self.variant = variant
 
