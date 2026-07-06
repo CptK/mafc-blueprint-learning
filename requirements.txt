@@ -28,3 +28,4 @@ beautifulsoup4
 uvicorn
 pillow
 fastapi
+playwright_stealth
