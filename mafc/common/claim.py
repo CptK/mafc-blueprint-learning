@@ -67,7 +67,10 @@ class Claim(MultimodalSequence):
         if author := self.author:
             out += f"\nAuthor: {author}"
         if date := self.date:
-            out += f"\nDate: {date.strftime('%B %d, %Y')}"
+            out += (
+                f"\nDate: {date.strftime('%B %d, %Y')} (date the claim was posted/shared — "
+                "not necessarily the date of any event or media it refers to)"
+            )
         if origin := self.origin:
             out += f"\nOrigin: {origin}"
         if meta_info := self.meta_info:
