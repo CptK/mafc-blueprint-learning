@@ -24,6 +24,7 @@ from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetrie
 
 from mafc.eval.run_config import (
     AgentModelConfig,
+    JudgeAgentConfig,
     AgentsConfig,
     BenchmarkConfig,
     BlueprintsConfig,
@@ -46,7 +47,7 @@ def _make_config(concurrency: int) -> BenchmarkRunConfig:
             fact_check=FactCheckAgentConfig(model=_MODEL_SPEC),
             web_search=WebSearchAgentConfig(model=_MODEL_SPEC),
             media=AgentModelConfig(model=_MODEL_SPEC),
-            judge=AgentModelConfig(model=_MODEL_SPEC),
+            judge=JudgeAgentConfig(model=_MODEL_SPEC),
         ),
         blueprints=BlueprintsConfig(selector_model=_MODEL_SPEC),
         run=RunConfig(concurrency=concurrency, traces=False),

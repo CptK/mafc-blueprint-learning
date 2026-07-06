@@ -3,6 +3,7 @@ import yaml
 
 from mafc.eval.run_config import (
     AgentModelConfig,
+    JudgeAgentConfig,
     AgentsConfig,
     BenchmarkConfig,
     BenchmarkRunConfig,
@@ -35,7 +36,7 @@ def _make_run_config(concurrency: int = 1) -> BenchmarkRunConfig:
             fact_check=FactCheckAgentConfig(model=_MODEL),
             web_search=WebSearchAgentConfig(model=_MODEL),
             media=AgentModelConfig(model=_MODEL),
-            judge=AgentModelConfig(model=_MODEL),
+            judge=JudgeAgentConfig(model=_MODEL),
         ),
         blueprints=BlueprintsConfig(selector_model=_MODEL),
         run=RunConfig(concurrency=concurrency),
