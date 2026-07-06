@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -42,13 +43,25 @@ class JudgeAgent(Agent):
         n_workers: int = 1,
         agent_id: str | None = None,
         trace_dir: str | Path | None = None,
+        n_samples: int = 1,
+        label_numeric: Mapping[BaseLabel, float] | None = None,
     ):
-        """Initialize the judge with benchmark class definitions and optional extra rules."""
+        """Initialize the judge with benchmark class definitions and optional extra rules.
+
+        Args:
+            n_samples: Number of independent judge samples per claim. With >1, the
+                sampled labels are aggregated into a single verdict.
+            label_numeric: Optional numeric score per label. When given, aggregation
+                is the mean numeric value snapped to the nearest allowed label;
+                otherwise a majority vote over the sampled labels.
+        """
         super().__init__(model, n_workers=n_workers, agent_id=agent_id)
         self.class_definitions = dict(class_definitions)
         self.extra_judge_rules = extra_judge_rules
         self._labels_by_value = {label.value.lower(): label for label in self.class_definitions}
         self.trace_dir = trace_dir
+        self.n_samples = max(1, n_samples)
+        self.label_numeric = dict(label_numeric) if label_numeric else None
 
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
         """Judge the claim label using only accepted evidence."""
@@ -65,32 +78,73 @@ class JudgeAgent(Agent):
 
         messages = self._build_messages(session.claim, session.evidences)
         trace.record_prompt_messages(messages)
-        _judge_resp = self.model.generate(messages)
-        response_text = _judge_resp.text.strip()
-        trace.add_usage(_judge_resp, self.model.name)
-        trace.record_model_response(response_text)
 
-        parsed = self._parse_with_repair(response_text, trace)
-        if parsed is None:
+        decisions: list[tuple[JudgeDecisionPayload, BaseLabel]] = []
+        response_texts: list[str] = []
+        last_error: tuple[str, str] = ("parse_response", "Judge returned invalid output.")
+        for _ in range(self.n_samples):
+            _judge_resp = self.model.generate(messages)
+            response_text = _judge_resp.text.strip()
+            trace.add_usage(_judge_resp, self.model.name)
+            response_texts.append(response_text)
+
+            parsed = self._parse_with_repair(response_text, trace)
+            if parsed is None:
+                continue
+            label = self._labels_by_value.get(parsed.label.lower())
+            if label is None:
+                last_error = ("unknown_label", f"Judge returned unknown label '{parsed.label}'.")
+                continue
+            decisions.append((parsed, label))
+
+        trace.record_model_response(
+            response_texts[0]
+            if len(response_texts) == 1
+            else "\n\n--- sample ---\n\n".join(response_texts)
+        )
+
+        if not decisions:
             return self._abort(
-                session,
-                trace,
-                "parse_response",
-                "Judge returned invalid output.",
-                evidences=list(session.evidences),
+                session, trace, *last_error, evidences=list(session.evidences)
             )
 
-        label = self._labels_by_value.get(parsed.label.lower())
-        if label is None:
-            return self._abort(
-                session,
-                trace,
-                "unknown_label",
-                f"Judge returned unknown label '{parsed.label}'.",
-                evidences=list(session.evidences),
+        final_label = self._aggregate_labels([label for _, label in decisions])
+        # Keep the justification of a sample that matches the aggregate, if any.
+        parsed = next(
+            (p for p, label in decisions if label == final_label), decisions[0][0]
+        )
+        if len(decisions) > 1:
+            trace.record_event(
+                "sample_aggregation",
+                {
+                    "n_samples": self.n_samples,
+                    "sampled_labels": [label.value for _, label in decisions],
+                    "aggregated_label": final_label.value,
+                    "method": "mean_numeric" if self.label_numeric else "majority_vote",
+                },
+            )
+            parsed = JudgeDecisionPayload(
+                label=final_label.value, justification=parsed.justification
             )
 
-        return self._succeed(session, trace, parsed, label)
+        return self._succeed(session, trace, parsed, final_label)
+
+    def _aggregate_labels(self, labels: list[BaseLabel]) -> BaseLabel:
+        """Aggregate sampled labels: mean numeric snapped to the nearest label if a
+        numeric mapping is available (and covers all labels), else majority vote."""
+        if len(labels) == 1:
+            return labels[0]
+        numeric = self.label_numeric
+        if numeric and all(label in numeric for label in labels):
+            mean = sum(numeric[label] for label in labels) / len(labels)
+            # min() is stable: ties resolve to class_definitions order
+            return min(
+                (label for label in self.class_definitions if label in numeric),
+                key=lambda label: abs(numeric[label] - mean),
+            )
+        counts = Counter(labels)
+        top = max(counts.values())
+        return next(label for label in labels if counts[label] == top)
 
     def _setup_trace(self, session: AgentSession, trace_scope) -> JudgeTraceRecorder:
         scope = self._build_trace_scope("judge_run", session, trace_scope)

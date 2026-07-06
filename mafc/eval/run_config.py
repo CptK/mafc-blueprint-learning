@@ -49,11 +49,17 @@ class WebSearchAgentConfig(AgentModelConfig):
     summarization_presence_penalty: float = 0.0
 
 
+class JudgeAgentConfig(AgentModelConfig):
+    # Number of independent judge samples per claim; >1 aggregates them
+    # (mean numeric label, snapped to the nearest allowed label).
+    n_samples: int = 1
+
+
 class AgentsConfig(BaseModel):
     fact_check: FactCheckAgentConfig
     web_search: WebSearchAgentConfig
     media: AgentModelConfig
-    judge: AgentModelConfig
+    judge: JudgeAgentConfig
 
 
 class BlueprintsConfig(BaseModel):

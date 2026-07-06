@@ -43,6 +43,9 @@ class Benchmark(ABC, Generic[TBenchmarkSample]):
     extra_judge_rules: str | None = (
         None  # Additional, benchmark-specific instructions to guide LLM's verdict prediction
     )
+    label_numeric: Mapping[BaseLabel, float] | None = (
+        None  # Optional numeric score per label; enables mean-based judge sample aggregation
+    )
 
     def __init__(self, variant: str, file_path: Path | str | None = None):
         """Base class for benchmarks.

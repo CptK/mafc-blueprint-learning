@@ -102,6 +102,8 @@ def build_fact_check_agent(
         model=judge_model,
         class_definitions=benchmark.class_definitions,
         extra_judge_rules=benchmark.extra_judge_rules,
+        n_samples=judge_cfg.n_samples,
+        label_numeric=getattr(benchmark, "label_numeric", None),
     )
     # Strategy.md baseline: a standalone fact-checker driven by the playbook plus
     # the web_search and media tools — no blueprint machinery.

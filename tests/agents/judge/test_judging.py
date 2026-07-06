@@ -162,3 +162,94 @@ def test_synthesize_from_evidences_falls_back_to_raw_response_on_parse_failure()
     result = agent.synthesize_from_evidences("Was the event real?", evidences)
 
     assert result == raw_response
+
+
+# ---------------------------------------------------------------------------
+# n_samples > 1: sampled-label aggregation
+# ---------------------------------------------------------------------------
+
+
+def test_n_samples_majority_vote_without_numeric_mapping() -> None:
+    model = SequencedModel(
+        outputs=[
+            '{"label":"false","justification":"Contradicted."}',
+            '{"label":"true","justification":"Supported."}',
+            '{"label":"false","justification":"Contradicted again."}',
+        ]
+    )
+    agent = JudgeAgent(model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3)
+    session = make_session()
+    out = agent.run(session)
+
+    assert out.session.status == AgentStatus.COMPLETED
+    assert len(model.calls) == 3
+    assert session.claim is not None
+    assert session.claim.verdict == DummyLabel.FALSE
+
+
+def test_n_samples_mean_numeric_snaps_to_nearest_label() -> None:
+    # true=1, uncertain=0, false=-1; samples true/true/uncertain -> mean 2/3 -> true
+    numeric = {DummyLabel.TRUE: 1.0, DummyLabel.UNCERTAIN: 0.0, DummyLabel.FALSE: -1.0}
+    model = SequencedModel(
+        outputs=[
+            '{"label":"true","justification":"Supported."}',
+            '{"label":"true","justification":"Supported."}',
+            '{"label":"uncertain","justification":"Thin evidence."}',
+        ]
+    )
+    agent = JudgeAgent(
+        model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3, label_numeric=numeric
+    )
+    session = make_session()
+    agent.run(session)
+
+    assert session.claim is not None
+    assert session.claim.verdict == DummyLabel.TRUE
+
+
+def test_n_samples_mean_numeric_disagreement_lands_on_middle_label() -> None:
+    # samples true/false/uncertain -> mean 0.0 -> uncertain
+    numeric = {DummyLabel.TRUE: 1.0, DummyLabel.UNCERTAIN: 0.0, DummyLabel.FALSE: -1.0}
+    model = SequencedModel(
+        outputs=[
+            '{"label":"true","justification":"Supported."}',
+            '{"label":"false","justification":"Contradicted."}',
+            '{"label":"uncertain","justification":"Mixed."}',
+        ]
+    )
+    agent = JudgeAgent(
+        model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3, label_numeric=numeric
+    )
+    session = make_session()
+    agent.run(session)
+
+    assert session.claim is not None
+    assert session.claim.verdict == DummyLabel.UNCERTAIN
+
+
+def test_n_samples_tolerates_invalid_samples() -> None:
+    # One unparseable sample (repair also fails) must not sink the aggregate.
+    model = SequencedModel(
+        outputs=[
+            "not-json",
+            "still not json",  # repair attempt for sample 1
+            '{"label":"false","justification":"Contradicted."}',
+            '{"label":"false","justification":"Contradicted."}',
+        ]
+    )
+    agent = JudgeAgent(model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3)
+    session = make_session()
+    out = agent.run(session)
+
+    assert out.session.status == AgentStatus.COMPLETED
+    assert session.claim is not None
+    assert session.claim.verdict == DummyLabel.FALSE
+
+
+def test_n_samples_all_invalid_aborts() -> None:
+    model = SequencedModel(outputs=["junk"] * 6)  # 3 samples + 3 repair attempts
+    agent = JudgeAgent(model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3)
+    out = agent.run(make_session())
+
+    assert out.result is None
+    assert out.errors
