@@ -29,6 +29,11 @@ _TRANSIENT_ERROR_MARKERS = (
     "remotedisconnected",
     "500 internal",
     "internal server error",
+    # DNS/socket setup failures — also the surface symptom of transient local
+    # fd exhaustion under high connection concurrency.
+    "nodename nor servname",
+    "connecterror",
+    "temporary failure in name resolution",
 )
 
 _MAX_GENERATE_ATTEMPTS = 3

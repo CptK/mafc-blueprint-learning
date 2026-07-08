@@ -288,6 +288,7 @@ class WebSearchAgent(Agent):
             step=step,
             trace=trace,
             n_workers=self.n_workers,
+            claim_text=str(session.claim) if session.claim is not None else None,
         )
         if not candidate_sources or not query_results:
             message = f"No observations produced in iteration {step}."

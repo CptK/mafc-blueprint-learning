@@ -54,7 +54,9 @@ def test_empty_instruction_aborts() -> None:
     assert model.calls == []
 
 
-def test_no_media_items_aborts() -> None:
+def test_no_media_items_completes_with_message() -> None:
+    """A media task without media is not a failure: the agent completes with an
+    informative message for the planner instead of erroring the investigation."""
     model = SequencedModel(outputs=[])
     ris_tool = FakeRisTool(empty_ris_result("<<image:0>>"))
     geolocator = FakeGeolocator(geo_result("<<image:0>>"))
@@ -62,9 +64,11 @@ def test_no_media_items_aborts() -> None:
 
     out = agent.run(make_session(MultimodalSequence("Is this claim true?")))
 
-    assert out.result is None
-    assert out.session.status == AgentStatus.FAILED
-    assert any("image or video" in e for e in out.errors)
+    assert out.result is not None
+    assert "no existing image or video" in str(out.result)
+    assert out.session.status == AgentStatus.COMPLETED
+    assert out.errors == []
+    assert out.evidences == []
     assert ris_tool.performed == []
     assert geolocator.performed == []
 

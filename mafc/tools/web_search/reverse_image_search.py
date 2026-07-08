@@ -69,6 +69,7 @@ class ReverseImageSearchTool(Tool[ReverseImageSearch, GoogleRisResults]):
         return self.api.search(Query(media=action.image))
 
     def _summarize(self, result: GoogleRisResults, **kwargs) -> MultimodalSequence | None:
-        if not result.sources and not result.entities and not result.best_guess_labels:
-            return None
+        # An empty result is a finding in itself (no provenance found), so always
+        # return the rendered result — GoogleRisResults.__str__ states the absence
+        # explicitly instead of silently dropping the signal.
         return MultimodalSequence(str(result))

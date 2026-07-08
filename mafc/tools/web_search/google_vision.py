@@ -25,10 +25,6 @@ class GoogleRisResults(SearchResults):
     entities: dict[str, float]  # mapping between entity description and score
     best_guess_labels: list[str]
 
-    @property
-    def exact_matches(self):
-        return self.sources
-
     def __str__(self):
         text = "**Reverse Image Search Results**"
 
@@ -39,15 +35,25 @@ class GoogleRisResults(SearchResults):
         if self.best_guess_labels:
             text += f"\n\nBest guess about the topic of the image: {', '.join(self.best_guess_labels)}."
 
-        if self.exact_matches:
-            text += "\n\nThe same image was found in the following sources:\n"
-            text += "\n".join(map(str, self.exact_matches))
+        if self.sources:
+            text += (
+                "\n\nPages where this media was found (match precision per page: an EXACT copy "
+                "means the identical image appears there; a PARTIAL match means a cropped/edited/"
+                "overlapping version):\n"
+            )
+            text += "\n".join(map(str, self.sources))
+        else:
+            text += (
+                "\n\nNo pages containing this media were found by reverse image search. "
+                "No provenance could be established: the media's origin, earliest appearance, "
+                "and link to any claimed event remain unverified."
+            )
 
         return text
 
     def __repr__(self):
         return (
-            f"RisResults(n_exact_matches={len(self.exact_matches)}, "
+            f"RisResults(n_sources={len(self.sources)}, "
             f"n_entities={len(self.entities)}, "
             f"n_best_guess_labels={len(self.best_guess_labels)})"
         )
@@ -155,18 +161,49 @@ def _parse_results(web_detection: vision.WebDetection, query: Query) -> GoogleRi
             if label.label:
                 best_guess_labels.append(label.label)
 
-    # Pages with relevant images
+    # Pages with relevant images. Keep Vision's exact-vs-partial distinction: an exact
+    # copy on a page is strong provenance evidence, a partial (cropped/edited) match is
+    # weaker, and this difference is what downstream judging needs to weigh debunks and
+    # authentications correctly.
     web_sources = []
-    filtered_pages = _filter_unique_stem_pages(web_detection.pages_with_matching_images)
+    pages = sorted(
+        web_detection.pages_with_matching_images,
+        key=lambda p: 0 if getattr(p, "full_matching_images", None) else 1,
+    )
+    filtered_pages = _filter_unique_stem_pages(pages)
     for page in filtered_pages:
         url = page.url
         title = page.__dict__.get("page_title")
-        web_source = WebSource(reference=url, title=title)
+        if getattr(page, "full_matching_images", None):
+            match_note = "Match type: EXACT copy of the media appears on this page."
+            match_note += _format_matched_image_urls(page.full_matching_images)
+        elif getattr(page, "partial_matching_images", None):
+            match_note = (
+                "Match type: PARTIAL match — a cropped, edited, or overlapping version "
+                "of the media appears on this page (not necessarily the same media)."
+            )
+            match_note += _format_matched_image_urls(page.partial_matching_images)
+        else:
+            match_note = "Match type: unknown precision (page listed as containing a matching image)."
+        web_source = WebSource(reference=url, title=title, preview=match_note)
         web_sources.append(web_source)
 
     return GoogleRisResults(
         sources=web_sources, query=query, entities=web_entities, best_guess_labels=best_guess_labels
     )
+
+
+def _format_matched_image_urls(matching_images: Sequence, limit: int = 2) -> str:
+    """Render Vision's direct URLs of the matched image files (previously dropped).
+
+    These are the strongest referent pointers available: the exact image file
+    Google compared against, fetchable for frame-level verification without
+    scraping the (possibly bot-walled) page itself.
+    """
+    urls = [img.url for img in matching_images[:limit] if getattr(img, "url", None)]
+    if not urls:
+        return ""
+    return " Matched image file(s): " + ", ".join(urls)
 
 
 def _filter_unique_stem_pages(pages: Sequence):

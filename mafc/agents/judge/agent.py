@@ -12,6 +12,12 @@ from mafc.agents.judge.tracing import JudgeTraceRecorder
 from mafc.common.claim import Claim
 from mafc.common.evidence import Evidence
 from mafc.common.label import BaseLabel
+from mafc.common.logger import logger
+from mafc.common.media_referent import (
+    extract_referent_digest,
+    format_referent_block,
+    referent_tag,
+)
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
@@ -45,6 +51,7 @@ class JudgeAgent(Agent):
         trace_dir: str | Path | None = None,
         n_samples: int = 1,
         label_numeric: Mapping[BaseLabel, float] | None = None,
+        verify_referents: bool = True,
     ):
         """Initialize the judge with benchmark class definitions and optional extra rules.
 
@@ -54,6 +61,9 @@ class JudgeAgent(Agent):
             label_numeric: Optional numeric score per label. When given, aggregation
                 is the mean numeric value snapped to the nearest allowed label;
                 otherwise a majority vote over the sampled labels.
+            verify_referents: When the claim carries media, frame-match unconfirmed
+                evidence pages against the claim's media (network fetches, best
+                effort) so the referent block also covers pages Google didn't label.
         """
         super().__init__(model, n_workers=n_workers, agent_id=agent_id)
         self.class_definitions = dict(class_definitions)
@@ -62,6 +72,7 @@ class JudgeAgent(Agent):
         self.trace_dir = trace_dir
         self.n_samples = max(1, n_samples)
         self.label_numeric = dict(label_numeric) if label_numeric else None
+        self.verify_referents = verify_referents
 
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
         """Judge the claim label using only accepted evidence."""
@@ -98,21 +109,15 @@ class JudgeAgent(Agent):
             decisions.append((parsed, label))
 
         trace.record_model_response(
-            response_texts[0]
-            if len(response_texts) == 1
-            else "\n\n--- sample ---\n\n".join(response_texts)
+            response_texts[0] if len(response_texts) == 1 else "\n\n--- sample ---\n\n".join(response_texts)
         )
 
         if not decisions:
-            return self._abort(
-                session, trace, *last_error, evidences=list(session.evidences)
-            )
+            return self._abort(session, trace, *last_error, evidences=list(session.evidences))
 
         final_label = self._aggregate_labels([label for _, label in decisions])
         # Keep the justification of a sample that matches the aggregate, if any.
-        parsed = next(
-            (p for p, label in decisions if label == final_label), decisions[0][0]
-        )
+        parsed = next((p for p, label in decisions if label == final_label), decisions[0][0])
         if len(decisions) > 1:
             trace.record_event(
                 "sample_aggregation",
@@ -123,9 +128,7 @@ class JudgeAgent(Agent):
                     "method": "mean_numeric" if self.label_numeric else "majority_vote",
                 },
             )
-            parsed = JudgeDecisionPayload(
-                label=final_label.value, justification=parsed.justification
-            )
+            parsed = JudgeDecisionPayload(label=final_label.value, justification=parsed.justification)
 
         return self._succeed(session, trace, parsed, final_label)
 
@@ -232,9 +235,27 @@ class JudgeAgent(Agent):
         label_lines = [
             f"- {label.value}: {definition}" for label, definition in self.class_definitions.items()
         ]
-        evidence_lines = [
-            block for evidence in evidences if (block := format_evidence_block(evidence)) is not None
-        ]
+
+        # Link each evidence source to its visual referent status so the verdict
+        # can enforce that debunks/origins only apply to pages confirmed to show
+        # THIS media (wrong-referent flips are the dominant residual error).
+        digest = extract_referent_digest(evidences)
+        if self.verify_referents and (claim.videos or claim.images):
+            try:
+                from mafc.common.referent_verifier import verify_evidence_referents
+
+                verify_evidence_referents(claim, evidences, digest)
+            except Exception as e:
+                logger.warning(f"[JudgeAgent] Referent verification failed: {e}")
+        evidence_lines = []
+        for evidence in evidences:
+            block = format_evidence_block(evidence)
+            if block is None:
+                continue
+            tag = referent_tag(digest.classify(evidence.source)) if digest.has_referent_info else None
+            if tag is not None:
+                block += f"\n  {tag}"
+            evidence_lines.append(block)
 
         system_text = (
             "You are a benchmark judging agent.\n"
@@ -245,9 +266,13 @@ class JudgeAgent(Agent):
         if self.extra_judge_rules:
             system_text += f"\nAdditional benchmark rules:\n{self.extra_judge_rules.strip()}\n"
 
+        referent_block = format_referent_block(digest)
+        referent_section = f"{referent_block}\n\n" if referent_block else ""
+
         user_text = (
             f"Claim:\n{claim.describe()}\n\n"
             f"Allowed labels:\n{chr(10).join(label_lines)}\n\n"
+            f"{referent_section}"
             f"Accepted evidence:\n{chr(10).join(evidence_lines)}\n\n"
             "Return strict JSON only with schema:\n"
             '{"label":"one allowed label","justification":"short grounded justification"}'

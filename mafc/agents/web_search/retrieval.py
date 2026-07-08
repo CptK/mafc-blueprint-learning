@@ -90,6 +90,7 @@ def retrieve_query_results(
     step: int | None = None,
     trace: WebSearchTraceRecorder | None = None,
     n_workers: int = 1,
+    claim_text: str | None = None,
 ) -> list[QueryInvestigationResult]:
     """Retrieve selected sources and extract structured per-query results.
 
@@ -119,6 +120,7 @@ def retrieve_query_results(
                 step=step,
                 trace=trace,
                 n_workers=n_workers,
+                claim_text=claim_text,
             )
         )
     return query_results
@@ -302,6 +304,7 @@ def _process_one_source(
     model: Model,
     step: int | None,
     trace: WebSearchTraceRecorder | None,
+    claim_text: str | None = None,
 ) -> tuple[str, Evidence | None, list[str]]:
     """Summarize one retrieved source and build its evidence object.
 
@@ -315,7 +318,19 @@ def _process_one_source(
         msg = f"Failed to retrieve content from {source.url}"
         local_errors.append(msg)
         logger.debug(f"[WebSearch-Agent] Failed to retrieve content from {source.url}")
-        snippet = source.preview or "No retrieved content."
+        # Fetch failed: only the search-engine snippet is available. Flag it explicitly
+        # so the judge does not mistake a shallow, gist-level snippet for a verified full
+        # read — it commonly omits the decisive detail (date, provenance, exact figure)
+        # and, unlabelled, gets read as confirmation of the claim.
+        if source.preview:
+            snippet = (
+                "[INCOMPLETE EVIDENCE — the full page could not be retrieved; only the "
+                "search-engine snippet below is available. It may omit key context such as "
+                "dates, media provenance, or exact figures, so it does not on its own verify "
+                f"or refute the claim.]\n{source.preview}"
+            )
+        else:
+            snippet = "No retrieved content."
         raw_text = source.preview or ""
         if trace is not None:
             trace.record_error(step=step, phase="source_retrieval", message=msg)
@@ -328,6 +343,7 @@ def _process_one_source(
                 instruction=query_text,
                 observation=content_text,
                 media_items=media_items,
+                claim_text=claim_text,
             )
             if trace is not None and obs_resp is not None:
                 trace.add_usage(obs_resp, model.name)
@@ -377,6 +393,7 @@ def retrieve_and_extract_evidence(
     step: int | None = None,
     trace: WebSearchTraceRecorder | None = None,
     n_workers: int = 1,
+    claim_text: str | None = None,
 ) -> QueryInvestigationResult:
     """Retrieve source content in batch and turn it into observations and evidence."""
     lines = [f"Query: {query_text}"]
@@ -412,14 +429,15 @@ def retrieve_and_extract_evidence(
     pairs = list(zip(selected_sources, contents))
     if n_workers <= 1 or len(pairs) <= 1:
         proc_results = [
-            _process_one_source(source, content, query_text, model, step, trace) for source, content in pairs
+            _process_one_source(source, content, query_text, model, step, trace, claim_text)
+            for source, content in pairs
         ]
     else:
         max_workers = min(n_workers, len(pairs))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             proc_results = list(
                 pool.map(
-                    lambda sc: _process_one_source(sc[0], sc[1], query_text, model, step, trace),
+                    lambda sc: _process_one_source(sc[0], sc[1], query_text, model, step, trace, claim_text),
                     pairs,
                 )
             )

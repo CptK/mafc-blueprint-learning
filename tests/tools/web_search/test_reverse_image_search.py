@@ -64,10 +64,12 @@ def test_reverse_image_search_tool_returns_empty_result_for_missing_media() -> N
     assert raw.sources == []
     assert raw.entities == {}
     assert raw.best_guess_labels == []
-    assert out.takeaways is None
+    # Empty results are reported explicitly (no provenance found), not silently dropped.
+    assert out.takeaways is not None
+    assert "No provenance could be established" in str(out.takeaways)
 
 
-def test_reverse_image_search_tool_returns_none_summary_for_empty_results() -> None:
+def test_reverse_image_search_tool_reports_no_match_explicitly_for_empty_results() -> None:
     image = Image(file_path=ASSETS_DIR / "Greece.jpeg")
     item_registry.add_item(image)
     empty_result = GoogleRisResults(
@@ -81,4 +83,5 @@ def test_reverse_image_search_tool_returns_none_summary_for_empty_results() -> N
     out = tool.perform(ReverseImageSearch(image.reference))
 
     assert out.raw is empty_result
-    assert out.takeaways is None
+    assert out.takeaways is not None
+    assert "No pages containing this media were found" in str(out.takeaways)

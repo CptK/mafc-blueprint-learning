@@ -67,8 +67,14 @@ class MediaAgent(Agent):
         media_items = extract_media_items(session.goal)
         trace.record_media_items([item.reference for item in media_items])
         if not media_items:
-            return self._abort(
-                session, trace, "no_media_items", "Task does not contain any image or video item."
+            # Not a failure: report back to the caller (planner) so it can adjust,
+            # instead of erroring out the whole investigation.
+            return self._complete_with_message(
+                session,
+                trace,
+                "The media task references no existing image or video item — nothing was analyzed. "
+                "Use the exact media reference tag from the claim (the <type:N> token shown in the "
+                "claim modalities), or skip the media tool for claims without media.",
             )
         if len(media_items) > 1:
             errors.append("Task contains multiple media items. Only the first item is processed for now.")
@@ -103,6 +109,27 @@ class MediaAgent(Agent):
         result = AgentResult(session=session, result=None, errors=[error_msg], status=session.status)
         trace.record_error(error_key, error_msg)
         trace.finalize(session=session, result=result, errors=result.errors)
+        result.trace = trace.trace
+        return result
+
+    def _complete_with_message(
+        self, session: AgentSession, trace: MediaTraceRecorder, message: str
+    ) -> AgentResult:
+        """Complete without evidence but with an informative message for the caller."""
+        result_text = MultimodalSequence(message)
+        result_message = self.make_result_message(session, result_text, [])
+        session.messages.append(result_message)
+        self._mark_completed(session)
+        result = AgentResult(
+            session=session,
+            result=result_text,
+            messages=[result_message],
+            evidences=[],
+            errors=[],
+            status=session.status,
+        )
+        trace.record_synthesis(message, 0)
+        trace.finalize(session=session, result=result, errors=[])
         result.trace = trace.trace
         return result
 
@@ -191,6 +218,14 @@ class MediaAgent(Agent):
             "Use all of it as context, but select only the evidence items that are directly relevant to the current task.\n"
             "Be explicit about uncertainty, dates, locations, and whether findings come from reverse image search "
             "or geolocation.\n"
+            "Provenance is the priority — always state in the answer:\n"
+            "- The EARLIEST dated occurrence of the media you can identify from the evidence "
+            "(page dates, dates in titles/URLs), and that the true origin may predate it.\n"
+            "- For each key match, whether it is an EXACT copy or only a PARTIAL (cropped/edited) match — "
+            "a partial match or a match on a different page about the same event does NOT prove it is the same media.\n"
+            "- If reverse image search found no matches, say explicitly that no provenance could be "
+            "established for this media (its origin and link to any claimed event are unverified). "
+            "This absence is itself an important finding — do not omit it.\n"
             "Return strict JSON only with schema:\n"
             '{"answer": "string", "relevant_evidence_ids": ["ev_1"]}\n'
             "The relevant_evidence_ids must contain only IDs from the accepted evidence list.\n\n"
@@ -274,6 +309,10 @@ class MediaAgent(Agent):
                 "Media planner output could not be parsed. Falling back to running reverse image search and geolocation."
             )
             selected_tools: Sequence[str] = ["reverse_image_search", "geolocate"]
+        elif not plan.tools:
+            # Media analysis without any tool produces nothing; provenance via reverse
+            # image search is the minimum useful check for any media claim.
+            selected_tools = ["reverse_image_search"]
         else:
             selected_tools = plan.tools
         if trace is not None:
