@@ -236,9 +236,7 @@ class BranchMatcher:
             return _BranchAlignment(unmatched_signal=list(range(len(signal_edges))))
         return _validate_alignment(result, len(base_edges), len(signal_edges))
 
-    def refine_condition(
-        self, condition: str, existing: MergeNode, new: MergeNode
-    ) -> tuple[str, str]:
+    def refine_condition(self, condition: str, existing: MergeNode, new: MergeNode) -> tuple[str, str]:
         prompt = _REFINE_USER.format(
             condition=condition,
             existing_node=describe_node(existing),

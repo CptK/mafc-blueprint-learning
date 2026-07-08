@@ -86,9 +86,7 @@ class BlueprintTreeMerger:
 
         ordered = self._order(blueprints)
         iterator = (
-            tqdm(ordered, desc="Merging blueprints", unit="bp", dynamic_ncols=True)
-            if progress
-            else ordered
+            tqdm(ordered, desc="Merging blueprints", unit="bp", dynamic_ncols=True) if progress else ordered
         )
         for bp in iterator:
             if progress:
@@ -96,9 +94,7 @@ class BlueprintTreeMerger:
             start = ingest_graph(bp.verification_graph, namespace=bp.name, finalize=tree.finalize)
             tree.absorb_metadata(bp)
 
-            idx = self.matcher.match_entry(
-                bp.entry_conditions, [e.conditions for e in tree.entries]
-            )
+            idx = self.matcher.match_entry(bp.entry_conditions, [e.conditions for e in tree.entries])
             if idx is None:
                 tree.entries.append(EntryBranch(bp.name, bp.entry_conditions, start))
                 logger.debug(f"[TreeMerger] '{bp.name}' -> new router branch.")
@@ -174,9 +170,7 @@ class BlueprintTreeMerger:
         # Alternative, type-mismatch, or one-side-finalize: the shared condition
         # cannot distinguish the two next steps. Split it rather than emit two
         # identical edges, and keep the signal branch.
-        existing_cond, new_cond = self.matcher.refine_condition(
-            base_edge.condition, child_base, child_signal
-        )
+        existing_cond, new_cond = self.matcher.refine_condition(base_edge.condition, child_base, child_signal)
         base_edge.condition = existing_cond
         base.edges.append(MergeEdge(new_cond, child_signal))
 

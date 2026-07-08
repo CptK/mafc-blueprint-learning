@@ -155,9 +155,7 @@ class MergedStrategyTree:
 # ---------------------------------------------------------------------------
 
 
-def ingest_graph(
-    graph: BlueprintVerificationGraph, namespace: str, finalize: MergeNode
-) -> MergeNode:
+def ingest_graph(graph: BlueprintVerificationGraph, namespace: str, finalize: MergeNode) -> MergeNode:
     """Build a fresh, namespaced MergeNode graph and return its start node.
 
     Edges that targeted ``finalize`` are wired to the shared sentinel.
@@ -166,9 +164,7 @@ def ingest_graph(
     for node in graph.nodes:
         ns_id = f"{namespace}/{node.id}"
         actions = (
-            [a.model_copy(deep=True) for a in node.actions]
-            if isinstance(node, BlueprintActionNode)
-            else []
+            [a.model_copy(deep=True) for a in node.actions] if isinstance(node, BlueprintActionNode) else []
         )
         built[node.id] = MergeNode(id=ns_id, type=node.type, actions=actions)
 
@@ -192,9 +188,7 @@ def describe_node(node: MergeNode) -> str:
         return "FINALIZE (terminal — produce the verdict)"
     if node.type == "synthesis":
         return "synthesis/decision node (routes on accumulated evidence)"
-    steps = "; ".join(
-        f"{a.action}: {a.intent}" if a.intent else a.action for a in node.actions
-    )
+    steps = "; ".join(f"{a.action}: {a.intent}" if a.intent else a.action for a in node.actions)
     return f"action node — steps: {steps}" if steps else "action node (no steps)"
 
 
@@ -228,11 +222,7 @@ def _collect_reachable(start: MergeNode, out: dict[str, MergeNode]) -> None:
 
 
 def _emit_node(node: MergeNode):
-    transitions = [
-        BlueprintTransition(**{"if": edge.condition, "to": edge.child.id}) for edge in node.edges
-    ]
+    transitions = [BlueprintTransition(**{"if": edge.condition, "to": edge.child.id}) for edge in node.edges]
     if node.type == "actions":
-        return BlueprintActionNode(
-            id=node.id, type="actions", actions=node.actions, transition=transitions
-        )
+        return BlueprintActionNode(id=node.id, type="actions", actions=node.actions, transition=transitions)
     return BlueprintSynthesisNode(id=node.id, type="synthesis", transition=transitions)

@@ -134,6 +134,30 @@ DO NOT invent fields outside this reference (e.g. no 'decision_logic', no top-le
 'features' inside selector_hints). The schema rejects unknown fields.\
 """
 
+_VERIFICATION_STANCE_RULES = """\
+VERIFICATION STANCE — mandatory for every blueprint you produce:
+
+- A blueprint describes how to VERIFY a class of claims, not how to prove a suspected \
+pathology. Never presuppose the verdict in the description, required checks, action \
+intents, query guidance, or transition conditions. A blueprint framed around "exposing" \
+its namesake failure mode (e.g. "expose the mismatch", "debunk the claim", "authentic \
+media shared with a false context") measurably biases evidence collection and flips \
+authentic claims to compromised. (Validated on VeriTaS: a neutral rewording of one such \
+blueprint reduced its MSE by 21% on identical claims and tools.)
+- Phrase every investigative step symmetrically. Write "establish the media's true \
+origin and compare it with the claimed context — a MATCH is as valid a finding as a \
+MISMATCH", never "find the original to expose the false context". Confirming the claim \
+is always an equally acceptable outcome of every step.
+- Evidence-referent discipline for media claims: instruct that a reverse-image match, \
+fact-check, or "original" counts against the media only if it is shown to be THIS media \
+(an EXACT match — same frames/image). Similar or PARTIAL matches, stock-site lookalikes, \
+and debunks of OTHER videos/photos of the same event are not evidence about this media. \
+Reverse-image results label each match EXACT or PARTIAL — blueprints should tell the \
+planner to use that distinction.
+- When a step cannot establish the origin or context, the guidance must say to report \
+it as unverified — not to assume the suspected failure mode.\
+"""
+
 _SYSTEM_PROMPT = f"""\
 You are an expert in fact-checking workflow design. Your task is to improve an existing \
 fact-checking blueprint based on a batch of claims and their fit assessments.
@@ -152,6 +176,8 @@ Base changes on evidence across the entire batch:
   set should_split to true and describe the subgroups.
 
 You must output a complete, valid blueprint as a nested JSON object.
+
+{_VERIFICATION_STANCE_RULES}
 
 {_BLUEPRINT_FIELD_REFERENCE}\
 """
@@ -499,6 +525,92 @@ def _format_pydantic_errors(e: ValidationError) -> str:
     return "\n".join(lines) if lines else "  - (no detail)"
 
 
+# ---------------------------------------------------------------------------
+# Verification-stance (neutrality) lint
+# ---------------------------------------------------------------------------
+
+# High-precision markers of a blueprint that presupposes its verdict instead of
+# verifying neutrally (see _VERIFICATION_STANCE_RULES). Matched case-insensitively
+# against instruction-bearing text fields only.
+_NEUTRALITY_PATTERNS: list[tuple[str, str]] = [
+    (
+        r"\bexpose\s+(?:the|a|any)\s+(?:mismatch|manipulat\w*|fabricat\w*|deception|false\w*)",
+        "aims to 'expose' the suspected failure mode",
+    ),
+    (
+        r"\bdebunk\s+(?:the|this)\s+(?:claim|media|video|image|photo)",
+        "instructs to debunk rather than verify",
+    ),
+    (r"\bshared with a false\b", "presupposes the media context is false"),
+    (
+        r"\bto detect\s+(?:the\s+)?(?:recontextualiz\w*|miscontextualiz\w*|manipulat\w*|fabricat\w*)",
+        "one-sided detection framing (no symmetric match outcome)",
+    ),
+    (
+        r"\bprove\s+(?:the\s+|that\s+|it\s+)?(?:claim\s+|media\s+|video\s+|image\s+)?is\s+(?:false|fake|manipulated|fabricated|miscontextualized)",
+        "aims to prove the claim false",
+    ),
+    (r"\bconfirm\s+(?:the\s+)?(?:hoax|fabrication|manipulation)\b", "presupposes the pathology to confirm"),
+]
+
+# Fields whose text is claim/routing material rather than investigator instructions.
+_NEUTRALITY_SKIP_KEYS = {"name", "selector_hints", "entry_conditions"}
+
+
+def _iter_text_fields(value: Any, path: str = "") -> "list[tuple[str, str]]":
+    """Collect (path, string) pairs from a nested blueprint dump, skipping non-instruction fields."""
+    out: list[tuple[str, str]] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in _NEUTRALITY_SKIP_KEYS:
+                continue
+            out.extend(_iter_text_fields(child, f"{path}.{key}" if path else key))
+    elif isinstance(value, list):
+        for i, child in enumerate(value):
+            out.extend(_iter_text_fields(child, f"{path}[{i}]"))
+    elif isinstance(value, str):
+        out.append((path, value))
+    return out
+
+
+def check_blueprint_neutrality(blueprint: Blueprint) -> list[str]:
+    """Return verification-stance violations as '<path>: <issue> ("<matched text>")' strings.
+
+    Empty list means the blueprint passes the neutrality lint.
+    """
+    import re
+
+    violations: list[str] = []
+    for path, text in _iter_text_fields(blueprint.model_dump()):
+        for pattern, issue in _NEUTRALITY_PATTERNS:
+            m = re.search(pattern, text, flags=re.IGNORECASE)
+            if m:
+                violations.append(f'{path}: {issue} ("{m.group(0)}")')
+    return violations
+
+
+_NEUTRALITY_REWORD_TEMPLATE = """\
+The blueprint you produced violates the mandatory verification stance at the \
+locations listed below. Reword ONLY the offending text so every step is neutral and \
+symmetric (confirming the claim is as valid an outcome as refuting it), keeping the \
+blueprint's structure, checks, and coverage otherwise unchanged.
+
+---VIOLATIONS---
+{violations}
+---END VIOLATIONS---
+
+---YOUR BLUEPRINT---
+```json
+{blueprint_json}
+```
+---END BLUEPRINT---
+
+Return the same outer JSON schema as before (reasoning, should_split, split_rationale, \
+updated_blueprint) with should_split={should_split} and split_rationale copied unchanged. \
+Return only the JSON object, no additional text, no markdown fences.\
+"""
+
+
 def _parse_update_response(text: str) -> BlueprintUpdateResult:
     """Parse the LLM JSON response and validate the embedded blueprint object.
 
@@ -604,6 +716,8 @@ class BlueprintUpdater:
         if result is None:
             return None
 
+        result = self._enforce_neutrality(result, label)
+
         logger.debug(
             f"{label} should_split={result.should_split} "
             f"updated_name={result.updated_blueprint.name if result.updated_blueprint else 'N/A'}"
@@ -612,6 +726,42 @@ class BlueprintUpdater:
         result.llm_prompt = prompt_text
         result.llm_raw_response = repair_text if repair_text is not None else raw_text
         return result
+
+    def _enforce_neutrality(self, result: BlueprintUpdateResult, label: str) -> BlueprintUpdateResult:
+        """Lint the produced blueprint against the verification-stance rules; on
+        violations, run one rewording call. Falls back to the original result if the
+        rewording fails, and warns if violations survive the rewording."""
+        violations = check_blueprint_neutrality(result.updated_blueprint)
+        if not violations:
+            return result
+        logger.warning(
+            f"{label} Verification-stance violations, requesting rewording:\n  " + "\n  ".join(violations)
+        )
+        reword_prompt = _NEUTRALITY_REWORD_TEMPLATE.format(
+            violations="\n".join(f"- {v}" for v in violations),
+            blueprint_json=json.dumps(result.updated_blueprint.model_dump(), ensure_ascii=False, indent=2),
+            should_split=json.dumps(result.should_split),
+        )
+        messages = [
+            Message(role=MessageRole.SYSTEM, content=Prompt(text=_SYSTEM_PROMPT)),
+            Message(role=MessageRole.USER, content=Prompt(text=reword_prompt)),
+        ]
+        raw_text = self.model.generate(messages).text.strip()
+        reworded, _ = self._parse_with_targeted_repair(raw_text, f"{label}[neutrality-reword]")
+        if reworded is None:
+            logger.warning(f"{label} Neutrality rewording unparseable; keeping original blueprint.")
+            return result
+        remaining = check_blueprint_neutrality(reworded.updated_blueprint)
+        if remaining:
+            logger.warning(
+                f"{label} Violations remain after rewording (accepting best effort):\n  "
+                + "\n  ".join(remaining)
+            )
+        # Preserve the original deliberation; the reword call only touches wording.
+        reworded.should_split = result.should_split
+        reworded.split_rationale = result.split_rationale
+        reworded.reasoning = result.reasoning
+        return reworded
 
     def _parse_with_targeted_repair(
         self, raw_text: str, label: str

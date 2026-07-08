@@ -47,9 +47,15 @@ Recommend merging a pair when:
 - Their verification graphs follow the same investigative structure.
 - Their required checks are nearly identical.
 - A single merged blueprint would serve both claim sets at least as well as two separate ones.
+- They are topical variants of the same strategy: if two blueprints follow the same \
+investigative structure and differ mainly in subject domain (a specific country, region, \
+religion, person, or community), they MUST be merged — topic-specific routing adds selector \
+noise without any strategic gain. Blueprints are distinguished by HOW they verify, never by \
+WHAT topic the claims are about.
 
 Do NOT recommend merging blueprints that serve genuinely different verification strategies, \
-even if they share some superficial similarities. When in doubt, do not merge.\
+even if they share some superficial similarities. When in doubt about strategy overlap, do \
+not merge; when the only difference is topic, always merge.\
 """
 
 _MERGE_USER_PROMPT_TEMPLATE = """\
@@ -118,6 +124,34 @@ class _MergeDetectionResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Merge guards
+# ---------------------------------------------------------------------------
+
+
+def apply_merge_budget_guard(merged: Blueprint, base: Blueprint, removed: Blueprint) -> Blueprint:
+    """Ensure a merged blueprint keeps at least its parents' investigation budget.
+
+    A merge serves the union of both parents' traffic, so letting the LLM emit a
+    smaller max_iterations than either parent silently downgrades investigation
+    depth for all of it (the eom_new catch-all collapsed two max_iterations=4
+    blueprints into a 3).
+    """
+    floor = max(
+        base.policy_constraints.max_iterations,
+        removed.policy_constraints.max_iterations,
+    )
+    if merged.policy_constraints.max_iterations >= floor:
+        return merged
+    logger.info(
+        f"[BlueprintConsolidator] Merged '{merged.name}' came back with "
+        f"max_iterations={merged.policy_constraints.max_iterations} < parents' "
+        f"max {floor} — raising to {floor}."
+    )
+    constraints = merged.policy_constraints.model_copy(update={"max_iterations": floor})
+    return merged.model_copy(update={"policy_constraints": constraints})
+
+
+# ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
 
@@ -131,6 +165,11 @@ class ConsolidationResult:
 
     merged: list[tuple[str, str]] = field(default_factory=list)
     """(kept_name, removed_name) pairs for each executed merge."""
+
+    merge_details: list[dict] = field(default_factory=list)
+    """One dict per merge: {"base": ..., "removed": ..., "kept": ...} — ``kept`` is the
+    merged blueprint's (possibly renamed) final name. Lets callers carry per-blueprint
+    bookkeeping (e.g. cluster sizes) through merges."""
 
     @property
     def total_changes(self) -> int:
@@ -167,14 +206,16 @@ def _sample_claim_types(records: list[ClaimLearningRecord], max_types: int = 6) 
 def _format_blueprint_for_merge(
     bp: Blueprint,
     records: list[ClaimLearningRecord],
+    size_override: int | None = None,
 ) -> str:
     blueprint_yaml = yaml.dump(
         bp.model_dump(by_alias=True), default_flow_style=False, allow_unicode=True
     ).strip()
     claim_types = _sample_claim_types(records)
     types_str = ", ".join(claim_types) if claim_types else "unknown"
+    coverage = size_override if size_override is not None else len(records)
     return (
-        f"[{bp.name}]  coverage: {len(records)} claims  "
+        f"[{bp.name}]  coverage: {coverage} claims  "
         f"claim types seen: {types_str}\n"
         f"```yaml\n{blueprint_yaml}\n```"
     )
@@ -218,11 +259,21 @@ class BlueprintConsolidator:
         updater: BlueprintUpdater,
         prune_threshold: int = 2,
         protected_names: set[str] | None = None,
+        merge_size_lookup: dict[str, int] | None = None,
+        max_merged_size: int | None = None,
     ) -> None:
         self.model = model
         self.updater = updater
         self.prune_threshold = prune_threshold
         self.protected_names: set[str] = protected_names if protected_names is not None else {"generic"}
+        self.merge_size_lookup = merge_size_lookup
+        """Optional blueprint-name -> claim-count map used for the merge size veto.
+        In the offline script path the epoch coverage only counts representatives,
+        so real cluster sizes must be supplied separately."""
+        self.max_merged_size = max_merged_size
+        """When set (with merge_size_lookup), merges whose combined claim count
+        exceeds this are vetoed — merging must not recreate the mega-cluster
+        catch-alls that the clustering size cap exists to prevent."""
 
     def consolidate(
         self,
@@ -312,6 +363,16 @@ class BlueprintConsolidator:
                     "one or both no longer in registry."
                 )
                 continue
+            if self.max_merged_size is not None and self.merge_size_lookup is not None:
+                combined_size = self.merge_size_lookup.get(base_name, 0) + self.merge_size_lookup.get(
+                    remove_name, 0
+                )
+                if combined_size > self.max_merged_size:
+                    logger.info(
+                        f"[BlueprintConsolidator] Vetoed merge ({base_name} + {remove_name}): "
+                        f"combined {combined_size} claims > cap {self.max_merged_size}."
+                    )
+                    continue
 
             self._execute_merge(registry, coverage, base_name, remove_name, result)
             consumed.add(base_name)
@@ -322,8 +383,10 @@ class BlueprintConsolidator:
         candidates: list[Blueprint],
         coverage: dict[str, list[ClaimLearningRecord]],
     ) -> list[_MergeGroup]:
+        size_lookup = self.merge_size_lookup or {}
         blueprints_section = "\n\n".join(
-            _format_blueprint_for_merge(bp, coverage.get(bp.name, [])) for bp in candidates
+            _format_blueprint_for_merge(bp, coverage.get(bp.name, []), size_lookup.get(bp.name))
+            for bp in candidates
         )
         prompt_text = _MERGE_USER_PROMPT_TEMPLATE.format(
             n=len(candidates),
@@ -382,6 +445,7 @@ class BlueprintConsolidator:
         result: ConsolidationResult,
     ) -> None:
         base_bp = registry.get(base_name)
+        remove_bp = registry.get(remove_name)
         combined_records = coverage.get(base_name, []) + coverage.get(remove_name, [])
 
         update_result = self.updater.update(
@@ -397,11 +461,14 @@ class BlueprintConsolidator:
             )
             return
 
-        registry.replace(base_name, update_result.updated_blueprint)
+        merged_bp = apply_merge_budget_guard(update_result.updated_blueprint, base_bp, remove_bp)
+
+        registry.replace(base_name, merged_bp)
         registry.remove(remove_name)
-        result.merged.append((update_result.updated_blueprint.name, remove_name))
+        result.merged.append((merged_bp.name, remove_name))
+        result.merge_details.append({"base": base_name, "removed": remove_name, "kept": merged_bp.name})
         logger.info(
             f"[BlueprintConsolidator] Merged '{remove_name}' into '{base_name}' "
-            f"→ '{update_result.updated_blueprint.name}' "
+            f"→ '{merged_bp.name}' "
             f"({len(combined_records)} combined claims)."
         )

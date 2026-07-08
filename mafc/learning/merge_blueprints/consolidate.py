@@ -99,9 +99,7 @@ class ActionConsolidator:
     def needs_consolidation(self, actions: list[BlueprintAction]) -> bool:
         if len(actions) > self.max_actions:
             return True
-        return any(
-            len(a.intent or "") + len(a.query_guidance or "") > self.max_chars for a in actions
-        )
+        return any(len(a.intent or "") + len(a.query_guidance or "") > self.max_chars for a in actions)
 
     def consolidate(self, actions: list[BlueprintAction]) -> list[BlueprintAction]:
         """Return a consolidated action list, or the original on failure."""
@@ -211,9 +209,7 @@ class CheckConsolidator:
     def __init__(self, model: Model) -> None:
         self.model = model
 
-    def consolidate(
-        self, checks: list[BlueprintRequiredCheck]
-    ) -> list[BlueprintRequiredCheck]:
+    def consolidate(self, checks: list[BlueprintRequiredCheck]) -> list[BlueprintRequiredCheck]:
         if len(checks) < 2:
             return checks
 
@@ -241,9 +237,7 @@ class CheckConsolidator:
 
 def _parse_checks(text: str) -> _CheckConsolidationResponse | None:
     try:
-        return _CheckConsolidationResponse.model_validate_json(
-            extract_json_object(strip_json_fences(text))
-        )
+        return _CheckConsolidationResponse.model_validate_json(extract_json_object(strip_json_fences(text)))
     except Exception as e:  # noqa: BLE001 - best-effort with repair fallback
         logger.debug(f"[TreeMerger] failed to parse check consolidation response: {e}")
         return None
