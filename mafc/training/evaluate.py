@@ -123,9 +123,7 @@ def certain_confusion(y_true: list[str], y_pred: list[str]) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _results_payload(
-    y_true: list[str], y_pred: list[str], gt_scores: list[float]
-) -> list[dict]:
+def _results_payload(y_true: list[str], y_pred: list[str], gt_scores: list[float]) -> list[dict]:
     return [
         {"ground_truth": t, "predicted": p, "gt_integrity_score": s}
         for t, p, s in zip(y_true, y_pred, gt_scores)
@@ -194,17 +192,12 @@ def baseline_continuous_metrics(judge_labels: list[str], gt_scores: list[float])
 def compare_reports(baseline: dict, model: dict) -> str:
     """Human-readable before/after focused on calibration + certain confusion."""
     lines = ["=== Calibration: baseline (judge verbalized) vs regressor ==="]
+    lines.append(f"  ECE       baseline={baseline.get('ece'):.4f}   regressor={model.get('ece'):.4f}")
     lines.append(
-        f"  ECE       baseline={baseline.get('ece'):.4f}   regressor={model.get('ece'):.4f}"
-    )
-    lines.append(
-        f"  Accuracy  baseline={baseline.get('accuracy'):.2%}   "
-        f"regressor={model.get('accuracy'):.2%}"
+        f"  Accuracy  baseline={baseline.get('accuracy'):.2%}   " f"regressor={model.get('accuracy'):.2%}"
     )
     if "mse" in baseline and "mse" in model:
-        lines.append(
-            f"  MSE       baseline={baseline['mse']:.4f}   regressor={model['mse']:.4f}"
-        )
+        lines.append(f"  MSE       baseline={baseline['mse']:.4f}   regressor={model['mse']:.4f}")
     lines.append("")
     lines.append("=== certain <-> rather-certain confusion rate (lower is better) ===")
     for side in ("overall", "intact", "compromised"):

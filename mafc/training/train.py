@@ -54,6 +54,7 @@ def _fill_all_nan_columns(X):
         X[:, all_nan] = 0.0
     return X
 
+
 # Object/string columns are treated as categoricals.
 DEFAULT_CATEGORICAL = ("judge_direction", "language", "blueprint_name")
 
@@ -84,28 +85,18 @@ class FittedModel:
 def feature_columns(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     """Return (all_feature_cols, categorical_cols) for a feature table."""
     feature_cols = [c for c in df.columns if c not in NON_FEATURE_COLS]
-    categorical = [
-        c
-        for c in feature_cols
-        if c in DEFAULT_CATEGORICAL or df[c].dtype == object
-    ]
+    categorical = [c for c in feature_cols if c in DEFAULT_CATEGORICAL or df[c].dtype == object]
     return feature_cols, categorical
 
 
-def _build_pipeline(
-    feature_cols: list[str], categorical_cols: list[str], cfg: TrainConfig
-) -> Pipeline:
+def _build_pipeline(feature_cols: list[str], categorical_cols: list[str], cfg: TrainConfig) -> Pipeline:
     pca_cols = justification_embedding_cols(feature_cols)
     use_pca = bool(pca_cols) and cfg.pca_components > 0
     # When PCA is on, the raw just_emb dims go through their own branch; when off,
     # they are dropped (remainder="drop") so they never reach the tree un-reduced.
-    numeric_cols = [
-        c for c in feature_cols if c not in categorical_cols and c not in pca_cols
-    ]
+    numeric_cols = [c for c in feature_cols if c not in categorical_cols and c not in pca_cols]
     cat_idx = list(range(len(numeric_cols), len(numeric_cols) + len(categorical_cols)))
-    num_pipe = Pipeline(
-        [("nan_guard", FunctionTransformer(_fill_all_nan_columns, validate=False))]
-    )
+    num_pipe = Pipeline([("nan_guard", FunctionTransformer(_fill_all_nan_columns, validate=False))])
     transformers = [
         ("num", num_pipe, numeric_cols),
         (

@@ -109,9 +109,7 @@ def rows_to_dataframe(rows: list[FeatureRow]) -> pd.DataFrame:
 META_PREFIX = "meta__"
 
 
-def build_meta_table(
-    trace_dirs: list[Path], claims_by_id: dict[str, ClaimRecord]
-) -> pd.DataFrame:
+def build_meta_table(trace_dirs: list[Path], claims_by_id: dict[str, ClaimRecord]) -> pd.DataFrame:
     """Per-claim evaluation metadata: signed score + judge verbalized 7-class label.
 
     Kept separate from the feature table to guarantee no ground-truth leakage into

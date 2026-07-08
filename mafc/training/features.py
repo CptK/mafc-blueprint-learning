@@ -95,9 +95,7 @@ def _structured_features(
     # were removed — see out/training/REPORT.md §Feature pruning.
 
     # --- Conditioning: judge's predicted direction (sign comes from the judge) ---
-    f[JUDGE_DIRECTION_COL] = (
-        direction_of_label(trace.judge_label) if trace.judge_label else None
-    )
+    f[JUDGE_DIRECTION_COL] = direction_of_label(trace.judge_label) if trace.judge_label else None
 
     # --- Evidence sufficiency ---
     ev = trace.evidence
@@ -112,16 +110,12 @@ def _structured_features(
     f["n_iterations"] = float(trace.n_iterations)
     growth = trace.evidence_growth
     f["evidence_growth_total"] = float(growth[-1] - growth[0]) if len(growth) >= 2 else 0.0
-    f["runtime_seconds"] = (
-        float(trace.runtime_seconds) if trace.runtime_seconds is not None else math.nan
-    )
+    f["runtime_seconds"] = float(trace.runtime_seconds) if trace.runtime_seconds is not None else math.nan
 
     # --- Judge output shape ---
     f["justification_char_len"] = float(len(trace.judge_justification or ""))
     f["judge_output_tokens"] = (
-        float(trace.judge_output_tokens)
-        if trace.judge_output_tokens is not None
-        else math.nan
+        float(trace.judge_output_tokens) if trace.judge_output_tokens is not None else math.nan
     )
 
     # --- Difficulty priors (claim-intrinsic) ---
@@ -145,9 +139,7 @@ def _structured_features(
     return f
 
 
-def extract_row(
-    trace: NormalisedTrace, claim: ClaimRecord, cfg: FeatureExtractorConfig
-) -> FeatureRow:
+def extract_row(trace: NormalisedTrace, claim: ClaimRecord, cfg: FeatureExtractorConfig) -> FeatureRow:
     """Build one feature row (structured features + deferred texts for embeddings)."""
     feats = _structured_features(trace, claim, cfg)
     evidence_texts = [e.takeaways_text for e in trace.evidence if e.takeaways_text]
