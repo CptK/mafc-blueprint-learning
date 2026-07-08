@@ -295,7 +295,7 @@ class StrategySynthesizer:
                 last_exc = exc
                 if attempt >= self.max_retries:
                     break
-                delay = self.retry_base_delay * (2 ** attempt)
+                delay = self.retry_base_delay * (2**attempt)
                 logger.warning(
                     f"[StrategySynthesizer] model.generate failed "
                     f"(attempt {attempt + 1}/{self.max_retries + 1}): "

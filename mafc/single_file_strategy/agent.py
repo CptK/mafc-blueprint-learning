@@ -118,9 +118,7 @@ class StrategyAgent(Agent):
 
     # ------------------------------------------------------------------
 
-    def run(
-        self, session: AgentSession, trace_scope=None, true_label: str | None = None
-    ) -> AgentResult:
+    def run(self, session: AgentSession, trace_scope=None, true_label: str | None = None) -> AgentResult:
         """Investigate the claim under the strategy, then judge the evidence."""
         self._mark_running(session)
         claim = self._resolve_claim(session)
@@ -137,7 +135,9 @@ class StrategyAgent(Agent):
             msg = "Strategy session requires a claim or non-empty goal."
             trace.record_error(msg)
             trace.finalize(status=session.status.value, result_text=None, evidence_count=0)
-            return AgentResult(session=session, result=None, errors=[msg], status=session.status, trace=trace.trace)
+            return AgentResult(
+                session=session, result=None, errors=[msg], status=session.status, trace=trace.trace
+            )
 
         session.claim = claim
         evidences: list[Evidence] = list(session.evidences)
@@ -215,8 +215,13 @@ class StrategyAgent(Agent):
             msg = f"Strategy planner returned unparseable output in round {round_idx}."
             errors.append(msg)
             trace.record_round(
-                round_index=round_idx, prompt=user_prompt, response_text=response_text,
-                reasoning="", tool_calls=[], done=True, evidence_count_after=len(evidences),
+                round_index=round_idx,
+                prompt=user_prompt,
+                response_text=response_text,
+                reasoning="",
+                tool_calls=[],
+                done=True,
+                evidence_count_after=len(evidences),
             )
             return True
 
@@ -251,23 +256,36 @@ class StrategyAgent(Agent):
         calls: list[_ToolCall],
         round_idx: int,
     ) -> None:
-        """Run the round's tool calls (in parallel) and fold their evidence in."""
-        child_sessions = [
-            (tc, self._child_session(session, claim, evidences, tc, i, round_idx))
-            for i, tc in enumerate(calls)
-        ]
+        """Run the round's tool calls (in parallel) and fold their evidence in.
 
-        def _invoke(tc: _ToolCall, child: AgentSession) -> AgentResult:
-            return self.tools[tc.tool].run(child)
+        A failing tool call (e.g. an invalid media reference hallucinated by the
+        planner, or a sub-agent crash) must not kill the whole claim: it is turned
+        into an error + history entry the planner can react to in later rounds.
+        """
 
-        if len(child_sessions) == 1 or self.n_workers <= 1:
-            results = [(tc, _invoke(tc, child)) for tc, child in child_sessions]
+        def _invoke(tc: _ToolCall, index: int) -> AgentResult | Exception:
+            try:
+                child = self._child_session(session, claim, evidences, tc, index, round_idx)
+                return self.tools[tc.tool].run(child)
+            except Exception as exc:  # noqa: BLE001 — isolate per-call failures
+                logger.warning(f"[StrategyAgent] Tool call {tc.tool} failed: {type(exc).__name__}: {exc}")
+                return exc
+
+        if len(calls) == 1 or self.n_workers <= 1:
+            results = [(tc, _invoke(tc, i)) for i, tc in enumerate(calls)]
         else:
-            with ThreadPoolExecutor(max_workers=min(len(child_sessions), self.n_workers)) as pool:
-                futures = [(tc, pool.submit(_invoke, tc, child)) for tc, child in child_sessions]
+            with ThreadPoolExecutor(max_workers=min(len(calls), self.n_workers)) as pool:
+                futures = [(tc, pool.submit(_invoke, tc, i)) for i, tc in enumerate(calls)]
                 results = [(tc, fut.result()) for tc, fut in futures]
 
         for tc, result in results:
+            if isinstance(result, Exception):
+                msg = f"Tool call '{tc.tool}' failed: {type(result).__name__}: {result}"
+                if "does not exist" in str(result):
+                    msg += " (use the exact media reference tag shown under claim modalities)"
+                errors.append(msg)
+                action_history.append(f"{tc.tool}: {tc.instruction[:80]} -> FAILED: {msg}")
+                continue
             evidences.extend(result.evidences)
             errors.extend(result.errors)
             trace.absorb_child(result.trace)
@@ -335,9 +353,7 @@ class StrategyAgent(Agent):
     def synthesize_from_evidences(
         self, instruction: str, evidences: list[Evidence], trace: StrategyRunTrace | None = None
     ) -> str:
-        evidence_lines = [
-            block for ev in evidences if (block := format_evidence_block(ev)) is not None
-        ]
+        evidence_lines = [block for ev in evidences if (block := format_evidence_block(ev)) is not None]
         if not evidence_lines:
             return ""
         prompt = (

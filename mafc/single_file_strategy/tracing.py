@@ -127,15 +127,17 @@ class StrategyRunTrace:
         done: bool,
         evidence_count_after: int,
     ) -> None:
-        self.trace["rounds"].append({
-            "round": round_index,
-            "prompt": prompt,
-            "response": response_text,
-            "reasoning": reasoning,
-            "tool_calls": tool_calls,
-            "done": done,
-            "evidence_count_after": evidence_count_after,
-        })
+        self.trace["rounds"].append(
+            {
+                "round": round_index,
+                "prompt": prompt,
+                "response": response_text,
+                "reasoning": reasoning,
+                "tool_calls": tool_calls,
+                "done": done,
+                "evidence_count_after": evidence_count_after,
+            }
+        )
 
     def record_judge(self, judge_trace: dict | None) -> None:
         self.trace["judge_run"] = judge_trace
