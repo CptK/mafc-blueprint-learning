@@ -57,6 +57,10 @@ class MergeNode:
     type: NodeType
     actions: list[BlueprintAction] = field(default_factory=list)
     edges: list[MergeEdge] = field(default_factory=list)
+    checks: list[BlueprintRequiredCheck] = field(default_factory=list)
+    """Checks this node activates when execution reaches it. Source blueprints'
+    checks attach to their lane-entry node so a claim only accumulates the
+    checks of the path it takes — never the union of all lanes."""
 
     @property
     def is_finalize(self) -> bool:
@@ -65,11 +69,26 @@ class MergeNode:
 
 @dataclass
 class EntryBranch:
-    """One router branch: an entry-condition gate and the strategy it routes to."""
+    """One router branch: an entry-condition gate and the strategy it routes to.
+
+    ``description`` is the branch's ROUTING PROSE — what claims it handles and
+    when to take it. It is seeded from the source blueprint's description and
+    selector hints, updated on every fold, and emitted as the router edge's
+    condition text. Boolean ``conditions`` remain only the permissive top-level
+    gate of the merged blueprint; rendered as router text they are tautological
+    (the eom_v3 merge produced `ANY(..., has_claim_text == True)` for every
+    branch) and give the LLM router nothing to discriminate on.
+    """
 
     label: str
     conditions: BlueprintEntryConditions
     start: MergeNode
+    description: str = ""
+
+    @property
+    def is_fallback(self) -> bool:
+        """A branch with no gate matches everything — the generic fallback."""
+        return not (self.conditions.all or self.conditions.any)
 
 
 @dataclass
@@ -88,13 +107,13 @@ class MergedStrategyTree:
     # ------------------------------------------------------------------
 
     def absorb_metadata(self, bp: Blueprint) -> None:
-        """Union a blueprint's required checks and policy into the tree."""
-        existing_check_ids = {c.id for c in self.required_checks}
-        for check in bp.required_checks:
-            if check.id not in existing_check_ids:
-                self.required_checks.append(check.model_copy(deep=True))
-                existing_check_ids.add(check.id)
+        """Union a blueprint's policy into the tree.
 
+        Required checks are NOT unioned here: they attach to the blueprint's
+        lane-entry node (see the merger), so checks stay scoped to the paths
+        that actually enter the lane. ``self.required_checks`` remains for
+        deliberately-global checks only.
+        """
         policy = bp.policy_constraints
         for action in policy.allowed_actions:
             if action not in self.allowed_actions:
@@ -119,13 +138,49 @@ class MergedStrategyTree:
         for entry in self.entries:
             _collect_reachable(entry.start, nodes)
 
-        router = MergeNode(ROUTER_ID, "synthesis")
-        for entry in self.entries:
-            router.edges.append(MergeEdge(describe_entry_conditions(entry.conditions), entry.start))
-
-        graph_nodes: list = [_emit_node(router)]
+        # Check DEFINITIONS all live at the blueprint root (the contract every
+        # consumer expects); nodes only REFERENCE the ids they activate. Global
+        # checks (tree-level) come first and stay unreferenced. Id collisions
+        # between lanes with materially different descriptions are renamed.
+        check_defs: list[BlueprintRequiredCheck] = [c.model_copy(deep=True) for c in self.required_checks]
+        defs_by_id: dict[str, BlueprintRequiredCheck] = {c.id: c for c in check_defs}
+        node_check_refs: dict[str, list[str]] = {}
         for node in nodes.values():
-            graph_nodes.append(_emit_node(node))
+            refs: list[str] = []
+            for check in node.checks:
+                existing = defs_by_id.get(check.id)
+                if existing is None:
+                    definition = check.model_copy(deep=True)
+                elif existing.description == check.description:
+                    refs.append(existing.id)
+                    continue
+                else:
+                    renamed = _unique_check_id(check.id, set(defs_by_id))
+                    definition = BlueprintRequiredCheck(id=renamed, description=check.description)
+                defs_by_id[definition.id] = definition
+                check_defs.append(definition)
+                refs.append(definition.id)
+            if refs:
+                node_check_refs[node.id] = refs
+
+        # Router edges carry each branch's routing prose (the LLM router reads
+        # exactly these texts). Fallback branches go last so "take only if
+        # nothing else fits" reads in order.
+        router = MergeNode(ROUTER_ID, "synthesis")
+        ordered_entries = [e for e in self.entries if not e.is_fallback] + [
+            e for e in self.entries if e.is_fallback
+        ]
+        for entry in ordered_entries:
+            text = entry.description or describe_entry_conditions(entry.conditions)
+            if entry.is_fallback:
+                text = f"Take this branch only if none of the other branches fits: {text}" if entry.description else (
+                    "Take this branch only if none of the other branches fits (generic fallback)."
+                )
+            router.edges.append(MergeEdge(text, entry.start))
+
+        graph_nodes: list = [_emit_node(router, node_check_refs)]
+        for node in nodes.values():
+            graph_nodes.append(_emit_node(node, node_check_refs))
 
         any_conditions: list[BlueprintCondition] = []
         seen_conditions: set[tuple] = set()
@@ -145,7 +200,7 @@ class MergedStrategyTree:
                 max_iterations=self.max_iterations,
                 require_counterevidence_search=self.require_counterevidence_search,
             ),
-            required_checks=[c.model_copy(deep=True) for c in self.required_checks],
+            required_checks=check_defs,
             verification_graph=BlueprintVerificationGraph(start_node=ROUTER_ID, nodes=graph_nodes),
         )
 
@@ -196,6 +251,20 @@ def describe_edge(edge: MergeEdge) -> str:
     return f'if "{edge.condition}" -> {describe_node(edge.child)}'
 
 
+def routing_description(bp: Blueprint) -> str:
+    """The routing prose a blueprint contributes to its router branch.
+
+    Combines the description (contrast-sharpened during generation) with a
+    couple of positive selector examples — the same information the standalone
+    selector used for its LLM tiebreak.
+    """
+    parts = [bp.description.strip()]
+    examples = bp.selector_hints.positive.examples if bp.selector_hints else []
+    if examples:
+        parts.append("Typical claims: " + " | ".join(e.strip() for e in examples[:2]))
+    return " ".join(p for p in parts if p)
+
+
 def describe_entry_conditions(ec: BlueprintEntryConditions) -> str:
     def render(c: BlueprintCondition) -> str:
         return f"{c.feature} {c.op} {c.value}"
@@ -221,8 +290,20 @@ def _collect_reachable(start: MergeNode, out: dict[str, MergeNode]) -> None:
         _collect_reachable(edge.child, out)
 
 
-def _emit_node(node: MergeNode):
+def _unique_check_id(candidate: str, taken: set[str]) -> str:
+    if candidate not in taken:
+        return candidate
+    i = 2
+    while f"{candidate}_{i}" in taken:
+        i += 1
+    return f"{candidate}_{i}"
+
+
+def _emit_node(node: MergeNode, node_check_refs: dict[str, list[str]] | None = None):
     transitions = [BlueprintTransition(**{"if": edge.condition, "to": edge.child.id}) for edge in node.edges]
+    refs = (node_check_refs or {}).get(node.id, [])
     if node.type == "actions":
-        return BlueprintActionNode(id=node.id, type="actions", actions=node.actions, transition=transitions)
-    return BlueprintSynthesisNode(id=node.id, type="synthesis", transition=transitions)
+        return BlueprintActionNode(
+            id=node.id, type="actions", actions=node.actions, transition=transitions, activates_checks=refs
+        )
+    return BlueprintSynthesisNode(id=node.id, type="synthesis", transition=transitions, activates_checks=refs)

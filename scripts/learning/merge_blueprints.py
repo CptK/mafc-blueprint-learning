@@ -77,6 +77,10 @@ def main() -> None:
         help="Max actions per node after consolidation (default: 4).",
     )
     parser.add_argument(
+        "--no-sharpen", action="store_true",
+        help="Skip the final contrast pass over router branch descriptions.",
+    )
+    parser.add_argument(
         "--max-tokens", type=int, default=4096,
         help="Max response tokens for the LLM seams (default: 4096).",
     )
@@ -102,6 +106,7 @@ def main() -> None:
         reconcile=not args.no_reconcile,
         consolidate=not args.no_consolidate,
         max_actions=args.max_actions,
+        sharpen=not args.no_sharpen,
     )
     result = merger.merge(
         blueprints, name=args.name, description=args.description, progress=True

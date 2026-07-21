@@ -93,15 +93,29 @@ rather than naming the case.
 
 HOW TO UPDATE (you are editing, not appending):
 - Integrate the lessons from the new batch INTO the existing document. Prefer revising or \
-merging an existing sentence over adding a new one. Two observations that say the same thing \
+merging existing guidance over adding new guidance. Two observations that say the same thing \
 must collapse into one.
 - Generalize aggressively. The Nth example of a technique should sharpen the existing \
-guidance, not lengthen it.
+guidance, not lengthen it. When a new case is just another instance of a pattern already \
+present, subsume it under the general rule — do NOT append it as one more clause.
 - Keep the section skeleton stable. Add a new subsection only for a genuinely new claim type \
 or technique not already covered.
 - Favor compressing weaker or redundant guidance over growing the document. A tight, high-signal \
 document beats a long one.
 - If the current document is empty, create it from scratch following the recommended skeleton.
+
+KEEP IT SCANNABLE (this is as important as being correct — a wall of prose is unusable):
+- NEVER let a sentence accrete into a long comma- or semicolon-separated list of parallel cases, \
+tells, or techniques. The moment a rule would carry ~4+ parallel items, either GENERALIZE them into \
+the single umbrella principle, or split them into a short bulleted list / named checklist — each item \
+with a brief bold lead-in where it aids scanning. Adding the Nth case must never mean lengthening a \
+comma-list; it means sharpening the umbrella rule or adding at most one scannable sub-item.
+- De-duplicate ACROSS sections, not just within one. A claim-type subsection should name the decisive \
+evidence and DEFER the mechanics to the techniques section rather than re-explaining a technique that \
+lives there. State each method once, in its best home.
+- Cut obvious, self-evident filler a competent fact-checker already knows; keep only non-obvious, \
+decision-relevant judgment. Prefer a named checklist over a dense prose paragraph for any enumeration \
+of failure modes or techniques.
 
 RECOMMENDED SKELETON (adapt, don't pad):
 {skeleton}
@@ -135,31 +149,47 @@ the case specifics.
 ---END BATCH---
 
 The current document is {current_words} words (aim for roughly {max_words}). \
-Remember: distill transferable methodology, edit in place, generalize rather than append, and emit \
-the two sentinel sections only.
+Remember: distill transferable methodology, edit in place, generalize rather than append, keep it \
+scannable (bulleted, no run-on comma-lists of cases; state each method once in its best section), \
+and emit the two sentinel sections only.
 """
 
 _CONSOLIDATE_SYSTEM_PROMPT = """\
 You are an expert fact-checking methodologist performing a periodic cleanup of a living `Strategy.md` \
-playbook that has been built up incrementally, batch by batch. Consolidate it for quality WITHOUT \
-losing any distinct, transferable method.
+playbook that has been built up incrementally, batch by batch. Incremental building makes the document \
+verbose, repetitive, and hard to read: the same method gets restated across sections, obvious filler \
+accumulates, and single sentences swell into long comma-separated lists of a dozen cases. Consolidate \
+it for READABILITY and concision WITHOUT losing any distinct, transferable method.
 
 Do:
-- Merge duplicate or overlapping guidance into single, sharp statements.
-- Remove redundancy and tighten wording.
-- Improve organization: group related guidance and keep the section structure coherent.
+- **De-duplicate across the whole document, not just within a section.** If a method, pitfall, or \
+technique is already stated elsewhere, keep the single best home for it and remove the restatements. \
+A claim-type subsection should name the decisive evidence and DEFER the mechanics to the techniques \
+section rather than re-explaining them.
+- **Cut obvious or self-evident guidance.** Remove generic filler a competent fact-checker already \
+knows (e.g. "recover the original before judging" as a standalone principle) and keep only the \
+non-obvious, decision-relevant judgment. Trimming an obvious *restatement* is not dropping a method.
+- **Break run-on enumerations into scannable bullets.** A sentence cramming many parallel cases, tells, \
+or techniques into comma/semicolon-separated clauses must become a short bulleted list (or a named \
+one-line checklist), each item with a brief bold lead-in where it aids scanning. Prefer a named \
+checklist over a dense prose paragraph for any list of failure modes or techniques.
+- Tighten wording: collapse near-synonym slash-lists, and move long parenthetical case-lists in a \
+heading into a short caption or sub-bullets.
+- Keep the section skeleton coherent; a section that merely restates another in a different framing \
+should be reduced to a compact cross-referencing checklist.
 
 Do NOT:
 - Drop any distinct technique, claim type, pitfall, or stopping rule — every distinct method must \
-remain findable afterwards.
+remain findable afterwards. (De-duplication removes *repetition* of a method; it never removes the \
+method's single canonical statement.)
 - Add new content, new examples, or any claim-specific facts (names, dates, verdicts, sources).
 
 Aim to keep the document around {max_words} words or fewer, but never sacrifice a distinct method \
-just to hit a number.
+just to hit a number. Favor a shorter, well-structured, scannable document over a long prose one.
 
 OUTPUT FORMAT — emit exactly two sentinel-delimited sections and nothing else:
 {changelog_begin}
-1-3 bullets: what you merged or tightened.
+1-3 bullets: what you de-duplicated, cut as obvious, or restructured for readability.
 {changelog_end}
 {strategy_begin}
 The complete consolidated Strategy.md in markdown. Output the WHOLE document.

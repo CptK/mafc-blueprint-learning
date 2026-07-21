@@ -28,11 +28,9 @@ from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.learning.merge_blueprints.tree import (
-    BlueprintEntryConditions,
     MergeEdge,
     MergeNode,
     describe_edge,
-    describe_entry_conditions,
     describe_node,
 )
 from mafc.utils.parsing import (
@@ -90,6 +88,18 @@ class _EntryMatch(BaseModel):
 
     match_index: int | None = None
     rationale: str = ""
+
+
+class _FoldedDescription(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: str
+
+
+class _SharpenedDescriptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    descriptions: list[str] = []
 
 
 class _SiblingPair(BaseModel):
@@ -172,20 +182,61 @@ Return only a JSON object:
 """
 
 _ENTRY_SYSTEM = """\
-You route a fact-checking blueprint to an existing strategy branch. Given the new \
-blueprint's entry conditions and a list of existing branches' entry conditions, \
-return the index of the branch whose entry conditions overlap substantially (they \
-would route similar claims), or null if none is a good fit and the blueprint needs \
-its own branch. When in doubt, prefer null over a forced match.\
+You route a fact-checking blueprint into a merged strategy tree. Given a \
+description of the new blueprint's verification strategy (what claims it handles \
+and how it verifies them) and the descriptions of the existing router branches, \
+return the index of the branch that follows substantially the SAME verification \
+strategy for the SAME kind of claims — meaning a single branch would serve both \
+well. Judge by strategy and claim type, not by topic. Return null if none is a \
+good fit and the blueprint needs its own branch. When in doubt, prefer null over \
+a forced match.\
 """
 
 _ENTRY_USER = """\
-New blueprint entry conditions: {new_conditions}
+New blueprint: {new_conditions}
 
 Existing branches:
 {existing}
 
 Return only a JSON object: {{"match_index": int or null, "rationale": string}}
+"""
+
+_FOLD_DESCRIPTION_SYSTEM = """\
+Two fact-checking strategy descriptions are being merged into ONE router branch \
+of a strategy tree. Write a single replacement routing description covering both: \
+state what claims the branch handles and when a router should take it. Keep it \
+concise (2-4 sentences), keep any "Typical claims:" examples (up to 4 total), and \
+never presuppose a verdict — confirming a claim is as valid an outcome as refuting \
+it.\
+"""
+
+_FOLD_DESCRIPTION_USER = """\
+Existing branch description:
+{base}
+
+Description being folded in:
+{new}
+
+Return only a JSON object: {{"description": string}}
+"""
+
+_SHARPEN_SYSTEM = """\
+These texts are the branch options of a fact-checking strategy router. At runtime \
+an LLM reads ONLY these texts to decide which branch a claim takes, so together \
+they must partition the claim space crisply. Rewrite each description so that (1) \
+it states which claims the branch handles, (2) it states in one clause what \
+distinguishes it from the most similar other branch, and (3) the branches are \
+mutually exclusive — a given claim should clearly match exactly one. Keep any \
+"Typical claims:" examples, keep each description's substance (do not invent new \
+scope), and never presuppose a verdict.\
+"""
+
+_SHARPEN_USER = """\
+Router branch descriptions:
+{branches}
+
+Return only a JSON object with EXACTLY {n} descriptions in the same order:
+{{"descriptions": [string, ...]}}
 """
 
 _SIBLING_SYSTEM = """\
@@ -249,14 +300,19 @@ class BranchMatcher:
             return condition, f"otherwise: {condition}"
         return result.existing_condition, result.new_condition
 
-    def match_entry(
-        self, new_conditions: BlueprintEntryConditions, existing: list[BlueprintEntryConditions]
-    ) -> int | None:
+    def match_entry(self, new_description: str, existing: list[str]) -> int | None:
+        """Route a blueprint (by its routing description) to an existing branch.
+
+        ``existing`` is the branches' routing descriptions. Matching on the
+        boolean entry-condition gates was the root cause of dissolved lanes:
+        media blueprints share near-identical permissive gates, so semantically
+        distinct strategies looked like duplicates.
+        """
         if not existing:
             return None
         prompt = _ENTRY_USER.format(
-            new_conditions=describe_entry_conditions(new_conditions),
-            existing=_enumerate([describe_entry_conditions(c) for c in existing]),
+            new_conditions=new_description,
+            existing=_enumerate(existing),
         )
         result = self._call(_ENTRY_SYSTEM, prompt, _parse_entry)
         if result is None or result.match_index is None:
@@ -264,6 +320,31 @@ class BranchMatcher:
         if 0 <= result.match_index < len(existing):
             return result.match_index
         return None
+
+    def fold_description(self, base_description: str, new_description: str) -> str:
+        """Merge two branch routing descriptions into one covering both."""
+        prompt = _FOLD_DESCRIPTION_USER.format(base=base_description, new=new_description)
+        result = self._call(_FOLD_DESCRIPTION_SYSTEM, prompt, _parse_folded)
+        if result is None or not result.description.strip():
+            logger.warning("[TreeMerger] description fold failed; concatenating.")
+            return f"{base_description} ALSO: {new_description}"
+        return result.description.strip()
+
+    def sharpen_router(self, descriptions: list[str]) -> list[str]:
+        """Rewrite the final router branch descriptions for mutual exclusivity.
+
+        Returns the originals when the call fails or the count doesn't match.
+        """
+        if len(descriptions) < 2:
+            return descriptions
+        prompt = _SHARPEN_USER.format(branches=_enumerate(descriptions), n=len(descriptions))
+        result = self._call(_SHARPEN_SYSTEM, prompt, _parse_sharpened)
+        if result is None or len(result.descriptions) != len(descriptions) or not all(
+            d.strip() for d in result.descriptions
+        ):
+            logger.warning("[TreeMerger] router sharpening failed; keeping branch descriptions.")
+            return descriptions
+        return [d.strip() for d in result.descriptions]
 
     def find_redundant_siblings(self, edges: list[MergeEdge]) -> list[_SiblingPair]:
         if len(edges) < 2:
@@ -315,6 +396,14 @@ def _parse_refined(text: str) -> _RefinedCondition | None:
 
 def _parse_entry(text: str) -> _EntryMatch | None:
     return _parse(_EntryMatch, text)
+
+
+def _parse_folded(text: str) -> _FoldedDescription | None:
+    return _parse(_FoldedDescription, text)
+
+
+def _parse_sharpened(text: str) -> _SharpenedDescriptions | None:
+    return _parse(_SharpenedDescriptions, text)
 
 
 def _parse_siblings(text: str) -> _SiblingMerges | None:

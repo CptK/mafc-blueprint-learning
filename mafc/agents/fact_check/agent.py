@@ -177,12 +177,17 @@ class FactCheckAgent(Agent):
     def _initialize_state(self, blueprint: Blueprint, evidences: list[Evidence]) -> FactCheckSessionState:
         """Initialize top-level orchestration state for the selected blueprint."""
         topology = analyze_blueprint_topology(blueprint)
+        # Checks referenced by a node activate when the path reaches that node;
+        # only unreferenced (global) checks are active from the start.
+        node_scoped = blueprint.node_scoped_check_ids()
+        global_checks = [check for check in blueprint.required_checks if check.id not in node_scoped]
         return FactCheckSessionState(
             selected_blueprint=blueprint,
             current_node_id=blueprint.verification_graph.start_node,
             node_layers=topology.node_layers,
             max_layer=topology.max_layer,
-            required_check_status={check.id: CheckStatus.UNCHECKED for check in blueprint.required_checks},
+            required_check_status={check.id: CheckStatus.UNCHECKED for check in global_checks},
+            required_check_defs={check.id: check for check in global_checks},
             evidences=list(evidences),
         )
 
@@ -225,6 +230,13 @@ class FactCheckAgent(Agent):
         trace.start_iteration(iteration, node_before, len(state.evidences))
 
         current_node = self._get_current_node(state)
+
+        # Node-attached checks become active when the path reaches their node.
+        added_checks = state.activate_node_checks(current_node)
+        if added_checks:
+            logger.debug(
+                f"[FactCheckAgent] Node '{current_node.id}' activated checks: {', '.join(added_checks)}"
+            )
 
         # Phase 1: execute the current node
         should_stop = self._execute_node(session, claim, state, current_node, errors, trace)

@@ -157,6 +157,12 @@ class BlueprintActionNode(BlueprintBaseModel):
     type: Literal["actions"]
     actions: list[BlueprintAction] = Field(default_factory=list)
     transition: list[BlueprintTransition] = Field(default_factory=list)
+    activates_checks: list[str] = Field(default_factory=list)
+    """Ids of root-level required_checks that become active when execution first
+    reaches this node. Check DEFINITIONS always live in Blueprint.required_checks
+    (the contract every consumer relies on); nodes only reference them, letting a
+    merged strategy tree scope lane-specific checks to the paths that enter the
+    lane. Root checks referenced by no node are global (active from the start)."""
 
 
 class BlueprintSynthesisNode(BlueprintBaseModel):
@@ -165,6 +171,8 @@ class BlueprintSynthesisNode(BlueprintBaseModel):
     id: str
     type: Literal["synthesis"]
     transition: list[BlueprintTransition] = Field(default_factory=list)
+    activates_checks: list[str] = Field(default_factory=list)
+    """Ids of root-level required_checks activated at this node (see BlueprintActionNode)."""
 
 
 BlueprintNode = Annotated[
@@ -240,12 +248,73 @@ class Blueprint(BlueprintBaseModel):
     required_checks: list[BlueprintRequiredCheck] = Field(default_factory=list)
     verification_graph: BlueprintVerificationGraph
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_embedded_node_checks(cls, data: Any) -> Any:
+        """Hoist legacy embedded node ``checks`` to root definitions + id refs.
+
+        A transitional merge-pipeline format embedded check OBJECTS on nodes.
+        The contract is: definitions live in root ``required_checks``; nodes
+        carry only ``activates_checks`` id references. This migrates such files
+        on load — id collisions with differing descriptions are renamed.
+        """
+        if not isinstance(data, dict):
+            return data
+        graph = data.get("verification_graph")
+        nodes = graph.get("nodes") if isinstance(graph, dict) else None
+        if not isinstance(nodes, list) or not any(
+            isinstance(n, dict) and n.get("checks") for n in nodes
+        ):
+            return data
+
+        checks: list = [c for c in (data.get("required_checks") or []) if isinstance(c, dict)]
+        by_id = {c.get("id"): c for c in checks}
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            embedded = node.pop("checks", None) or []
+            refs = list(node.get("activates_checks") or [])
+            for check in embedded:
+                if not isinstance(check, dict) or not check.get("id"):
+                    continue
+                cid = check["id"]
+                existing = by_id.get(cid)
+                if existing is None:
+                    by_id[cid] = check
+                    checks.append(check)
+                elif existing.get("description") != check.get("description"):
+                    base = cid
+                    i = 2
+                    while cid in by_id:
+                        cid = f"{base}_{i}"
+                        i += 1
+                    check = {**check, "id": cid}
+                    by_id[cid] = check
+                    checks.append(check)
+                if cid not in refs:
+                    refs.append(cid)
+            if refs:
+                node["activates_checks"] = refs
+        data["required_checks"] = checks
+        return data
+
     @model_validator(mode="after")
     def validate_required_checks(self) -> "Blueprint":
-        """Reject duplicate required check identifiers within one blueprint."""
+        """Reject duplicate check ids and node references to undefined checks."""
         check_ids = [check.id for check in self.required_checks]
         duplicate_ids = {check_id for check_id in check_ids if check_ids.count(check_id) > 1}
         if duplicate_ids:
             duplicates = ", ".join(sorted(duplicate_ids))
             raise ValueError(f"Duplicate required check ids found: {duplicates}")
+        known = set(check_ids)
+        for node in self.verification_graph.nodes:
+            unknown = [cid for cid in node.activates_checks if cid not in known]
+            if unknown:
+                raise ValueError(
+                    f"Node '{node.id}' activates undefined check(s): {', '.join(sorted(unknown))}"
+                )
         return self
+
+    def node_scoped_check_ids(self) -> set[str]:
+        """Ids of required checks activated by some node (vs. global from start)."""
+        return {cid for node in self.verification_graph.nodes for cid in node.activates_checks}

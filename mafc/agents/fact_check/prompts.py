@@ -185,7 +185,9 @@ def build_final_synthesis_prompt(session: AgentSession, state: FactCheckSessionS
 
 
 def _render_required_checks(state: FactCheckSessionState) -> str:
-    """Render the full required-check list for the initial prompt."""
+    """Render the ACTIVE required checks (blueprint-level + visited nodes')."""
+    if state.required_check_defs:
+        return "\n".join(f"- {c.id}: {c.description}" for c in state.required_check_defs.values())
     checks = state.selected_blueprint.required_checks
     if not checks:
         return "- None"
@@ -199,6 +201,8 @@ def _render_full_graph(state: FactCheckSessionState) -> str:
         lines.append(f"- node {node.id} ({node.type})")
         if isinstance(node, BlueprintActionNode) and node.actions:
             lines.append("  actions: " + ", ".join(action.action for action in node.actions))
+        if node.activates_checks:
+            lines.append("  activates checks: " + ", ".join(node.activates_checks))
         if node.transition:
             lines.append(
                 "  transitions: "

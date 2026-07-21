@@ -209,9 +209,16 @@ class CheckConsolidator:
     def __init__(self, model: Model) -> None:
         self.model = model
 
-    def consolidate(self, checks: list[BlueprintRequiredCheck]) -> list[BlueprintRequiredCheck]:
+    def consolidate(
+        self, checks: list[BlueprintRequiredCheck], add_applicability_escape: bool = False
+    ) -> list[BlueprintRequiredCheck]:
+        """Dedup a check list; optionally append the not-applicable escape.
+
+        The escape belongs on GLOBAL check lists only — checks attached to a
+        node are path-scoped and apply by construction.
+        """
         if len(checks) < 2:
-            return checks
+            return _with_applicability_escape(checks) if add_applicability_escape else checks
 
         prompt = _CHECK_USER.format(
             n=len(checks),
@@ -230,9 +237,34 @@ class CheckConsolidator:
         )
         if parsed is None:
             logger.warning("[TreeMerger] check consolidation failed; keeping original checks.")
-            return checks
+            return _with_applicability_escape(checks) if add_applicability_escape else checks
 
-        return _apply_check_groups(checks, parsed.groups)
+        result = _apply_check_groups(checks, parsed.groups)
+        return _with_applicability_escape(result) if add_applicability_escape else result
+
+
+_APPLICABILITY_ESCAPE = (
+    " (Mark UNCHECKED if this aspect does not apply to the claim — e.g. it has no"
+    " such media, link, statistic, or attributed statement.)"
+)
+
+
+def _with_applicability_escape(checks: list[BlueprintRequiredCheck]) -> list[BlueprintRequiredCheck]:
+    """Ensure every merged check states that it may not apply to every claim.
+
+    The merged tree carries the union of all lanes' checks, so most claims see
+    checks about aspects they don't have (WHOIS for a statistics claim). Without
+    an explicit escape the executor treats them as unmet gates.
+    """
+    out: list[BlueprintRequiredCheck] = []
+    for check in checks:
+        if "UNCHECKED" in check.description:
+            out.append(check)
+        else:
+            out.append(
+                BlueprintRequiredCheck(id=check.id, description=check.description + _APPLICABILITY_ESCAPE)
+            )
+    return out
 
 
 def _parse_checks(text: str) -> _CheckConsolidationResponse | None:

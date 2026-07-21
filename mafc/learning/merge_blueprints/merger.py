@@ -36,6 +36,7 @@ from mafc.learning.merge_blueprints.tree import (
     MergeEdge,
     MergeNode,
     ingest_graph,
+    routing_description,
 )
 
 
@@ -65,11 +66,13 @@ class BlueprintTreeMerger:
         reconcile: bool = True,
         consolidate: bool = True,
         max_actions: int = 4,
+        sharpen: bool = True,
     ) -> None:
         self.matcher = BranchMatcher(model)
         self.seed_first = seed_first
         self.reconcile = reconcile
         self.consolidate = consolidate
+        self.sharpen = sharpen
         self.consolidator = ActionConsolidator(model, max_actions=max_actions)
         self.check_consolidator = CheckConsolidator(model)
 
@@ -92,16 +95,31 @@ class BlueprintTreeMerger:
             if progress:
                 iterator.set_postfix_str(f"{bp.name} | {len(tree.entries)} branches")
             start = ingest_graph(bp.verification_graph, namespace=bp.name, finalize=tree.finalize)
+            # The blueprint's checks attach to its lane entry: they activate at
+            # runtime only for claims whose path enters this lane.
+            start.checks = [c.model_copy(deep=True) for c in bp.required_checks]
             tree.absorb_metadata(bp)
 
-            idx = self.matcher.match_entry(bp.entry_conditions, [e.conditions for e in tree.entries])
+            # Branch identity lives in the routing DESCRIPTION (maintained tree
+            # state): seeded from the blueprint's description + selector hints,
+            # updated on every fold, sharpened once at the end. Matching on the
+            # boolean gates dissolved semantically distinct lanes.
+            bp_routing = routing_description(bp)
+            # Fallback branches are excluded as fold targets: a specialized lane
+            # matching "nothing specific" needs its own branch, not the generic one.
+            candidates = [e for e in tree.entries if not e.is_fallback]
+            idx = self.matcher.match_entry(bp_routing, [e.description for e in candidates])
             if idx is None:
-                tree.entries.append(EntryBranch(bp.name, bp.entry_conditions, start))
+                tree.entries.append(
+                    EntryBranch(bp.name, bp.entry_conditions, start, description=bp_routing)
+                )
                 logger.debug(f"[TreeMerger] '{bp.name}' -> new router branch.")
             else:
-                logger.debug(f"[TreeMerger] '{bp.name}' -> merged into branch '{tree.entries[idx].label}'.")
-                self._merge_node(tree.entries[idx].start, start, tree, set())
-                _union_entry_conditions(tree.entries[idx], bp)
+                entry = candidates[idx]
+                logger.debug(f"[TreeMerger] '{bp.name}' -> merged into branch '{entry.label}'.")
+                self._merge_node(entry.start, start, tree, set())
+                _union_entry_conditions(entry, bp)
+                entry.description = self.matcher.fold_description(entry.description, bp_routing)
 
         if self.reconcile:
             logger.info("[TreeMerger] Reconciling sibling branches...")
@@ -110,6 +128,10 @@ class BlueprintTreeMerger:
         if self.consolidate:
             logger.info("[TreeMerger] Consolidating action nodes...")
             self._consolidate(tree, progress=progress)
+
+        if self.sharpen:
+            logger.info("[TreeMerger] Sharpening router branch descriptions...")
+            self._sharpen_router(tree)
 
         return TreeMergeResult(tree=tree, blueprint=tree.to_blueprint(name, description))
 
@@ -127,6 +149,7 @@ class BlueprintTreeMerger:
 
         if base.type == "actions" and signal.type == "actions":
             _union_actions(base, signal)
+        _union_checks(base, signal)
 
         base_edges = list(base.edges)
         signal_edges = list(signal.edges)
@@ -223,11 +246,48 @@ class BlueprintTreeMerger:
             if progress:
                 iterator.set_postfix_str(f"{node.id}: {before}->{len(node.actions)}")
 
-        before_checks = len(tree.required_checks)
-        tree.required_checks = self.check_consolidator.consolidate(tree.required_checks)
-        logger.info(
-            f"[TreeMerger] required checks consolidated: {before_checks} -> {len(tree.required_checks)}"
-        )
+        # Checks are deduplicated PER ATTACHMENT NODE (small lists from folded
+        # lanes — a far easier judgment than deduping the global union), plus
+        # the global list if anything remained blueprint-level. Entry nodes can
+        # be synthesis-type, so walk ALL nodes here, not just action nodes.
+        all_nodes: dict[int, MergeNode] = {}
+        for entry in tree.entries:
+            _collect_nodes(entry.start, all_nodes, set())
+        check_nodes = [n for n in all_nodes.values() if len(n.checks) >= 2]
+        for node in check_nodes:
+            before = len(node.checks)
+            node.checks = self.check_consolidator.consolidate(node.checks)
+            if len(node.checks) != before:
+                logger.info(
+                    f"[TreeMerger] checks at '{node.id}' consolidated: {before} -> {len(node.checks)}"
+                )
+        if len(tree.required_checks) >= 2:
+            before_checks = len(tree.required_checks)
+            tree.required_checks = self.check_consolidator.consolidate(
+                tree.required_checks, add_applicability_escape=True
+            )
+            logger.info(
+                f"[TreeMerger] global checks consolidated: {before_checks} -> {len(tree.required_checks)}"
+            )
+
+    # ------------------------------------------------------------------
+    # Router sharpening
+    # ------------------------------------------------------------------
+
+    def _sharpen_router(self, tree: MergedStrategyTree) -> None:
+        """One final contrast pass over the router branch descriptions.
+
+        Runs after all folds so it sharpens complete, current state; nothing
+        downstream regenerates descriptions, so timing stops mattering. The
+        fallback branch is excluded — its "only if nothing else fits" text is
+        emitted mechanically.
+        """
+        targets = [e for e in tree.entries if not e.is_fallback and e.description]
+        if len(targets) < 2:
+            return
+        sharpened = self.matcher.sharpen_router([e.description for e in targets])
+        for entry, description in zip(targets, sharpened):
+            entry.description = description
 
     # ------------------------------------------------------------------
     # Ordering
@@ -258,12 +318,30 @@ def _collect_action_nodes(node: MergeNode, out: dict[int, MergeNode], seen: set[
         _collect_action_nodes(edge.child, out, seen)
 
 
+def _collect_nodes(node: MergeNode, out: dict[int, MergeNode], seen: set[int]) -> None:
+    if node.is_finalize or id(node) in seen:
+        return
+    seen.add(id(node))
+    out[id(node)] = node
+    for edge in node.edges:
+        _collect_nodes(edge.child, out, seen)
+
+
 def _union_actions(base: MergeNode, signal: MergeNode) -> None:
     existing = {_action_key(a) for a in base.actions}
     for action in signal.actions:
         if _action_key(action) not in existing:
             base.actions.append(action)
             existing.add(_action_key(action))
+
+
+def _union_checks(base: MergeNode, signal: MergeNode) -> None:
+    """Move the signal node's attached checks onto the base node (dedup by id)."""
+    existing = {c.id for c in base.checks}
+    for check in signal.checks:
+        if check.id not in existing:
+            base.checks.append(check)
+            existing.add(check.id)
 
 
 def _action_key(a: BlueprintAction) -> tuple[str, str | None, str | None]:

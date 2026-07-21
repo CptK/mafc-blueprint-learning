@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from mafc.blueprints.models import Blueprint
+from mafc.blueprints.models import Blueprint, BlueprintNode, BlueprintRequiredCheck
 from mafc.common.evidence import Evidence
 
 
@@ -88,9 +88,33 @@ class FactCheckSessionState:
     iteration: int = 0
     required_check_status: dict[str, CheckStatus] = field(default_factory=dict)
     required_check_reasons: dict[str, str] = field(default_factory=dict)
+    required_check_defs: dict[str, BlueprintRequiredCheck] = field(default_factory=dict)
+    """Definitions of all ACTIVE checks (blueprint-level plus checks of visited
+    nodes). Node-attached checks join when execution first reaches their node,
+    so a claim only ever carries the checks of the path it actually takes."""
     action_history: list[str] = field(default_factory=list)
     node_history: list[str] = field(default_factory=list)
     delegated_tasks: dict[str, DelegatedTaskRecord] = field(default_factory=dict)
     evidences: list[Evidence] = field(default_factory=list)
     final_answer: str | None = None
     last_synthesis: str | None = None
+
+    def activate_node_checks(self, node: BlueprintNode) -> list[str]:
+        """Activate the checks a node references on first visit; returns new ids.
+
+        Definitions are looked up in the blueprint's root required_checks — the
+        single place check definitions live. Idempotent: already-active ids are
+        left untouched, so converging paths never duplicate or reset checks.
+        """
+        ids = getattr(node, "activates_checks", None) or []
+        if not ids:
+            return []
+        defs = {check.id: check for check in self.selected_blueprint.required_checks}
+        added: list[str] = []
+        for check_id in ids:
+            if check_id in self.required_check_status or check_id not in defs:
+                continue
+            self.required_check_status[check_id] = CheckStatus.UNCHECKED
+            self.required_check_defs[check_id] = defs[check_id]
+            added.append(check_id)
+        return added
