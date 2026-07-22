@@ -238,3 +238,52 @@ def test_scrapemm_retriever_extracts_pdf_content(monkeypatch) -> None:
 
     assert out is not None
     assert str(out) == "PDF page content"
+
+
+def test_disable_stdin_prompts_makes_firecrawl_raise_instead_of_blocking(monkeypatch) -> None:
+    """scrapeMM prompts on stdin when it can't reach Firecrawl (e.g. VPN down),
+    which would block the shared event loop. The guard must turn that into an
+    EOFError, which scrapemm handles as a failed retrieval method."""
+    import sys
+    import types
+
+    import mafc.tools.web_search.integrations.scrapemm_retriever as mod
+
+    fake_firecrawl = types.ModuleType("scrapemm.integrations.firecrawl.firecrawl")
+    monkeypatch.setitem(sys.modules, "scrapemm", types.ModuleType("scrapemm"))
+    monkeypatch.setitem(sys.modules, "scrapemm.integrations", types.ModuleType("scrapemm.integrations"))
+    pkg = types.ModuleType("scrapemm.integrations.firecrawl")
+    pkg.firecrawl = fake_firecrawl  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "scrapemm.integrations.firecrawl", pkg)
+    monkeypatch.setitem(sys.modules, "scrapemm.integrations.firecrawl.firecrawl", fake_firecrawl)
+
+    monkeypatch.setattr(mod, "_stdin_prompts_disabled", False)
+    mod._disable_stdin_prompts()
+
+    assert hasattr(fake_firecrawl, "input")
+    try:
+        fake_firecrawl.input("Please enter the URL of your Firecrawl instance: ")
+    except EOFError:
+        pass
+    else:
+        raise AssertionError("guarded input() should raise EOFError, not return")
+
+
+def test_disable_stdin_prompts_survives_upstream_refactor(monkeypatch) -> None:
+    """If upstream moves the prompt, the guard must warn rather than break retrieval."""
+    import builtins
+
+    import mafc.tools.web_search.integrations.scrapemm_retriever as mod
+
+    real_import = builtins.__import__
+
+    def exploding_import(name, *args, **kwargs):
+        if "firecrawl" in name:
+            raise ImportError("module moved")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", exploding_import)
+    monkeypatch.setattr(mod, "_stdin_prompts_disabled", False)
+
+    mod._disable_stdin_prompts()  # must not raise
+    assert mod._stdin_prompts_disabled is False

@@ -18,7 +18,22 @@ python-dotenv
 pytest
 black
 pytest-cov
-scrapeMM
+# scrapeMM's declared pins are self-contradictory and cannot be resolved by pip:
+# 0.7.6 requires requests~=2.34.2 but pins seleniumbase~=4.44.20, whose only
+# release requires requests~=2.32.5. Install it with --no-deps and pin the deps
+# here instead:
+#   pip install --no-deps scrapeMM==0.7.6
+# atproto is needed because 0.7.x imports the Bluesky integration eagerly at
+# `import scrapemm`; left to pip it backtracks to the atproto 0.0.1 stub and the
+# import dies on `atproto_client`. atproto caps websockets<16 while seleniumbase
+# asks for >=16.1.1 — 15.0.1 is correct here, as seleniumbase's CDP code only
+# uses websockets APIs present in 15.x. Keep seleniumbase newer than scrapeMM's
+# 4.44.20 pin; headed_browser only needs cdp_driver/Browser, present in 4.51.x.
+# A plain `pip install --upgrade scrapeMM` will silently revert atproto and
+# websockets even when it fails to resolve — re-check after any upgrade.
+scrapeMM==0.7.6
+atproto==0.0.69
+websockets==15.0.1
 google-cloud-vision
 pyyaml
 mypy

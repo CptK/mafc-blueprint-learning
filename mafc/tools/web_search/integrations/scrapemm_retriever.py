@@ -58,10 +58,42 @@ def _decode_pdf_blocks(content: MultimodalSequence) -> MultimodalSequence:
     return MultimodalSequence(*blocks)
 
 
+_stdin_prompts_disabled = False
+
+
+def _disable_stdin_prompts() -> None:
+    """Make scrapeMM fail instead of prompting when it can't find Firecrawl.
+
+    `locate_firecrawl` loops on a bare `input()` whenever no Firecrawl instance
+    answers — which happens whenever the VPN is down, since the configured
+    instance is university-internal. That `input()` runs on the shared event
+    loop thread, so on a TTY it blocks every retrieval in the process and the
+    `asyncio.wait_for` timeout below can never fire, because the loop that would
+    run the timeout callback is itself stuck. Shadowing `input` in that module
+    makes it raise EOFError instead, which scrapemm already handles as a failed
+    method and falls through to the next one — the same behaviour we get for
+    free when stdin isn't a TTY (pytest, piped output).
+    """
+    global _stdin_prompts_disabled
+    if _stdin_prompts_disabled:
+        return
+    try:
+        from scrapemm.integrations.firecrawl import firecrawl
+
+        def _no_stdin(prompt: str = "") -> str:
+            raise EOFError("scrapeMM asked for interactive input (is the VPN up?)")
+
+        firecrawl.input = _no_stdin  # type: ignore[attr-defined]
+        _stdin_prompts_disabled = True
+    except Exception as e:  # upstream moved the prompt; not worth failing over
+        logger.warning(f"[ScrapeMMRetriever] could not disable scrapeMM stdin prompts: {e}")
+
+
 def _retrieve_url(url: str) -> Awaitable[Any]:
     from scrapemm import retrieve  # needs to be lazy import because of runner tests
 
     logging.getLogger("scrapeMM").setLevel(logging.WARNING)  # scrapemm resets its logger to DEBUG on import
+    _disable_stdin_prompts()
 
     return cast(Awaitable[Any], retrieve(url, show_progress=False))
 
