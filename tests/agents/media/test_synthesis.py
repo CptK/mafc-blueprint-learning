@@ -8,7 +8,6 @@ from mafc.common.evidence import Evidence
 from mafc.common.modeling.message import Message
 from mafc.common.modeling.prompt import Prompt
 from mafc.common.modeling.model import Response
-from mafc.tools.web_search.common import WebSource
 
 from tests.agents.media.helpers import (
     FailingModel,
@@ -19,6 +18,7 @@ from tests.agents.media.helpers import (
     geo_result,
     make_session,
     registered_image,
+    exact_web_source,
     ris_result_with_sources,
 )
 
@@ -89,7 +89,7 @@ def test_returns_only_model_selected_evidences_for_follow_up() -> None:
         ]
     )
     ris_tool = FakeRisTool(
-        ris_result_with_sources(image.reference, [WebSource(reference="https://example.com/a", title="A")])
+        ris_result_with_sources(image.reference, [exact_web_source("https://example.com/a", title="A")])
     )
     geolocator = FakeGeolocator(geo_result(image.reference))
     agent = MediaAgent(model=model, summarization_model=model, ris_tool=ris_tool, geolocator=geolocator)

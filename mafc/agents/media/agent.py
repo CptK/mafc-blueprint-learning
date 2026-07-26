@@ -19,6 +19,9 @@ from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
 from mafc.tools.geolocate.geolocate import Geolocate, Geolocator
+from mafc.tools.media.c2pa_checker import C2PAChecker, CheckC2PAProvenance
+from mafc.tools.media.sightengine import SightengineChecker, SightengineDetectionAction
+from mafc.tools.media.trufor import DetectTruForManipulation, TruFor
 from mafc.tools.tool import Tool
 from mafc.tools.tool_result import ToolResult
 from mafc.tools.web_search.google_search import GoogleSearchPlatform
@@ -33,7 +36,10 @@ class MediaAgent(Agent):
         "Do not use it to discover new media on the web when no image or video is provided."
     )
 
-    allowed_tools = cast(list[type[Tool]], [ReverseImageSearchTool, Geolocator, GoogleSearchPlatform])
+    allowed_tools = cast(
+        list[type[Tool]],
+        [ReverseImageSearchTool, Geolocator, C2PAChecker, TruFor, SightengineChecker, GoogleSearchPlatform],
+    )
 
     def __init__(
         self,
@@ -42,6 +48,12 @@ class MediaAgent(Agent):
         summarization_model: Model | None = None,
         ris_tool: ReverseImageSearchTool | None = None,
         geolocator: Geolocator | None = None,
+        use_c2pa: bool = False,
+        c2pa_checker: C2PAChecker | None = None,
+        use_trufor: bool = False,
+        trufor_checker: TruFor | None = None,
+        use_sightengine: bool = False,
+        sightengine_checker: SightengineChecker | None = None,
         agent_id: str | None = None,
         trace_dir: str | None = None,
     ):
@@ -49,6 +61,9 @@ class MediaAgent(Agent):
         self.summarization_model = summarization_model or model
         self.ris_tool = ris_tool or ReverseImageSearchTool()
         self.geolocator = geolocator or Geolocator()
+        self.c2pa_checker = c2pa_checker or (C2PAChecker() if use_c2pa else None)
+        self.trufor_checker = trufor_checker or (TruFor() if use_trufor else None)
+        self.sightengine_checker = sightengine_checker or (SightengineChecker() if use_sightengine else None)
         self.trace_dir = trace_dir
 
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
@@ -324,4 +339,56 @@ class MediaAgent(Agent):
                 results.append((tool_name, self.ris_tool.perform(ReverseImageSearch(media_item.reference))))
             elif tool_name == "geolocate":
                 results.append((tool_name, self.geolocator.perform(Geolocate(media_item.reference))))
+            elif tool_name == "assess_authenticity":
+                results.extend(self._run_authenticity_fanout(media_item))
+            elif tool_name == "check_c2pa_provenance" and self.c2pa_checker is not None:
+                results.append(
+                    (tool_name, self.c2pa_checker.perform(CheckC2PAProvenance(media_item.reference)))
+                )
+            elif tool_name == "detect_trufor_manipulation" and self.trufor_checker is not None:
+                results.append(
+                    (tool_name, self.trufor_checker.perform(DetectTruForManipulation(media_item.reference)))
+                )
+            elif tool_name == "sightengine_detection" and self.sightengine_checker is not None:
+                results.append(
+                    (
+                        tool_name,
+                        self.sightengine_checker.perform(SightengineDetectionAction(media_item.reference)),
+                    )
+                )
+        return results
+
+    def _run_authenticity_fanout(self, media_item: Image | Video) -> list[tuple[str, ToolResult]]:
+        """Run every authenticity detector the agent was built with.
+
+        The three detectors are complementary — C2PA reads declared provenance,
+        TruFor finds local edits, SightEngine classifies AI-generation — so the
+        "assess_authenticity" intent runs all available ones rather than making
+        the planner pick between overlapping options. Each returns its own
+        ToolResult (kept separate, not fused), so per-signal caveats survive into
+        synthesis. Ordered cheapest/most-decisive first: local metadata, then
+        local inference, then the rate-limited paid API last.
+        """
+        results: list[tuple[str, ToolResult]] = []
+        if self.c2pa_checker is not None:
+            results.append(
+                (
+                    "check_c2pa_provenance",
+                    self.c2pa_checker.perform(CheckC2PAProvenance(media_item.reference)),
+                )
+            )
+        if self.trufor_checker is not None:
+            results.append(
+                (
+                    "detect_trufor_manipulation",
+                    self.trufor_checker.perform(DetectTruForManipulation(media_item.reference)),
+                )
+            )
+        if self.sightengine_checker is not None:
+            results.append(
+                (
+                    "sightengine_detection",
+                    self.sightengine_checker.perform(SightengineDetectionAction(media_item.reference)),
+                )
+            )
         return results
