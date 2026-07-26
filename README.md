@@ -41,3 +41,22 @@ Sample traces can be explored without any local setup at **https://cptk.github.i
    python -m scripts.serve_trace_viewer
    ```
 3. Open [http://127.0.0.1:8000](http://127.0.0.1:8000) — sample traces load automatically, or upload any JSON file from `traces/`.
+
+### Viewing traces from a benchmark run
+
+Traces reference media by registry ID (`<video:212>`, `<image:57>`). These IDs are row IDs in an
+`item_registry.db` and are **only meaningful within the registry that was active when the trace was
+written**. Every benchmark run creates its own registry at `<run_dir>/temp/item_registry.db`, so the
+same ID means a different file in every run.
+
+The viewer defaults to `temp/item_registry.db` in the repo root. When viewing a trace from
+`out/<run>/traces/`, you must point it at that run's registry instead:
+
+```bash
+python -m scripts.serve_trace_viewer \
+    --registry out/<run>/temp/item_registry.db
+```
+
+Without `--registry`, media IDs resolve against the wrong database and the viewer silently displays
+**unrelated images and videos** — the lookup succeeds, so there is no error to notice. Always pass
+the registry belonging to the run whose trace you are viewing.
