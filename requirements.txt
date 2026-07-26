@@ -44,3 +44,11 @@ uvicorn
 pillow
 fastapi
 playwright_stealth
+c2pa-python
+# Geolocation baselines (geolocation_test/). geoclip predicts GPS coordinates, so
+# reverse_geocoder maps them to countries offline and pycountry canonicalizes the
+# names for scoring. geoclip 1.2.0 predates transformers 5.x — see
+# patch_geoclip_for_transformers_v5 in geolocation_test/test_geoclip.py.
+geoclip
+reverse_geocoder
+pycountry
