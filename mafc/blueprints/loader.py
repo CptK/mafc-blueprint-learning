@@ -10,6 +10,10 @@ from mafc.blueprints.models import Blueprint
 
 SUPPORTED_BLUEPRINT_EXTENSIONS = {".yaml", ".yml", ".json"}
 
+# Sidecar files the learning pipeline writes into a blueprint directory. They share the
+# supported extensions but are not blueprints, so directory loads must skip them.
+NON_BLUEPRINT_FILENAMES = {"index.json", "synthesis_log.json"}
+
 
 def load_blueprint(path: str | Path) -> Blueprint:
     """Load and validate a single blueprint file from disk."""
@@ -34,7 +38,7 @@ def load_blueprints(path: str | Path) -> list[Blueprint]:
         for file_path in blueprint_path.rglob("*")
         if file_path.is_file()
         and file_path.suffix.lower() in SUPPORTED_BLUEPRINT_EXTENSIONS
-        and file_path.name != "index.json"
+        and file_path.name not in NON_BLUEPRINT_FILENAMES
     )
     return [load_blueprint(file_path) for file_path in blueprint_files]
 
