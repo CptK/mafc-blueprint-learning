@@ -7,7 +7,12 @@ from typing import Any, cast
 
 from mafc.agents.agent import AgentResult
 from mafc.agents.common import AgentSession
-from mafc.agents.fact_check.models import FactCheckSessionState, PlannerDecision, RoutingDecision
+from mafc.agents.fact_check.models import (
+    CheckUpdateDecision,
+    FactCheckSessionState,
+    PlannerDecision,
+    RoutingDecision,
+)
 from mafc.agents.tracing import (
     BaseTraceRecorder,
     sanitize_filename,
@@ -129,6 +134,7 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
                 for r in selection_result.rejected_blueprints
             ],
             "reason": selection_result.reason,
+            "discriminator": selection_result.discriminator,
             "llm_prompt": selection_result.llm_prompt,
             "llm_raw_response": selection_result.llm_raw_response,
         }
@@ -249,6 +255,28 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
             },
             iteration=iteration,
         )
+
+    def record_check_update_call(
+        self,
+        *,
+        messages: list[Message],
+        response_text: str,
+        decision: CheckUpdateDecision,
+        iteration: int,
+        stage: str,
+    ) -> None:
+        """Record a standalone check-status update call made outside the routing phase."""
+        serialized = _serialize_dataclass(decision)
+        record = self._current_iteration()
+        record["check_updates"].extend(serialized["check_updates"])
+        payload = {
+            "stage": stage,
+            "messages": [serialize_message(m) for m in messages],
+            "response": response_text,
+            "decision": serialized,
+        }
+        record["check_update_call"] = payload
+        self.record_event("check_update_llm", payload, iteration=iteration)
 
     def record_node_transition(
         self,

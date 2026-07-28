@@ -11,6 +11,7 @@ from mafc.common.modeling.prompt import Prompt
 from tests.agents.fact_check.helpers import (
     FakeWorkerAgent,
     SequencedModel,
+    check_update_response,
     make_registry,
     make_selector,
     registered_image,
@@ -34,6 +35,7 @@ def test_allows_staying_when_budget_has_layer_slack(tmp_path) -> None:
                     ],
                 }
             ),
+            check_update_response("location_checked"),
             "Stayed once, then finalized.",
         ]
     )
@@ -53,7 +55,7 @@ def test_allows_staying_when_budget_has_layer_slack(tmp_path) -> None:
 
     assert result.result is not None
     assert "stay_allowed: True" in planner.calls[0]
-    assert "concise fact-check synthesis" in planner.calls[1]
+    assert "concise fact-check synthesis" in planner.calls[-1]
 
 
 def test_forces_next_layer_when_budget_has_no_slack(tmp_path) -> None:

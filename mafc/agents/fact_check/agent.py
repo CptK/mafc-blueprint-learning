@@ -18,10 +18,15 @@ from mafc.agents.fact_check.models import (
     PlannerCheckUpdate,
     PlannerDecisionType,
 )
-from mafc.agents.fact_check.parsing import try_parse_planner_decision, try_parse_routing_decision
+from mafc.agents.fact_check.parsing import (
+    try_parse_check_update_decision,
+    try_parse_planner_decision,
+    try_parse_routing_decision,
+)
 from mafc.utils.parsing import try_parse_with_repair
 from mafc.agents.fact_check.prompts import (
     build_action_node_prompt,
+    build_check_update_prompt,
     build_final_synthesis_prompt,
     build_routing_prompt,
     build_system_prompt,
@@ -343,6 +348,9 @@ class FactCheckAgent(Agent):
         state.action_history.append(f"{decision.decision_type.value}: {decision.rationale}")
 
         if decision.decision_type == PlannerDecisionType.FINALIZE:
+            # Finalizing here skips the routing phase entirely, so settle the checks
+            # first — the synthesis renders the ledger into the verdict.
+            self._maybe_update_checks(session, state, errors, trace, stage="action_finalize")
             state.final_answer = decision.final_answer or self._synthesize_findings(
                 session, state, None, trace=trace, stage="action_finalize"
             )
@@ -374,12 +382,16 @@ class FactCheckAgent(Agent):
         options = self._get_routing_options(current_node)
 
         if not options:
-            # No outgoing transitions — end of graph
+            # No outgoing transitions — end of graph. No routing call happens here,
+            # so the checks get their last chance to be settled before the verdict.
+            self._maybe_update_checks(session, state, errors, trace, stage="terminal_node")
             trace.record_auto_routing("finalize", state.iteration)
             return True
 
         if len(options) == 1:
-            # Single path — advance without an LLM call
+            # Single path — advance without a routing LLM call, but still let the
+            # model settle whatever this node's evidence now resolves.
+            self._maybe_update_checks(session, state, errors, trace, stage="single_exit_node")
             target = options[0].to
             trace.record_auto_routing(target, state.iteration)
             if target == "finalize":
@@ -478,15 +490,99 @@ class FactCheckAgent(Agent):
         state.last_synthesis = None
         return False
 
+    def _maybe_update_checks(
+        self,
+        session: AgentSession,
+        state: FactCheckSessionState,
+        errors: list[str],
+        trace: FactCheckTraceRecorder,
+        stage: str,
+    ) -> None:
+        """Re-evaluate unresolved checks wherever the routing phase makes no LLM call.
+
+        Check updates normally ride along with the routing decision, but routing
+        only calls the LLM when a node offers two or more transitions. Without this
+        pass, a check activated on a single-exit chain would stay 'unchecked' for
+        the rest of the run and reach the verdict as unresolved uncertainty —
+        penalising the deeper path for investigating further.
+
+        The call is a cheap, focused one (no blueprint system prompt, no routing
+        decision) and is skipped whenever it could not learn anything: no
+        unresolved checks, no evidence to judge them against, or nothing changed
+        since the checks were last evaluated.
+        """
+        if not state.open_check_ids() or not state.evidences:
+            return
+        if state.check_evaluation_signature() == state.last_check_evaluation:
+            return
+
+        messages = [
+            Message(role=MessageRole.USER, content=Prompt(text=build_check_update_prompt(session, state)))
+        ]
+        _resp = self.model.generate(messages)
+        response_text = _resp.text.strip()
+        trace.add_usage(_resp, self.model.name)
+        trace.add_timing("llm_check_update_ms", _resp.duration_ms or 0.0)
+        logger.debug(f"[FactCheckAgent] Iteration {state.iteration} check update response:\n{response_text}")
+
+        _check_repair_prefix = (
+            "Convert the following response to strict JSON with schema:\n"
+            '{"check_updates":[{"id":"string","status":"supported|refuted|unclear","reason":"string"}]}\n'
+            "Only return JSON."
+        )
+        decision, repair_text = try_parse_with_repair(
+            response_text, try_parse_check_update_decision, self.model, _check_repair_prefix, trace
+        )
+        if repair_text is not None:
+            trace.record_repair(
+                phase="check_update_parse",
+                prompt=f"{_check_repair_prefix}\n\nResponse:\n{response_text}",
+                response_text=repair_text,
+                iteration=state.iteration,
+            )
+        if decision is None:
+            message = f"Check update returned invalid output in iteration {state.iteration}."
+            errors.append(message)
+            trace.record_error(
+                phase="check_update_parse",
+                message=message,
+                iteration=state.iteration,
+                raw_response=response_text,
+            )
+            # Unparseable, but the evidence was still put to the model: stamp the
+            # state so the next single-exit node does not re-ask the same question.
+            self._apply_check_updates(state, [])
+            return
+
+        for warning in decision.coercion_warnings:
+            trace.record_error(
+                phase="check_update_parse_coercion",
+                message=warning,
+                iteration=state.iteration,
+            )
+        trace.record_check_update_call(
+            messages=messages,
+            response_text=response_text,
+            decision=decision,
+            iteration=state.iteration,
+            stage=stage,
+        )
+        self._apply_check_updates(state, decision.check_updates)
+
     def _apply_check_updates(
         self, state: FactCheckSessionState, check_updates: list[PlannerCheckUpdate]
     ) -> None:
-        """Merge planner-provided required-check updates into the session state."""
+        """Merge planner-provided required-check updates into the session state.
+
+        Also stamps the state the checks were evaluated against, so the standalone
+        check-update pass never re-asks about an unchanged state.
+        """
         for update in check_updates:
             if update.id not in state.required_check_status:
                 continue
             state.required_check_status[update.id] = update.status
             state.required_check_reasons[update.id] = update.reason
+        state.last_check_evaluation = state.check_evaluation_signature()
 
     def _delegate_tasks(
         self,

@@ -65,6 +65,18 @@ class RoutingDecision:
 
 
 @dataclass
+class CheckUpdateDecision:
+    """Structured output of the standalone check-status update call.
+
+    Emitted where the routing phase makes no LLM call (single-exit and terminal
+    nodes) and therefore cannot carry check updates along with its decision.
+    """
+
+    check_updates: list[PlannerCheckUpdate] = field(default_factory=list)
+    coercion_warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DelegatedTaskRecord:
     """Tracked execution record for one delegated task and its child session."""
 
@@ -98,6 +110,28 @@ class FactCheckSessionState:
     evidences: list[Evidence] = field(default_factory=list)
     final_answer: str | None = None
     last_synthesis: str | None = None
+    last_check_evaluation: tuple[int, tuple[str, ...]] | None = None
+    """Signature of the state the checks were last evaluated against. Guards the
+    standalone check-update call so it only fires when something it could act on
+    actually changed (see ``check_evaluation_signature``)."""
+
+    def open_check_ids(self) -> tuple[str, ...]:
+        """Return the ids of active checks that are not yet resolved, sorted."""
+        return tuple(
+            sorted(
+                check_id
+                for check_id, status in self.required_check_status.items()
+                if status in (CheckStatus.UNCHECKED, CheckStatus.UNCLEAR)
+            )
+        )
+
+    def check_evaluation_signature(self) -> tuple[int, tuple[str, ...]]:
+        """Signature of everything a check-status re-evaluation depends on.
+
+        A re-evaluation can only reach a new conclusion when either new evidence
+        arrived or the set of unresolved checks changed (a node activated more).
+        """
+        return (len(self.evidences), self.open_check_ids())
 
     def activate_node_checks(self, node: BlueprintNode) -> list[str]:
         """Activate the checks a node references on first visit; returns new ids.

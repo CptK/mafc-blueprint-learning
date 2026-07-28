@@ -13,6 +13,7 @@ from tests.agents.fact_check.helpers import (
     FakeSearchTool,
     FakeWorkerAgent,
     SequencedModel,
+    check_update_response,
     make_registry,
     make_search_result,
     make_selector,
@@ -37,6 +38,7 @@ def test_writes_structured_execution_trace(tmp_path) -> None:
                     ],
                 }
             ),
+            check_update_response("location_checked"),
             "The image is consistent with Athens.",
         ]
     )
@@ -70,6 +72,8 @@ def test_writes_structured_execution_trace(tmp_path) -> None:
     assert payload["iterations"][0]["iteration"] == 1
     assert payload["iterations"][0]["node_before"] == "iter1_search"
     assert payload["iterations"][0]["routing"]["target_node_id"] == "finalize"
+    assert payload["iterations"][0]["check_updates"][0]["id"] == "location_checked"
+    assert payload["summary"]["required_checks"]["location_checked"] == "supported"
     assert payload["iterations"][0]["planner_messages"][0]["role"] == "system"
     assert payload["iterations"][0]["delegated_tasks"][0]["task_id"] == "media_location"
     assert (

@@ -10,6 +10,7 @@ from mafc.common.modeling.prompt import Prompt
 from tests.agents.fact_check.helpers import (
     FakeWorkerAgent,
     SequencedModel,
+    check_update_response,
     make_registry,
     make_selector,
     registered_image,
@@ -33,6 +34,7 @@ def test_delegates_to_media_agent_and_finalizes(tmp_path) -> None:
                     ],
                 }
             ),
+            check_update_response("location_checked"),
             "The image is consistent with Athens.",
         ]
     )
@@ -60,8 +62,8 @@ def test_delegates_to_media_agent_and_finalizes(tmp_path) -> None:
     assert "media: Fake worker for image://athens" in planner.calls[0]
     assert "media_delegation_allowed: True" in planner.calls[0]
     assert image.reference in planner.calls[0]
-    assert "concise fact-check synthesis" in planner.calls[1]
-    assert "Likely Athens based on landmarks." in planner.calls[1]
+    assert "concise fact-check synthesis" in planner.calls[-1]
+    assert "Likely Athens based on landmarks." in planner.calls[-1]
     assert "The image is consistent with Athens." in str(result.result)
 
 

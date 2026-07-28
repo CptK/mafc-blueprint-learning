@@ -14,6 +14,7 @@ from tests.agents.fact_check.helpers import (
     ASSETS_DIR,
     FakeWorkerAgent,
     SequencedModel,
+    check_update_response,
     make_registry,
     make_selector,
     registered_image,
@@ -43,14 +44,8 @@ def test_reuses_child_session_for_follow_up_task(tmp_path) -> None:
                     ],
                 }
             ),
-            json.dumps(
-                {
-                    "next_node_id": "finalize",
-                    "rationale": "Evidence is sufficient.",
-                    "final_answer": "The image appears to predate the claimed event.",
-                    "check_updates": [],
-                }
-            ),
+            check_update_response("location_checked"),
+            "The image appears to predate the claimed event.",
         ]
     )
     media_agent = FakeWorkerAgent("Media evidence.", "image://origin")
@@ -93,14 +88,8 @@ def test_media_child_session_receives_tagged_image(tmp_path) -> None:
                     ],
                 }
             ),
-            json.dumps(
-                {
-                    "next_node_id": "finalize",
-                    "rationale": "Got media evidence.",
-                    "final_answer": "Second image analyzed.",
-                    "check_updates": [{"id": "location_checked", "status": "supported", "reason": "done"}],
-                }
-            ),
+            check_update_response("location_checked"),
+            "Second image analyzed.",
         ]
     )
     media_agent = FakeWorkerAgent("Evidence from second image.", "image://b")

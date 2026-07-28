@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from mafc.agents.fact_check.models import (
     CheckStatus,
+    CheckUpdateDecision,
     DelegationTask,
     PlannerCheckUpdate,
     PlannerDecision,
@@ -68,6 +69,29 @@ class RoutingDecisionPayload(BaseModel):
     final_answer: str | None = None
 
 
+class CheckUpdateDecisionPayload(BaseModel):
+    """Validated JSON payload for the standalone check-update call."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    check_updates: list[PlannerCheckUpdatePayload] = []
+
+
+def _collect_coercion_warnings(payload: dict, parsed_updates: list[PlannerCheckUpdatePayload]) -> list[str]:
+    """Report check updates whose invalid status was coerced to 'unclear'."""
+    warnings: list[str] = []
+    for raw, item in zip(payload.get("check_updates") or [], parsed_updates):
+        raw_status = raw.get("status") if isinstance(raw, dict) else None
+        if raw_status is not None and raw_status != item.status.value:
+            warnings.append(f"check_update '{item.id}': invalid status '{raw_status}' coerced to 'unclear'")
+    return warnings
+
+
+def _to_check_updates(parsed_updates: list[PlannerCheckUpdatePayload]) -> list[PlannerCheckUpdate]:
+    """Convert validated check-update payloads into the orchestration dataclass."""
+    return [PlannerCheckUpdate(id=item.id, status=item.status, reason=item.reason) for item in parsed_updates]
+
+
 def parse_planner_decision(response_text: str) -> PlannerDecision:
     """Parse action-node planner output into a strongly typed decision."""
     payload = json.loads(extract_json_object(strip_json_fences(response_text.strip())))
@@ -101,23 +125,12 @@ def parse_routing_decision(response_text: str) -> RoutingDecision:
     """Parse routing-phase output into a strongly typed routing decision."""
     payload = json.loads(extract_json_object(strip_json_fences(response_text.strip())))
     parsed = RoutingDecisionPayload.model_validate(payload)
-    raw_updates = payload.get("check_updates") or []
-    coercion_warnings: list[str] = []
-    for raw, item in zip(raw_updates, parsed.check_updates):
-        raw_status = raw.get("status") if isinstance(raw, dict) else None
-        if raw_status is not None and raw_status != item.status.value:
-            coercion_warnings.append(
-                f"check_update '{item.id}': invalid status '{raw_status}' coerced to 'unclear'"
-            )
     return RoutingDecision(
         next_node_id=parsed.next_node_id,
         rationale=parsed.rationale,
-        check_updates=[
-            PlannerCheckUpdate(id=item.id, status=item.status, reason=item.reason)
-            for item in parsed.check_updates
-        ],
+        check_updates=_to_check_updates(parsed.check_updates),
         final_answer=parsed.final_answer,
-        coercion_warnings=coercion_warnings,
+        coercion_warnings=_collect_coercion_warnings(payload, parsed.check_updates),
     )
 
 
@@ -125,5 +138,23 @@ def try_parse_routing_decision(response_text: str) -> RoutingDecision | None:
     """Return a parsed routing decision or None when the response is invalid."""
     try:
         return parse_routing_decision(response_text)
+    except (json.JSONDecodeError, ValidationError, ValueError):
+        return None
+
+
+def parse_check_update_decision(response_text: str) -> CheckUpdateDecision:
+    """Parse standalone check-update output into a strongly typed decision."""
+    payload = json.loads(extract_json_object(strip_json_fences(response_text.strip())))
+    parsed = CheckUpdateDecisionPayload.model_validate(payload)
+    return CheckUpdateDecision(
+        check_updates=_to_check_updates(parsed.check_updates),
+        coercion_warnings=_collect_coercion_warnings(payload, parsed.check_updates),
+    )
+
+
+def try_parse_check_update_decision(response_text: str) -> CheckUpdateDecision | None:
+    """Return a parsed check-update decision or None when the response is invalid."""
+    try:
+        return parse_check_update_decision(response_text)
     except (json.JSONDecodeError, ValidationError, ValueError):
         return None

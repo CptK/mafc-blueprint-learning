@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -159,6 +160,16 @@ verification_graph:
             encoding="utf-8",
         )
     return BlueprintRegistry.from_path(tmp_path)
+
+
+def check_update_response(check_id: str, status: str = "supported", reason: str = "Investigated.") -> str:
+    """Scripted answer for the standalone check-update call.
+
+    That call happens after every node whose routing has fewer than two options
+    and whose active checks are still open, so blueprints with such nodes need
+    one of these in their model output sequence.
+    """
+    return json.dumps({"check_updates": [{"id": check_id, "status": status, "reason": reason}]})
 
 
 def make_selector(registry: BlueprintRegistry) -> BlueprintSelector:

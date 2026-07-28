@@ -51,11 +51,7 @@ def build_system_prompt(state: FactCheckSessionState, available_sub_agents: str)
     blueprint = state.selected_blueprint
     policy = blueprint.policy_constraints
     progression = _progression_summary(state)
-    open_checks = [
-        check_id
-        for check_id, check_status in state.required_check_status.items()
-        if check_status.value in {"unchecked", "unclear"}
-    ]
+    open_checks = state.open_check_ids()
     return (
         f"{build_planner_system_instructions()}\n\n"
         f"Available sub-agents:\n{available_sub_agents}\n\n"
@@ -93,11 +89,6 @@ def build_action_node_prompt(
     current_node = next(
         node for node in blueprint.verification_graph.nodes if node.id == state.current_node_id
     )
-    check_status_lines = [
-        f"- {check_id}: {status.value}"
-        + (f" — {state.required_check_reasons[check_id]}" if check_id in state.required_check_reasons else "")
-        for check_id, status in state.required_check_status.items()
-    ]
     action_lines = []
     if isinstance(current_node, BlueprintActionNode) and current_node.actions:
         for action in current_node.actions:
@@ -114,7 +105,7 @@ def build_action_node_prompt(
     image_tags = ", ".join(img.reference[1:-1] for img in media_source.images) if n_images else "none"
     video_tags = ", ".join(vid.reference[1:-1] for vid in media_source.videos) if n_videos else "none"
     return (
-        f"Claim:\n{session.claim.describe() if session.claim is not None else str(session.goal).strip()}\n\n"
+        f"Claim:\n{_render_claim(session)}\n\n"
         f"Iteration: {state.iteration} / remaining budget: {max(blueprint.policy_constraints.max_iterations - state.iteration, 0)}\n"
         f"Claim modalities:\n"
         f"- images: {n_images} ({image_tags})\n"
@@ -126,7 +117,7 @@ def build_action_node_prompt(
         f"Action history:\n"
         f"{chr(10).join(f'- {item}' for item in state.action_history) if state.action_history else 'None'}\n\n"
         f"Delegated task history:\n{_render_delegated_tasks_block(state)}\n\n"
-        f"Required check status:\n{chr(10).join(check_status_lines) if check_status_lines else 'None'}\n\n"
+        f"Required check status:\n{_render_check_status_lines(state)}\n\n"
         "Decide which tasks to delegate, or finalize if the evidence is already sufficient.\n\n"
         "Return strict JSON only:\n"
         '{"decision_type":"delegate|finalize","rationale":"string",'
@@ -145,24 +136,53 @@ def build_routing_prompt(
     routing_options is a list of BlueprintTransition-like objects with .if_ and .to fields.
     The special target 'finalize' signals that the loop should end.
     """
-    check_status_lines = [
-        f"- {check_id}: {status.value}"
-        + (f" — {state.required_check_reasons[check_id]}" if check_id in state.required_check_reasons else "")
-        for check_id, status in state.required_check_status.items()
-    ]
     options_lines = [f"- if {opt.if_} → {opt.to}" for opt in routing_options]
     synthesis_section = f"Synthesis output:\n{state.last_synthesis}\n\n" if state.last_synthesis else ""
     return (
         f"Routing decision for node: {state.current_node_id}\n\n"
         f"{synthesis_section}"
         f"Accepted evidence summaries:\n{_render_planner_evidence_summaries(state)}\n\n"
-        f"Required check status:\n{chr(10).join(check_status_lines) if check_status_lines else 'None'}\n\n"
+        f"Required check status:\n{_render_check_status_lines(state)}\n\n"
         f"Available routing options:\n{chr(10).join(options_lines)}\n\n"
         "Choose next_node_id from the options above. "
         "Use 'finalize' to end the loop and provide a final answer.\n\n"
         "Return strict JSON only:\n"
         '{"next_node_id":"string","rationale":"string",'
         '"final_answer":"string|null","check_updates":[{"id":"string","status":"supported|refuted|unclear","reason":"string"}]}'
+    )
+
+
+def build_check_update_prompt(session: AgentSession, state: FactCheckSessionState) -> str:
+    """Build the prompt for the standalone check-status update call.
+
+    Used where the routing phase makes no LLM call — a node with a single
+    outgoing transition, or none at all — and therefore cannot carry check
+    updates. The next node is already fixed, so this asks for nothing but the
+    check ledger and deliberately omits the blueprint system prompt: no routing
+    choice is being made, so the graph and policy are not needed.
+    """
+    open_check_lines = [
+        f"- {check_id}: {state.required_check_defs[check_id].description}"
+        for check_id in state.open_check_ids()
+        if check_id in state.required_check_defs
+    ]
+    synthesis_section = f"Synthesis output:\n{state.last_synthesis}\n\n" if state.last_synthesis else ""
+    return (
+        "You are a fact-checking orchestration agent maintaining the required-check ledger.\n"
+        "The work at the current node is done and the next node is already determined — "
+        "you are not choosing one. Decide only which of the unresolved checks below the "
+        "evidence gathered so far now settles.\n"
+        "Use 'supported' or 'refuted' only when the evidence actually decides the check, "
+        "'unclear' when it was investigated but the evidence stays inconclusive, and omit a "
+        "check entirely when nothing so far speaks to it.\n\n"
+        f"Claim:\n{_render_claim(session)}\n\n"
+        f"Current node: {state.current_node_id}\n\n"
+        f"{synthesis_section}"
+        f"Accepted evidence summaries:\n{_render_planner_evidence_summaries(state)}\n\n"
+        f"Unresolved checks:\n{chr(10).join(open_check_lines) if open_check_lines else 'None'}\n\n"
+        f"Required check status:\n{_render_check_status_lines(state)}\n\n"
+        "Return strict JSON only:\n"
+        '{"check_updates":[{"id":"string","status":"supported|refuted|unclear","reason":"string"}]}'
     )
 
 
@@ -178,10 +198,25 @@ def build_final_synthesis_prompt(session: AgentSession, state: FactCheckSessionS
     return (
         "Provide a concise fact-check synthesis using only the accepted evidence and check statuses below.\n"
         "Be explicit about unresolved uncertainty.\n\n"
-        f"Claim:\n{session.claim.describe() if session.claim is not None else str(session.goal).strip()}\n\n"
+        f"Claim:\n{_render_claim(session)}\n\n"
         f"Required checks:\n{chr(10).join(check_lines) if check_lines else 'None'}\n\n"
         f"Evidence:\n{chr(10).join(evidence_lines) if evidence_lines else 'None'}"
     )
+
+
+def _render_claim(session: AgentSession) -> str:
+    """Render the claim under investigation, falling back to the session goal."""
+    return session.claim.describe() if session.claim is not None else str(session.goal).strip()
+
+
+def _render_check_status_lines(state: FactCheckSessionState) -> str:
+    """Render the current status of every active check with its last reason."""
+    lines = [
+        f"- {check_id}: {status.value}"
+        + (f" — {state.required_check_reasons[check_id]}" if check_id in state.required_check_reasons else "")
+        for check_id, status in state.required_check_status.items()
+    ]
+    return "\n".join(lines) if lines else "None"
 
 
 def _render_required_checks(state: FactCheckSessionState) -> str:
