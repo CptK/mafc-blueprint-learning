@@ -345,38 +345,85 @@ class BlueprintConsolidator:
         if not merge_groups:
             return
 
-        # Track which blueprints have already been consumed in a merge this round.
-        consumed: set[str] = set()
-
-        for group in merge_groups:
-            base_name, remove_name = group.blueprints[0], group.blueprints[1]
-
-            if base_name in consumed or remove_name in consumed:
-                logger.debug(
-                    f"[BlueprintConsolidator] Skipping merge ({base_name}, {remove_name}): "
-                    "one or both already consumed."
-                )
-                continue
-            if not registry.contains(base_name) or not registry.contains(remove_name):
-                logger.debug(
-                    f"[BlueprintConsolidator] Skipping merge ({base_name}, {remove_name}): "
-                    "one or both no longer in registry."
-                )
-                continue
-            if self.max_merged_size is not None and self.merge_size_lookup is not None:
-                combined_size = self.merge_size_lookup.get(base_name, 0) + self.merge_size_lookup.get(
-                    remove_name, 0
-                )
-                if combined_size > self.max_merged_size:
-                    logger.info(
-                        f"[BlueprintConsolidator] Vetoed merge ({base_name} + {remove_name}): "
-                        f"combined {combined_size} claims > cap {self.max_merged_size}."
+        # The detector reports pairs, but those pairs form cliques: when it judges A~B,
+        # A~C and A~D it has identified one redundant family, not three coincidences.
+        # Executing them as disjoint pairs would collapse such a family by a single
+        # merge and abandon the rest, so fold each connected component whole.
+        for component in self._merge_components(merge_groups):
+            base_name = component[0]
+            for other_name in component[1:]:
+                if not registry.contains(base_name) or not registry.contains(other_name):
+                    logger.debug(
+                        f"[BlueprintConsolidator] Skipping merge ({base_name}, {other_name}): "
+                        "one or both no longer in registry."
                     )
                     continue
+                if self.max_merged_size is not None and self.merge_size_lookup is not None:
+                    combined_size = self.merge_size_lookup.get(
+                        base_name, 0
+                    ) + self.merge_size_lookup.get(other_name, 0)
+                    if combined_size > self.max_merged_size:
+                        logger.info(
+                            f"[BlueprintConsolidator] Vetoed merge ({base_name} + {other_name}): "
+                            f"combined {combined_size} claims > cap {self.max_merged_size}."
+                        )
+                        continue
 
-            self._execute_merge(registry, coverage, base_name, remove_name, result)
-            consumed.add(base_name)
-            consumed.add(remove_name)
+                merged_name = self._execute_merge(
+                    registry, coverage, base_name, other_name, result
+                )
+                if merged_name is None:
+                    continue
+                # A merge renames the survivor, so the next fold must target the new
+                # name and inherit the accumulated coverage and claim count.
+                if merged_name != base_name:
+                    coverage[merged_name] = coverage.get(base_name, []) + coverage.get(
+                        other_name, []
+                    )
+                    if self.merge_size_lookup is not None:
+                        self.merge_size_lookup[merged_name] = self.merge_size_lookup.get(
+                            base_name, 0
+                        ) + self.merge_size_lookup.get(other_name, 0)
+                else:
+                    coverage[base_name] = coverage.get(base_name, []) + coverage.get(
+                        other_name, []
+                    )
+                    if self.merge_size_lookup is not None:
+                        self.merge_size_lookup[base_name] = self.merge_size_lookup.get(
+                            base_name, 0
+                        ) + self.merge_size_lookup.get(other_name, 0)
+                base_name = merged_name
+
+    @staticmethod
+    def _merge_components(merge_groups: list[_MergeGroup]) -> list[list[str]]:
+        """Group the detected pairs into connected components, order preserved.
+
+        Ordering follows first appearance so the blueprint the detector named first
+        becomes the base of its component, keeping behaviour predictable.
+        """
+        parent: dict[str, str] = {}
+        order: list[str] = []
+
+        def find(name: str) -> str:
+            parent.setdefault(name, name)
+            while parent[name] != name:
+                parent[name] = parent[parent[name]]
+                name = parent[name]
+            return name
+
+        for group in merge_groups:
+            for name in group.blueprints:
+                if name not in parent:
+                    parent[name] = name
+                    order.append(name)
+            first, second = find(group.blueprints[0]), find(group.blueprints[1])
+            if first != second:
+                parent[second] = first
+
+        components: dict[str, list[str]] = {}
+        for name in order:
+            components.setdefault(find(name), []).append(name)
+        return [members for members in components.values() if len(members) > 1]
 
     def _detect_merges(
         self,
@@ -443,7 +490,8 @@ class BlueprintConsolidator:
         base_name: str,
         remove_name: str,
         result: ConsolidationResult,
-    ) -> None:
+    ) -> str | None:
+        """Merge one blueprint into another. Returns the survivor's name, or None."""
         base_bp = registry.get(base_name)
         remove_bp = registry.get(remove_name)
         combined_records = coverage.get(base_name, []) + coverage.get(remove_name, [])
@@ -459,7 +507,7 @@ class BlueprintConsolidator:
                 f"[BlueprintConsolidator] Updater failed for merge "
                 f"({base_name} + {remove_name}), skipping."
             )
-            return
+            return None
 
         merged_bp = apply_merge_budget_guard(update_result.updated_blueprint, base_bp, remove_bp)
 
@@ -472,3 +520,4 @@ class BlueprintConsolidator:
             f"→ '{merged_bp.name}' "
             f"({len(combined_records)} combined claims)."
         )
+        return merged_bp.name

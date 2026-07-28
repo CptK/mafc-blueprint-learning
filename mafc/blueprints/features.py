@@ -7,7 +7,7 @@ from typing import Any
 from ezmm import MultimodalSequence
 
 from mafc.common.claim import Claim
-from mafc.blueprints.models import ClaimFeatures
+from mafc.blueprints.models import SEMANTIC_FEATURE_NAMES, ClaimFeatures
 
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
 YEAR_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
@@ -17,8 +17,18 @@ MONTH_PATTERN = re.compile(
 )
 
 
-def extract_claim_features(claim: Claim | MultimodalSequence | str) -> ClaimFeatures:
-    """Extract a deterministic typed feature set from a claim-like input."""
+def extract_claim_features(
+    claim: Claim | MultimodalSequence | str,
+    semantic_features: Mapping[str, bool | None] | None = None,
+) -> ClaimFeatures:
+    """Extract a typed feature set from a claim-like input.
+
+    Args:
+        claim: The claim to extract features from.
+        semantic_features: Optional tri-state semantic features from
+            SemanticFeatureExtractor. Omitted or None-valued entries stay
+            undetermined and never eliminate a blueprint.
+    """
     claim_sequence = _as_multimodal_sequence(claim)
     text = str(claim_sequence).strip()
 
@@ -45,6 +55,15 @@ def extract_claim_features(claim: Claim | MultimodalSequence | str) -> ClaimFeat
                 "claim_has_origin": claim.origin is not None,
                 "claim_has_meta_info": claim.meta_info is not None,
                 "claim_has_date_metadata": claim.date is not None,
+            }
+        )
+
+    if semantic_features:
+        feature_values.update(
+            {
+                key: value
+                for key, value in semantic_features.items()
+                if key in SEMANTIC_FEATURE_NAMES
             }
         )
 
@@ -84,6 +103,12 @@ def _evaluate_condition(features: Mapping[str, Any], condition: Any) -> bool:
     actual = features.get(condition.feature)
     expected = condition.value
     operator = condition.op
+
+    # An undetermined semantic feature carries no information, so it must not
+    # eliminate a blueprint — treat the predicate as satisfied and let the LLM
+    # tie-break decide instead.
+    if actual is None and condition.feature in SEMANTIC_FEATURE_NAMES:
+        return True
 
     if operator == "==":
         return bool(actual == expected)

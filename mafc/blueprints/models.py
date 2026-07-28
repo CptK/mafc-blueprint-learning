@@ -12,8 +12,30 @@ class BlueprintBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
+# Semantic features describe what a claim is *about* rather than what it structurally
+# contains. They are tri-state: True / False / None, where None means "not determined".
+# A condition on an undetermined semantic feature never eliminates a blueprint, so a
+# failed or skipped extraction degrades to the LLM tie-break instead of mis-routing.
+SEMANTIC_FEATURE_NAMES: frozenset[str] = frozenset(
+    {
+        "asserts_place_or_date",
+        "asserts_identity",
+        "asserts_synthetic_origin",
+        "asserts_recontextualization",
+        "is_document_screenshot",
+        "is_quote_attribution",
+        "is_statistical",
+        "is_scientific_medical",
+    }
+)
+
+
 class ClaimFeatures(BlueprintBaseModel):
-    """Deterministic feature set extracted from a claim for blueprint selection."""
+    """Feature set extracted from a claim for blueprint selection.
+
+    Structural features are deterministic and always present. Semantic features are
+    tri-state and default to None when no extractor ran.
+    """
 
     has_claim_text: bool
     text_length: int
@@ -29,6 +51,16 @@ class ClaimFeatures(BlueprintBaseModel):
     claim_has_origin: bool = False
     claim_has_meta_info: bool = False
     claim_has_date_metadata: bool = False
+
+    # Semantic (tri-state; None = undetermined)
+    asserts_place_or_date: bool | None = None
+    asserts_identity: bool | None = None
+    asserts_synthetic_origin: bool | None = None
+    asserts_recontextualization: bool | None = None
+    is_document_screenshot: bool | None = None
+    is_quote_attribution: bool | None = None
+    is_statistical: bool | None = None
+    is_scientific_medical: bool | None = None
 
 
 class BlueprintCondition(BlueprintBaseModel):

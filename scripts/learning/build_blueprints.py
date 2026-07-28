@@ -45,14 +45,21 @@ from sklearn.preprocessing import normalize
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from mafc.blueprints.gate_validation import validate_entry_gates
 from mafc.blueprints.loader import load_blueprint
+from mafc.blueprints.models import SEMANTIC_FEATURE_NAMES
 from mafc.blueprints.registry import BlueprintRegistry
+from mafc.blueprints.semantic_features import SemanticFeatureExtractor
 from mafc.common.claim import Claim
 from mafc.common.logger import logger
 from mafc.common.modeling import make_model
 from mafc.learning.analysis_io import load_analyses
 from mafc.learning.blueprint_consolidator import BlueprintConsolidator
-from mafc.learning.blueprint_contrast import BlueprintContrastPass, enforce_iteration_floor
+from mafc.learning.blueprint_contrast import (
+    BlueprintContrastPass,
+    enforce_iteration_floor,
+    enforce_path_budget,
+)
 from mafc.learning.blueprint_updater import BlueprintUpdater
 from mafc.learning.embedding_utils import (
     DEFAULT_EMBEDDING_MODEL,
@@ -64,6 +71,10 @@ from mafc.learning.new_blueprint_synthesizer import _SYNTHESIS_HINT
 
 _LOG_FILENAME = "synthesis_log.json"
 _MAX_SPLIT_DEPTH = 1
+# Claims sampled per blueprint when checking that its entry gates admit its own
+# cluster. One LLM call each, so cap it — merged blueprints carry hundreds of
+# representatives and the estimate is stable well before that.
+_GATE_VALIDATION_SAMPLE = 40
 
 _CLUSTER_CONTEXT_HINT = """
 
@@ -324,13 +335,18 @@ def _process_dir(
             for rec in records:
                 rec.assigned_blueprint = name
                 all_records.append(rec)
-        max_cluster_frac = cluster_data.get("max_cluster_frac") or 0
+        # No merge size cap. It reused the *clustering* cap, whose job is to stop one
+        # oversized cluster forming, as a veto on *merging* — which is the opposite
+        # situation: merging redundant blueprints removes a distinction that was never
+        # real, rather than creating an accidental catch-all. On the 2025 pool it
+        # vetoed the three largest merges the detector asked for and left the media
+        # family fragmented across seven near-identical blueprints. Pass
+        # max_merged_size again to restore it.
         consolidator = BlueprintConsolidator(
             model=model,
             updater=updater,
             prune_threshold=0,
             merge_size_lookup=dict(sizes),
-            max_merged_size=int(max_cluster_frac * n_clustered_total) if max_cluster_frac > 0 else None,
         )
         c_result = consolidator.consolidate(registry, all_records)
         for detail in c_result.merge_details:
@@ -343,23 +359,62 @@ def _process_dir(
             f"{len(pool)} blueprints remain."
         )
 
-    # --- Stage 4: iteration floor by expected traffic share ---
+    # --- Stage 4: iteration floors — by expected traffic share, then by graph depth ---
+    # Both are floors, so applying them in sequence yields the max of the two.
     pool = [
         enforce_iteration_floor(bp, sizes.get(bp.name, 0) / max(n_clustered_total, 1))
         for bp in pool
     ]
+    pool = [enforce_path_budget(bp) for bp in pool]
 
     # --- Stage 5: contrast pass (descriptions/selector hints partition the claim space) ---
     if contrast and len(pool) >= 2:
         shares = {name: size / max(n_clustered_total, 1) for name, size in sizes.items()}
         pool = BlueprintContrastPass(model).run(pool, shares)
 
+    # --- Stage 5b: validate entry gates against each blueprint's own claims ---
+    # A gate is only useful if the blueprint still admits the cluster it was built from.
+    # An inverted gate (e.g. a statistics blueprint requiring asserts_synthetic_origin)
+    # makes the blueprint unreachable by its own traffic — worse than no gate at all,
+    # since the tie-break never gets the chance to pick it.
+    extractor = SemanticFeatureExtractor(model)
+    repaired_pool = []
+    for bp in pool:
+        texts = [str(rec.claim).strip() for rec in reps.get(bp.name, []) if rec.claim is not None]
+        # Representatives accumulate on every merge, so a heavily-merged blueprint can
+        # carry hundreds. A coverage estimate does not need them all — sample enough
+        # for a stable fraction and stop.
+        repaired_pool.append(
+            validate_entry_gates(bp, texts[:_GATE_VALIDATION_SAMPLE], extractor).blueprint
+        )
+    pool = repaired_pool
+
+    undiscriminating = [
+        bp.name
+        for bp in pool
+        if not any(
+            condition.feature in SEMANTIC_FEATURE_NAMES for condition in bp.entry_conditions.all
+        )
+    ]
+    if undiscriminating:
+        logger.warning(
+            f"[{data_dir.name}] {len(undiscriminating)}/{len(pool)} blueprints have no "
+            f"semantic feature in entry_conditions.all and will survive almost every "
+            f"claim: {', '.join(undiscriminating)}. Routing will fall to the LLM "
+            f"tie-break. Verify with scripts/learning/eval_routing.py."
+        )
+    else:
+        logger.info(f"[{data_dir.name}] All {len(pool)} blueprints declare a semantic entry gate.")
+
     # --- Stage 6: save pool + generic fallback ---
     for bp in pool:
         saved_path = _save_blueprint(bp, out_dir)
         logger.info(f"[{data_dir.name}] Saved '{bp.name}' to {saved_path}.")
     if generic_bp.name not in {bp.name for bp in pool}:
-        _save_blueprint(generic_bp, out_dir)
+        # The fallback bypasses the pool stages, so apply the budget floor here too —
+        # it receives every claim whose routing fails, and shipping it unable to reach
+        # its own counterevidence node is the worst place for that defect to live.
+        _save_blueprint(enforce_path_budget(generic_bp), out_dir)
 
     log_path = out_dir / _LOG_FILENAME
     with open(log_path, "w", encoding="utf-8") as f:

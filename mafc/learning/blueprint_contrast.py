@@ -24,6 +24,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 from mafc.blueprints.models import Blueprint, BlueprintSelectorHints
+from mafc.blueprints.topology import longest_path_nodes
 from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
@@ -62,6 +63,28 @@ def enforce_iteration_floor(
         f"{blueprint.policy_constraints.max_iterations} → {floor}."
     )
     constraints = blueprint.policy_constraints.model_copy(update={"max_iterations": floor})
+    return blueprint.model_copy(update={"policy_constraints": constraints})
+
+
+def enforce_path_budget(blueprint: Blueprint) -> Blueprint:
+    """Raise max_iterations so the blueprint can reach the end of its deepest branch.
+
+    One iteration executes one node, and synthesis nodes consume one just like action
+    nodes do. Authors reliably under-count this — budgets come out one short of the
+    longest path — which silently strands the deepest branch: it is never reached, so
+    the checks attached to it never activate and read as 'unchecked' rather than
+    failing. This is a floor, not a target; early-exit transitions still end runs sooner.
+    """
+    required = longest_path_nodes(blueprint)
+    current = blueprint.policy_constraints.max_iterations
+    if current >= required:
+        return blueprint
+
+    logger.info(
+        f"[enforce_path_budget] '{blueprint.name}' max_iterations {current} -> {required}: "
+        f"its longest path visits {required} nodes, so the deepest branch was unreachable."
+    )
+    constraints = blueprint.policy_constraints.model_copy(update={"max_iterations": required})
     return blueprint.model_copy(update={"policy_constraints": constraints})
 
 

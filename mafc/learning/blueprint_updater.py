@@ -46,20 +46,41 @@ description
   accurate as the blueprint evolves.
 
 entry_conditions (all / any)
-  Evaluated deterministically before any LLM call. Claims that fail all conditions
-  are never routed here — the generic blueprint becomes the fallback. Use 'all' for
-  mandatory prerequisites and 'any' for optional signals.
+  Evaluated deterministically before any LLM call. Every blueprint whose conditions
+  pass becomes a "survivor"; when two or more survive, an LLM tie-break picks between
+  them. Entry conditions exist to ELIMINATE blueprints. Only 'all' can eliminate —
+  'any' is an OR, so each entry you add there makes the blueprint match MORE claims,
+  not fewer. A blueprint with conditions only in 'any' is effectively unrouted: it
+  survives nearly every claim and leaves the decision entirely to the tie-break.
   Available boolean features: has_claim_text, has_image, has_video, is_multimodal,
   has_url, has_date, has_question, claim_has_author, claim_has_origin,
   claim_has_meta_info, claim_has_date_metadata.
   Available integer features: text_length, image_count, video_count.
+  Available SEMANTIC features (what the claim is ABOUT, not what it contains):
+  asserts_place_or_date, asserts_identity, asserts_synthetic_origin,
+  asserts_recontextualization, is_document_screenshot, is_quote_attribution,
+  is_statistical, is_scientific_medical.
+  REQUIRED: put at least one SEMANTIC feature in 'all'. Structural features cannot
+  discriminate — most claims in this corpus carry an image or a video, so gating on
+  has_image or is_multimodal eliminates nothing. Semantic features are the only way
+  to separate blueprints that would otherwise match the same claims. They are
+  tri-state: when the extractor cannot determine one it does not eliminate the
+  blueprint, so gating on them in 'all' is safe and cannot orphan a claim.
+  Choose a SELECTIVE semantic feature — one true of the minority of claims that this
+  blueprint is actually for. asserts_place_or_date and asserts_identity are true of
+  roughly half of all claims and so discriminate poorly on their own; prefer
+  asserts_synthetic_origin, asserts_recontextualization, is_quote_attribution,
+  is_statistical, is_scientific_medical, or is_document_screenshot where they fit.
   Supported operators: ==, !=, <, <=, >, >=.
   REQUIRED STRUCTURE — each condition is an object with three keys: feature, op, value.
   Correct JSON structure:
     "entry_conditions": {
+      "all": [
+        {"feature": "asserts_synthetic_origin", "op": "==", "value": true}
+      ],
       "any": [
         {"feature": "has_image", "op": "==", "value": true},
-        {"feature": "image_count", "op": ">=", "value": 2}
+        {"feature": "has_video", "op": "==", "value": true}
       ]
     }
   Widening entry_conditions lets more claims in; narrowing them pushes claims to other
@@ -94,7 +115,14 @@ policy_constraints
   allowed_actions: restricts which action types the planner may delegate. \
     Valid values: web_search, media.
   max_iterations: hard cap on iterations after which finalization is forced. \
-    Increase for claims requiring deep multi-step investigation.
+    ONE ITERATION EXECUTES ONE NODE — and synthesis nodes cost an iteration exactly \
+    like action nodes, because each one makes its own LLM call. So the budget must be \
+    at least the number of nodes on the LONGEST path through the graph, counting \
+    synthesis nodes. Count that path before setting this. A graph of \
+    actions -> synthesis -> actions -> synthesis needs 4, not 2. Setting it lower does \
+    not merely shorten runs: the deepest branch becomes unreachable, and the \
+    required_checks attached to it never activate, so they report as UNCHECKED rather \
+    than failing. Reaching 'finalize' is free and does not consume an iteration.
   require_counterevidence_search: if true, the planner is instructed to search \
     for counter-evidence before finalising. Set for claims where one-sided sourcing \
     is a known failure mode.

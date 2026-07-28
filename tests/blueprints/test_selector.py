@@ -307,3 +307,63 @@ def test_selector_falls_back_to_default_on_invalid_llm_response(tmp_path) -> Non
 
     assert result.selected_blueprint.name == "default"
     assert result.selection_mode == BlueprintSelectionMode.DEFAULT_FALLBACK
+
+
+_VALID_TIEBREAK = '{"selected_blueprint":"media_location","reason":"location claim"}'
+
+
+def test_tiebreak_retries_unparseable_response(tmp_path) -> None:
+    """An empty or non-JSON body must be retried, not silently routed to generic."""
+    registry = _load_registry(tmp_path)
+    model = SequencedModel(outputs=["", _VALID_TIEBREAK])
+    selector = BlueprintSelector(model=model, registry=registry, default_blueprint_name="default")
+
+    result = selector.select(MultimodalSequence("Where was this image taken?", _registered_image()))
+
+    assert result.selected_blueprint.name == "media_location"
+    assert result.selection_mode == BlueprintSelectionMode.LLM_TIEBREAK
+    assert len(model.calls) == 2
+
+
+def test_tiebreak_retries_when_model_names_unknown_blueprint(tmp_path) -> None:
+    registry = _load_registry(tmp_path)
+    model = SequencedModel(outputs=['{"selected_blueprint":"nope"}', _VALID_TIEBREAK])
+    selector = BlueprintSelector(model=model, registry=registry, default_blueprint_name="default")
+
+    result = selector.select(MultimodalSequence("Where was this image taken?", _registered_image()))
+
+    assert result.selected_blueprint.name == "media_location"
+    assert len(model.calls) == 2
+
+
+def test_tiebreak_retry_includes_repair_instruction(tmp_path) -> None:
+    registry = _load_registry(tmp_path)
+    model = SequencedModel(outputs=["garbage", _VALID_TIEBREAK])
+    selector = BlueprintSelector(model=model, registry=registry, default_blueprint_name="default")
+
+    selector.select(MultimodalSequence("Where was this image taken?", _registered_image()))
+
+    assert "could not be parsed" not in model.calls[0]
+    assert "could not be parsed" in model.calls[1]
+
+
+def test_tiebreak_gives_up_after_max_attempts(tmp_path) -> None:
+    registry = _load_registry(tmp_path)
+    model = SequencedModel(outputs=["bad", "worse", "worst"])
+    selector = BlueprintSelector(model=model, registry=registry, default_blueprint_name="default")
+
+    result = selector.select(MultimodalSequence("Where was this image taken?", _registered_image()))
+
+    assert result.selected_blueprint.name == "default"
+    assert result.selection_mode == BlueprintSelectionMode.DEFAULT_FALLBACK
+    assert len(model.calls) == 3
+
+
+def test_tiebreak_does_not_retry_on_success(tmp_path) -> None:
+    registry = _load_registry(tmp_path)
+    model = SequencedModel(outputs=[_VALID_TIEBREAK])
+    selector = BlueprintSelector(model=model, registry=registry, default_blueprint_name="default")
+
+    selector.select(MultimodalSequence("Where was this image taken?", _registered_image()))
+
+    assert len(model.calls) == 1

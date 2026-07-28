@@ -9,12 +9,27 @@ from pydantic import BaseModel, ConfigDict
 from mafc.blueprints.features import evaluate_entry_conditions, extract_claim_features
 from mafc.blueprints.models import Blueprint, ClaimFeatures
 from mafc.blueprints.registry import BlueprintRegistry
+from mafc.blueprints.semantic_features import SemanticFeatureExtractor
+from mafc.common.logger import logger
 from mafc.common.claim import Claim
 from mafc.utils.parsing import extract_json_object
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.learning.models import ArticleAnalysis
+
+
+# Model.generate already retries transient API *exceptions*. These retries cover the
+# other failure mode: a successful call whose body is empty, truncated, or not valid
+# JSON. Without them the selector silently routes the claim to the generic blueprint.
+_MAX_TIEBREAK_ATTEMPTS = 3
+
+_TIEBREAK_REPAIR_SUFFIX = """
+
+Your previous response could not be parsed. Return ONLY the JSON object described \
+above — no prose, no markdown fences, no trailing commentary — and make sure \
+'selected_blueprint' is copied exactly from one of the candidate names listed above.\
+"""
 
 
 class BlueprintSelectionMode(Enum):
@@ -42,6 +57,9 @@ class LlmTiebreakResponse(BaseModel):
 
     selected_blueprint: str
     reason: str | None = None
+    discriminator: str | None = None
+    # No longer requested in the prompt (it dominated the output budget and caused
+    # truncation), but still accepted so a volunteered list is not a parse failure.
     rejected_blueprints: list[LlmRejectedBlueprint] = []
 
 
@@ -63,6 +81,7 @@ class BlueprintSelectionResult:
     surviving_blueprints: list[str]
     rejected_blueprints: list[BlueprintRejection] = field(default_factory=list)
     reason: str | None = None
+    discriminator: str | None = None
     all_blueprints: list[str] = field(default_factory=list)
     llm_prompt: str | None = None
     llm_raw_response: str | None = None
@@ -71,11 +90,24 @@ class BlueprintSelectionResult:
 class BlueprintSelector:
     """Two-stage selector that filters by rules first, then uses an LLM tie-break."""
 
-    def __init__(self, model: Model, registry: BlueprintRegistry, default_blueprint_name: str):
-        """Initialize the selector with a registry, tie-break model, and default fallback blueprint."""
+    def __init__(
+        self,
+        model: Model,
+        registry: BlueprintRegistry,
+        default_blueprint_name: str,
+        semantic_extractor: SemanticFeatureExtractor | None = None,
+    ):
+        """Initialize the selector with a registry, tie-break model, and default fallback blueprint.
+
+        Args:
+            semantic_extractor: Optional extractor for tri-state semantic features.
+                When omitted, semantic entry conditions stay undetermined and
+                selection behaves exactly as before.
+        """
         self.model = model
         self.registry = registry
         self.default_blueprint_name = default_blueprint_name
+        self.semantic_extractor = semantic_extractor
 
     def select(
         self,
@@ -90,7 +122,10 @@ class BlueprintSelector:
                 it is injected into the LLM tie-break prompt to improve selection
                 accuracy. Has no effect on the rule-based hard filtering stage.
         """
-        claim_features = extract_claim_features(claim)
+        semantic_features = (
+            self.semantic_extractor.extract(claim) if self.semantic_extractor is not None else None
+        )
+        claim_features = extract_claim_features(claim, semantic_features)
         default_blueprint = self.registry.get(self.default_blueprint_name)
         blueprints = [
             blueprint
@@ -162,43 +197,69 @@ class BlueprintSelector:
             if article_analysis is not None
             else BlueprintSelectionMode.LLM_TIEBREAK
         )
-        prompt = Prompt(text=llm_prompt)
         llm_raw_response: str | None = None
-        parsed = None
+        parsed: LlmTiebreakResponse | None = None
+        selected_blueprint: Blueprint | None = None
 
-        try:
-            llm_raw_response = self.model.generate(
-                [Message(role=MessageRole.USER, content=prompt)]
-            ).text.strip()
-            parsed = self._parse_tiebreak_response(llm_raw_response)
-        except (json.JSONDecodeError, ValueError):
-            pass
+        for attempt in range(1, _MAX_TIEBREAK_ATTEMPTS + 1):
+            prompt_text = llm_prompt if attempt == 1 else llm_prompt + _TIEBREAK_REPAIR_SUFFIX
+            failure: str
+            try:
+                llm_raw_response = self.model.generate(
+                    [Message(role=MessageRole.USER, content=Prompt(text=prompt_text))]
+                ).text.strip()
+                parsed = self._parse_tiebreak_response(llm_raw_response)
+                failure = "response did not match the expected schema"
+            except (json.JSONDecodeError, ValueError) as exc:
+                parsed = None
+                failure = f"{type(exc).__name__}: {exc}"
 
-        if parsed is not None:
-            selected_name = parsed.selected_blueprint
-            selected_blueprint = next(
-                (blueprint for blueprint in survivors if blueprint.name == selected_name), None
-            )
-            if selected_blueprint is not None:
-                llm_rejections = list(rejected)
-                for item in parsed.rejected_blueprints:
-                    llm_rejections.append(
-                        BlueprintRejection(
-                            blueprint_name=item.name,
-                            reason=item.reason,
-                        )
-                    )
-                return BlueprintSelectionResult(
-                    selected_blueprint=selected_blueprint,
-                    selection_mode=selection_mode,
-                    claim_features=claim_features,
-                    surviving_blueprints=[blueprint.name for blueprint in survivors],
-                    rejected_blueprints=llm_rejections,
-                    reason=parsed.reason,
-                    all_blueprints=all_blueprints,
-                    llm_prompt=llm_prompt,
-                    llm_raw_response=llm_raw_response,
+            if parsed is not None:
+                selected_blueprint = next(
+                    (
+                        blueprint
+                        for blueprint in survivors
+                        if blueprint.name == parsed.selected_blueprint
+                    ),
+                    None,
                 )
+                if selected_blueprint is not None:
+                    break
+                failure = f"selected unknown blueprint {parsed.selected_blueprint!r}"
+
+            if attempt < _MAX_TIEBREAK_ATTEMPTS:
+                logger.warning(
+                    f"Blueprint tie-break unparseable (attempt {attempt}/"
+                    f"{_MAX_TIEBREAK_ATTEMPTS}), retrying: {failure}"
+                )
+
+        if selected_blueprint is not None and parsed is not None:
+            llm_rejections = list(rejected)
+            for item in parsed.rejected_blueprints:
+                llm_rejections.append(
+                    BlueprintRejection(
+                        blueprint_name=item.name,
+                        reason=item.reason,
+                    )
+                )
+            return BlueprintSelectionResult(
+                selected_blueprint=selected_blueprint,
+                selection_mode=selection_mode,
+                claim_features=claim_features,
+                surviving_blueprints=[blueprint.name for blueprint in survivors],
+                rejected_blueprints=llm_rejections,
+                reason=parsed.reason,
+                discriminator=parsed.discriminator,
+                all_blueprints=all_blueprints,
+                llm_prompt=llm_prompt,
+                llm_raw_response=llm_raw_response,
+            )
+
+        logger.error(
+            f"Blueprint tie-break failed after {_MAX_TIEBREAK_ATTEMPTS} attempts over "
+            f"{len(survivors)} survivors; falling back to '{default_blueprint.name}'. "
+            f"Last response: {(llm_raw_response or '')[:200]!r}"
+        )
 
         fallback_rejections = list(rejected)
         fallback_rejections.extend(
@@ -261,8 +322,25 @@ class BlueprintSelector:
             "You are selecting the most appropriate fact-check blueprint for a claim.\n"
             "Only choose from the provided candidate blueprints.\n"
             "Prefer the blueprint whose description and selector hints best match the claim.\n"
-            "Return strict JSON only with schema:\n"
-            '{"selected_blueprint":"name","reason":"short reason","rejected_blueprints":[{"name":"other","reason":"why not"}]}\n\n'
+            "\n"
+            "Every candidate below already passed the hard entry conditions, so 'it could\n"
+            "apply' is not a reason to choose one. Select the NARROWEST blueprint that\n"
+            "applies: the one whose description names the specific investigative question\n"
+            "this claim raises. A blueprint broad enough to cover most claims of this kind\n"
+            "is a fallback, not an answer — never prefer it over a narrower candidate that\n"
+            "still fits. Choose the broad candidate only when no narrower one applies.\n"
+            "\n"
+            "In 'discriminator', name the concrete property of THIS claim that makes the\n"
+            "chosen blueprint fit and the closest runner-up not fit. If you cannot name\n"
+            "such a property, you are not discriminating between them — reconsider whether\n"
+            "a narrower candidate actually applies.\n"
+            "\n"
+            # Keep the response short. Enumerating a reason per rejected candidate used
+            # to overrun the output budget and truncate the JSON mid-string, which the
+            # parser could only treat as a total failure.
+            "Return strict JSON only, and keep it brief — one sentence per field:\n"
+            '{"selected_blueprint":"name","reason":"short reason",'
+            '"discriminator":"property of this claim separating it from the runner-up"}\n\n'
             f"Claim:\n{claim_text}\n\n"
             f"Extracted claim features:\n{chr(10).join(feature_lines)}\n"
             f"{gt_section}\n"
