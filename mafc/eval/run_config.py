@@ -7,6 +7,11 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, model_validator
 
+from mafc.blueprints.selector import (
+    DEFAULT_PROBE_CONFIDENCE_THRESHOLD,
+    BlueprintSelectionMethod,
+)
+
 
 class BenchmarkConfig(BaseModel):
     name: str = "veritas"
@@ -79,6 +84,15 @@ class BlueprintsConfig(BaseModel):
     selector_model: str
     selector_max_response_length: int = 8192
     config_dir: str = "config/blueprints"
+    # How two or more surviving blueprints are resolved:
+    #   llm_tiebreak    - the LLM reads descriptions and picks (default, unchanged)
+    #   embedding_probe - a fitted probe routes from the claim embedding
+    #   hybrid          - probe when confident, LLM tie-break otherwise
+    # The probe methods need selector_probe.json in config_dir (see
+    # scripts/learning/train_probe.py) and OPENAI_API_KEY for claim embedding; without
+    # either they degrade to llm_tiebreak rather than failing the run.
+    selection_method: BlueprintSelectionMethod = BlueprintSelectionMethod.LLM_TIEBREAK
+    probe_confidence_threshold: float = DEFAULT_PROBE_CONFIDENCE_THRESHOLD
 
 
 class RunConfig(BaseModel):

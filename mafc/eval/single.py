@@ -29,6 +29,8 @@ from mafc.agents.judge.agent import JudgeAgent
 from mafc.agents.media.agent import MediaAgent
 from mafc.agents.web_search.agent import WebSearchAgent
 from mafc.blueprints import BlueprintRegistry, BlueprintSelector
+from mafc.blueprints.probe import PROBE_FILENAME, BlueprintProbe
+from mafc.blueprints.selector import BlueprintSelectionMethod
 from mafc.common.logger import logger
 from mafc.common.modeling import make_model
 from mafc.common.modeling.prompt import Prompt
@@ -132,7 +134,22 @@ def build_fact_check_agent(
         bp_cfg.selector_model, max_response_length=bp_cfg.selector_max_response_length
     )
     registry = BlueprintRegistry.from_path(bp_cfg.config_dir)
-    selector = BlueprintSelector(model=selector_model, registry=registry, default_blueprint_name="generic")
+    probe = None
+    if bp_cfg.selection_method is not BlueprintSelectionMethod.LLM_TIEBREAK:
+        probe = BlueprintProbe.load_from_blueprint_dir(bp_cfg.config_dir)
+        if probe is None:
+            logger.warning(
+                f"selection_method='{bp_cfg.selection_method.value}' but no {PROBE_FILENAME} in "
+                f"{bp_cfg.config_dir}; routing falls back to the LLM tie-break."
+            )
+    selector = BlueprintSelector(
+        model=selector_model,
+        registry=registry,
+        default_blueprint_name="generic",
+        selection_method=bp_cfg.selection_method,
+        probe=probe,
+        probe_confidence_threshold=bp_cfg.probe_confidence_threshold,
+    )
     return FactCheckAgent(
         model=planner_model,
         blueprint_selector=selector,

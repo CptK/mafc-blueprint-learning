@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from mafc.blueprints.features import evaluate_entry_conditions, extract_claim_features
 from mafc.blueprints.models import Blueprint, ClaimFeatures
+from mafc.blueprints.probe import BlueprintProbe, embed_claim
 from mafc.blueprints.registry import BlueprintRegistry
 from mafc.blueprints.semantic_features import SemanticFeatureExtractor
 from mafc.common.logger import logger
@@ -24,6 +25,10 @@ from mafc.learning.models import ArticleAnalysis
 # JSON. Without them the selector silently routes the claim to the generic blueprint.
 _MAX_TIEBREAK_ATTEMPTS = 3
 
+# Hybrid routing threshold. On the 2025 pool the probe was ~94% accurate above 0.8 and
+# near chance below 0.6, so this keeps the confident majority and defers the rest.
+DEFAULT_PROBE_CONFIDENCE_THRESHOLD = 0.8
+
 _TIEBREAK_REPAIR_SUFFIX = """
 
 Your previous response could not be parsed. Return ONLY the JSON object described \
@@ -32,12 +37,22 @@ above — no prose, no markdown fences, no trailing commentary — and make sure
 """
 
 
+class BlueprintSelectionMethod(str, Enum):
+    """Which mechanism decides between blueprints that survive the rule stage."""
+
+    LLM_TIEBREAK = "llm_tiebreak"
+    EMBEDDING_PROBE = "embedding_probe"
+    # Probe when it is confident, LLM tie-break otherwise.
+    HYBRID = "hybrid"
+
+
 class BlueprintSelectionMode(Enum):
     """How the selector arrived at its final blueprint choice."""
 
     RULE_BASED = "rule_based"
     LLM_TIEBREAK = "llm_tiebreak"
     GT_INFORMED = "gt_informed"  # LLM tie-break with ground-truth article analysis
+    EMBEDDING_PROBE = "embedding_probe"
     DEFAULT_FALLBACK = "default_fallback"
 
 
@@ -96,6 +111,9 @@ class BlueprintSelector:
         registry: BlueprintRegistry,
         default_blueprint_name: str,
         semantic_extractor: SemanticFeatureExtractor | None = None,
+        selection_method: BlueprintSelectionMethod = BlueprintSelectionMethod.LLM_TIEBREAK,
+        probe: BlueprintProbe | None = None,
+        probe_confidence_threshold: float = DEFAULT_PROBE_CONFIDENCE_THRESHOLD,
     ):
         """Initialize the selector with a registry, tie-break model, and default fallback blueprint.
 
@@ -103,11 +121,25 @@ class BlueprintSelector:
             semantic_extractor: Optional extractor for tri-state semantic features.
                 When omitted, semantic entry conditions stay undetermined and
                 selection behaves exactly as before.
+            selection_method: Which mechanism resolves two or more survivors.
+            probe: Fitted embedding probe. Required by the probe and hybrid methods;
+                without one they degrade to the LLM tie-break.
+            probe_confidence_threshold: Hybrid only — below this the probe defers to
+                the LLM tie-break.
         """
         self.model = model
         self.registry = registry
         self.default_blueprint_name = default_blueprint_name
         self.semantic_extractor = semantic_extractor
+        self.selection_method = selection_method
+        self.probe = probe
+        self.probe_confidence_threshold = probe_confidence_threshold
+
+        if probe is None and selection_method is not BlueprintSelectionMethod.LLM_TIEBREAK:
+            logger.warning(
+                f"Blueprint selection method '{selection_method.value}' needs a probe but none "
+                f"was supplied; falling back to the LLM tie-break."
+            )
 
     def select(
         self,
@@ -170,6 +202,10 @@ class BlueprintSelector:
                 all_blueprints=all_blueprint_names,
             )
 
+        probe_result = self._select_with_probe(claim, claim_features, survivors, rejected, all_blueprint_names)
+        if probe_result is not None:
+            return probe_result
+
         return self._select_with_llm(
             claim,
             claim_features,
@@ -178,6 +214,67 @@ class BlueprintSelector:
             default_blueprint,
             all_blueprint_names,
             article_analysis,
+        )
+
+    def _select_with_probe(
+        self,
+        claim: Claim | MultimodalSequence | str,
+        claim_features: ClaimFeatures,
+        survivors: list[Blueprint],
+        rejected: list[BlueprintRejection],
+        all_blueprints: list[str],
+    ) -> BlueprintSelectionResult | None:
+        """Route via the embedding probe, or return None to defer to the LLM tie-break.
+
+        Deferral is the safe direction: the probe is an optimization, so a missing
+        artifact, a failed embedding, a low-confidence call, or a prediction naming a
+        blueprint that did not survive the rule stage all fall through rather than fail.
+        """
+        if self.selection_method is BlueprintSelectionMethod.LLM_TIEBREAK or self.probe is None:
+            return None
+
+        embedding = embed_claim(str(claim).strip(), self.probe.embedding_model)
+        if embedding is None:
+            return None
+
+        prediction = self.probe.predict(embedding)
+        survivor_names = {blueprint.name for blueprint in survivors}
+
+        if self.selection_method is BlueprintSelectionMethod.HYBRID:
+            if prediction.confidence < self.probe_confidence_threshold:
+                logger.debug(
+                    f"Probe confidence {prediction.confidence:.2f} below "
+                    f"{self.probe_confidence_threshold:.2f}; deferring to the LLM tie-break."
+                )
+                return None
+
+        # The probe knows nothing about entry conditions, so its pick can name a
+        # blueprint the rule stage already eliminated. Prefer the best surviving
+        # candidate instead of overriding a deterministic gate.
+        if prediction.blueprint_name not in survivor_names:
+            ranked = sorted(
+                (name for name in prediction.scores if name in survivor_names),
+                key=lambda name: prediction.scores[name],
+                reverse=True,
+            )
+            if not ranked:
+                return None
+            selected_name, confidence = ranked[0], prediction.scores[ranked[0]]
+        else:
+            selected_name, confidence = prediction.blueprint_name, prediction.confidence
+
+        selected_blueprint = next(
+            blueprint for blueprint in survivors if blueprint.name == selected_name
+        )
+        return BlueprintSelectionResult(
+            selected_blueprint=selected_blueprint,
+            selection_mode=BlueprintSelectionMode.EMBEDDING_PROBE,
+            claim_features=claim_features,
+            surviving_blueprints=[blueprint.name for blueprint in survivors],
+            rejected_blueprints=list(rejected),
+            reason=f"Embedding probe selected '{selected_name}' with confidence {confidence:.2f}.",
+            discriminator=None,
+            all_blueprints=all_blueprints,
         )
 
     def _select_with_llm(

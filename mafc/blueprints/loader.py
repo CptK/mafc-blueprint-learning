@@ -12,7 +12,7 @@ SUPPORTED_BLUEPRINT_EXTENSIONS = {".yaml", ".yml", ".json"}
 
 # Sidecar files the learning pipeline writes into a blueprint directory. They share the
 # supported extensions but are not blueprints, so directory loads must skip them.
-NON_BLUEPRINT_FILENAMES = {"index.json", "synthesis_log.json"}
+NON_BLUEPRINT_FILENAMES = {"index.json", "synthesis_log.json", "selector_probe.json"}
 
 
 def load_blueprint(path: str | Path) -> Blueprint:
