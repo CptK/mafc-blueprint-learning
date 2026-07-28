@@ -16,6 +16,33 @@ from mafc.utils.parsing import get_base_domain
 # origin; sampling several frames and merging the matches is far more reliable.
 _VIDEO_RIS_FRAMES = 4
 
+# Match-note prefixes. Kept as constants so the producer (`_parse_results`) and the
+# consumer (`match_precision`, used to decide which pages may become evidence) can
+# never drift apart. The "Match type: <EXACT|PARTIAL|unknown>" shape is also parsed
+# by mafc.common.media_referent — do not reword it without updating that regex.
+EXACT_MATCH_NOTE = "Match type: EXACT copy of the media appears on this page."
+PARTIAL_MATCH_NOTE = (
+    "Match type: PARTIAL match — a cropped, edited, or overlapping version "
+    "of the media appears on this page (not necessarily the same media)."
+)
+UNKNOWN_MATCH_NOTE = "Match type: unknown precision (page listed as containing a matching image)."
+
+
+def match_precision(source: WebSource) -> str | None:
+    """Classify a RIS page as 'exact', 'partial', or None (no confirmed match).
+
+    None means Google listed the page as visually similar but confirmed neither a
+    full nor a partial image match. Such a page says nothing about THIS media's
+    referent and must not be promoted into its own evidence item — that is how
+    lookalike pages get read downstream as provenance findings.
+    """
+    note = (source.preview or "").strip()
+    if note.startswith("Match type: EXACT"):
+        return "exact"
+    if note.startswith("Match type: PARTIAL"):
+        return "partial"
+    return None
+
 
 @dataclass
 class GoogleRisResults(SearchResults):
@@ -175,16 +202,13 @@ def _parse_results(web_detection: vision.WebDetection, query: Query) -> GoogleRi
         url = page.url
         title = page.__dict__.get("page_title")
         if getattr(page, "full_matching_images", None):
-            match_note = "Match type: EXACT copy of the media appears on this page."
+            match_note = EXACT_MATCH_NOTE
             match_note += _format_matched_image_urls(page.full_matching_images)
         elif getattr(page, "partial_matching_images", None):
-            match_note = (
-                "Match type: PARTIAL match — a cropped, edited, or overlapping version "
-                "of the media appears on this page (not necessarily the same media)."
-            )
+            match_note = PARTIAL_MATCH_NOTE
             match_note += _format_matched_image_urls(page.partial_matching_images)
         else:
-            match_note = "Match type: unknown precision (page listed as containing a matching image)."
+            match_note = UNKNOWN_MATCH_NOTE
         web_source = WebSource(reference=url, title=title, preview=match_note)
         web_sources.append(web_source)
 
