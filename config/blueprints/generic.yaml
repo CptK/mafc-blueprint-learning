@@ -18,7 +18,7 @@ selector_hints:
 
 policy_constraints:
   allowed_actions: [web_search, media]
-  max_iterations: 2
+  max_iterations: 4
   require_counterevidence_search: true
 
 required_checks:
