@@ -224,10 +224,13 @@ class SightengineDetectionResults(Results):
 
     @property
     def verdict(self) -> str:
+        """"unknown" means nothing was scored (see `is_useful`). "not_ai_detected" means
+        scores were checked but none crossed their threshold — a (soft) negative result,
+        not an inconclusive one; don't confuse it with "unknown"."""
         if not self.is_useful():
             return "unknown"
         flags = self._triggered_flags()
-        return "+".join(flags) if flags else "no_signal"
+        return "+".join(flags) if flags else "not_ai_detected"
 
     def __str__(self) -> str:
         if self.error is not None:
