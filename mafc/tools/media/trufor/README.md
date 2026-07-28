@@ -15,11 +15,11 @@ CPU, whichever is available.
 
 ```python
 from ezmm.common.items import Image
-from mafc.tools.media.trufor import TruFor, DetectImageManipulation
+from mafc.tools.media.trufor import TruFor, DetectTruForManipulation
 
 tool = TruFor()
-image = Image(file_path="some/photo.jpg")
-result = tool.perform(DetectImageManipulation(media=image.reference))
+image = Image(file_path="tests/assets/veritas_q1-2026_2014358_manipulated.jpg")
+result = tool.perform(DetectTruForManipulation(media=image.reference))
 print(result)          # LLM-facing summary
 print(result.raw.score)
 ```
@@ -27,7 +27,7 @@ print(result.raw.score)
 Or without the action/tool machinery:
 
 ```python
-tool.score_image("some/photo.jpg").score
+tool.score_image("tests/assets/veritas_q1-2026_2014358_manipulated.jpg").score
 ```
 
 Videos are handled by sampling `n_video_frames` frames (default 5) and combining
