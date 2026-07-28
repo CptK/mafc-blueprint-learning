@@ -13,6 +13,30 @@ class BlueprintTopology:
     max_layer: int
 
 
+def longest_path_nodes(blueprint: Blueprint) -> int:
+    """Return the most node visits any single run of this blueprint can make.
+
+    One agent iteration executes exactly one node — synthesis nodes included, since
+    each makes its own LLM call. So this is the minimum `max_iterations` at which the
+    blueprint can still reach the end of its deepest branch; below it, that branch is
+    dead and the checks attached to it never activate.
+
+    Cycles are traversed at most once per path, making this the longest *simple* path.
+    """
+    nodes = {node.id: node for node in blueprint.verification_graph.nodes}
+    start = blueprint.verification_graph.start_node
+
+    def walk(node_id: str, on_path: frozenset[str]) -> int:
+        # 'finalize' and dangling targets end the run without consuming an iteration.
+        if node_id not in nodes or node_id in on_path:
+            return 0
+        targets = [transition.to for transition in nodes[node_id].transition]
+        deepest = max((walk(t, on_path | {node_id}) for t in targets), default=0)
+        return 1 + deepest
+
+    return walk(start, frozenset())
+
+
 def analyze_blueprint_topology(blueprint: Blueprint) -> BlueprintTopology:
     """Analyze a blueprint graph into derived forward-layer metadata."""
     all_node_ids = {node.id for node in blueprint.verification_graph.nodes}
