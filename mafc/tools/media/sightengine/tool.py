@@ -18,10 +18,15 @@ is a tunable starting point, not proof of authenticity either way:
     gated to enterprise Sightengine accounts, so it may fail with an
     access-denied error on other plans; that failure is reported as a note,
     not treated as a fatal error for the rest of the check.
+    Note: the `ai_speech` check requires Sightengine Enterprise Plan and is therefore not activated by default
 
 Videos up to ~60s are scored via Sightengine's synchronous video endpoint in
 one request. Longer videos use Sightengine's async video endpoint instead
-(same dense per-frame analysis, no local sampling): the video is submitted
+(same per-frame scoring; the video file is submitted whole rather than us
+extracting/sampling frames locally first). Either way, Sightengine samples
+frames from the video at its own server-side rate — not every frame — and
+returns a score per sampled frame; the result reports how many frames it
+scored. For the async job specifically: the video is submitted
 without a callback_url, and results are retrieved by polling
 `video/byid.json` until the job finishes. If the account has no access to
 that async feature (e.g. "not available on the free plan"), this falls back
@@ -171,16 +176,20 @@ class SightengineDetectionAction(Action):
 
 @dataclass
 class SightengineDetectionResults(Results):
-    ai_involved: bool | None = None  # True / False / None (no score available)
-    verdict: str = "unknown"
-    ai_generated_score: float | None = None
-    deepfake_score: float | None = None
-    ai_speech_score: float | None = None  # videos only; None if not checked
+    """All scores (ai_generated, deepfake, ai_speech) are on a 0-1 scale, where
+    higher means more likely AI-generated/deepfaked/synthetic-speech; they are
+    not probabilities. `ai_involved` and `verdict` are derived, read-only
+    properties (not stored fields) so they can never drift from the scores and
+    thresholds they're computed from."""
+
+    ai_generated_score: float | None = None  # 0-1, higher = more likely AI-generated
+    deepfake_score: float | None = None  # 0-1, higher = more likely a deepfake
+    ai_speech_score: float | None = None  # 0-1, higher = more likely synthetic speech; videos only, None if not checked
     ai_generated_threshold: float = DEFAULT_AI_GENERATED_THRESHOLD
     deepfake_threshold: float = DEFAULT_DEEPFAKE_THRESHOLD
     ai_speech_threshold: float = DEFAULT_AI_SPEECH_THRESHOLD
     top_generator: str | None = None  # highest-scoring entry in ai_generators, if Sightengine returned one
-    top_generator_score: float | None = None
+    top_generator_score: float | None = None  # 0-1
     n_frames: int | None = None  # videos: number of frames scored
     aggregation: str | None = None  # videos: how frame scores were combined
     from_cache: bool = False  # served from a precomputed store / cache rather than a live API call
@@ -194,12 +203,38 @@ class SightengineDetectionResults(Results):
             or self.ai_speech_score is not None
         )
 
+    def _triggered_flags(self) -> list[str]:
+        """Which of the checked models crossed their threshold, in a fixed order."""
+        flags = []
+        if self.ai_generated_score is not None and self.ai_generated_score >= self.ai_generated_threshold:
+            flags.append("ai_generated")
+        if self.deepfake_score is not None and self.deepfake_score >= self.deepfake_threshold:
+            flags.append("deepfake")
+        if self.ai_speech_score is not None and self.ai_speech_score >= self.ai_speech_threshold:
+            flags.append("ai_speech")
+        return flags
+
+    @property
+    def ai_involved(self) -> bool | None:
+        """True if any checked model (ai_generated, deepfake, ai_speech) crossed its
+        threshold; False if scores exist but none did; None if nothing was scored."""
+        if not self.is_useful():
+            return None
+        return bool(self._triggered_flags())
+
+    @property
+    def verdict(self) -> str:
+        if not self.is_useful():
+            return "unknown"
+        flags = self._triggered_flags()
+        return "+".join(flags) if flags else "no_signal"
+
     def __str__(self) -> str:
         if self.error is not None:
             return f"Sightengine check failed: {self.error}"
         if not self.is_useful():
             return "No useful results"
-        parts = [f"Sightengine verdict: **{self.verdict}**."]
+        parts = [f"Sightengine verdict: **{self.verdict}**. All scores are on a 0-1 scale (higher = more likely)."]
         if self.ai_generated_score is not None:
             parts.append(
                 f"AI-generated score: {self.ai_generated_score:.3f} (threshold {self.ai_generated_threshold:.2f})."
@@ -214,10 +249,11 @@ class SightengineDetectionResults(Results):
             parts.append(f"Closest generator match: {self.top_generator} ({self.top_generator_score:.3f}).")
         if self.n_frames:
             parts.append(
-                f"Scored {self.n_frames} sampled video frames; the score is the {self.aggregation} over frames."
+                f"Sightengine's video API scored {self.n_frames} frames it sampled server-side "
+                f"from the video; the score is the {self.aggregation} over those frames."
             )
         for n in self.notes:
-            parts.append(f"Note: {n}")
+            parts.append(f"\nNote: {n}")
         return " ".join(parts)
 
 
@@ -246,8 +282,8 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
         ai_generated_threshold: float = DEFAULT_AI_GENERATED_THRESHOLD,
         deepfake_threshold: float = DEFAULT_DEEPFAKE_THRESHOLD,
         ai_speech_threshold: float = DEFAULT_AI_SPEECH_THRESHOLD,
-        check_ai_speech: bool = True,
-        video_aggregation: str = "max",
+        check_ai_speech: bool = False,
+        video_aggregation: str = "mean",
         timeout: float = 30.0,
         async_poll_interval: float = DEFAULT_ASYNC_POLL_INTERVAL_SECONDS,
         async_max_wait: float = DEFAULT_ASYNC_MAX_WAIT_SECONDS,
@@ -263,12 +299,16 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
         deepfake_threshold: score above which the deepfake model counts as a positive verdict.
         ai_speech_threshold: score above which the ai_speech model counts as a positive verdict.
         check_ai_speech: also extract the audio track of videos (via ffmpeg) and run the ai_speech
-            model on it. Requires ffmpeg on PATH and an ai_speech-enabled Sightengine plan; failures
-            (missing ffmpeg, no audio track, access denied) degrade to a note rather than an error.
-        video_aggregation: how per-frame video scores collapse into one score — "max"
-            (most sensitive, but biased upward the more frames Sightengine samples),
-            "mean" or "median". Applied when the video is scored; because frames come from
-            the API rather than a local sampler, changing this requires re-precomputing videos.
+            model on it. Requires ffmpeg on PATH and an ai_speech-enabled (Enterprise) Sightengine
+            plan, so it defaults to off; failures (missing ffmpeg, no audio track, access denied)
+            degrade to a note rather than an error when enabled.
+        video_aggregation: how per-frame video scores collapse into one score — "mean"
+            (default; matches the video-level score shown in Sightengine's own web viewer),
+            "max" (most sensitive to a short synthetic/deepfaked segment inside an otherwise
+            real video, but diverges sharply from Sightengine's own displayed score and is
+            easily swayed by a single noisy frame) or "median". Applied when the video is
+            scored; because frames come from the API rather than a local sampler, changing
+            this requires re-precomputing videos.
         timeout: HTTP timeout in seconds for each Sightengine API call.
         async_poll_interval: seconds between polls of the async video job (videos over
             MAX_SYNC_VIDEO_SECONDS only).
@@ -632,22 +672,6 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
             deepfake_threshold=self.deepfake_threshold,
             ai_speech_threshold=self.ai_speech_threshold,
         )
-
-        flags = []
-        if ai_generated_score is not None and ai_generated_score >= self.ai_generated_threshold:
-            flags.append("ai_generated")
-        if deepfake_score is not None and deepfake_score >= self.deepfake_threshold:
-            flags.append("deepfake")
-        if ai_speech_score is not None and ai_speech_score >= self.ai_speech_threshold:
-            flags.append("ai_speech")
-
-        any_score = ai_generated_score is not None or deepfake_score is not None or ai_speech_score is not None
-        result.ai_involved = bool(flags) if any_score else None
-        if flags:
-            result.verdict = "+".join(flags)
-        elif any_score:
-            result.verdict = "no_signal"
-
         result.top_generator, result.top_generator_score = _top_generator(ai_generators)
 
         result.notes.append(

@@ -118,9 +118,7 @@ def trufor_result(media_ref: str, score: float = 0.8) -> ToolResult:
 
 def sightengine_result(media_ref: str, ai_score: float = 0.9) -> ToolResult:
     return ToolResult(
-        raw=SightengineDetectionResults(
-            ai_involved=ai_score >= 0.5, verdict="ai_generated", ai_generated_score=ai_score
-        ),
+        raw=SightengineDetectionResults(ai_generated_score=ai_score),
         action=SightengineDetectionAction(media_ref),
         takeaways=MultimodalSequence(f"SightEngine ai_generated_score: {ai_score:.2f}."),
     )

@@ -106,11 +106,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--videos", action="store_true", help="also score videos (paid, and slower)")
     parser.add_argument(
-        "--no-ai-speech", action="store_true", help="skip the ai_speech check on videos"
+        "--ai-speech", action="store_true",
+        help="also check videos' audio track with ai_speech (requires an Enterprise Sightengine plan)",
     )
     parser.add_argument(
-        "--video-aggregation", default="max", choices=["max", "mean", "median"],
-        help="how per-frame video scores collapse into one (default: max)",
+        "--video-aggregation", default="mean", choices=["max", "mean", "median"],
+        help="how per-frame video scores collapse into one (default: mean, matching "
+             "Sightengine's own web viewer)",
     )
     parser.add_argument("--limit", type=int, default=None, help="only process the first N files")
     args = parser.parse_args(argv)
@@ -121,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     checker = SightengineChecker(
         stores=[],
         use_cache=False,
-        check_ai_speech=not args.no_ai_speech,
+        check_ai_speech=args.ai_speech,
         video_aggregation=args.video_aggregation,
     )
     api_user, api_secret = checker._resolve_key()
