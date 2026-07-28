@@ -2,6 +2,7 @@ import pytest
 import yaml
 
 from mafc.eval.run_config import (
+    MediaAgentConfig,
     AgentModelConfig,
     JudgeAgentConfig,
     AgentsConfig,
@@ -35,7 +36,7 @@ def _make_run_config(concurrency: int = 1) -> BenchmarkRunConfig:
         agents=AgentsConfig(
             fact_check=FactCheckAgentConfig(model=_MODEL),
             web_search=WebSearchAgentConfig(model=_MODEL),
-            media=AgentModelConfig(model=_MODEL),
+            media=MediaAgentConfig(model=_MODEL),
             judge=JudgeAgentConfig(model=_MODEL),
         ),
         blueprints=BlueprintsConfig(selector_model=_MODEL),

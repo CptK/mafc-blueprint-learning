@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, patch
 from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetriever
 
 from mafc.eval.run_config import (
+    MediaAgentConfig,
     AgentModelConfig,
     JudgeAgentConfig,
     AgentsConfig,
@@ -46,7 +47,7 @@ def _make_config(concurrency: int) -> BenchmarkRunConfig:
         agents=AgentsConfig(
             fact_check=FactCheckAgentConfig(model=_MODEL_SPEC),
             web_search=WebSearchAgentConfig(model=_MODEL_SPEC),
-            media=AgentModelConfig(model=_MODEL_SPEC),
+            media=MediaAgentConfig(model=_MODEL_SPEC),
             judge=JudgeAgentConfig(model=_MODEL_SPEC),
         ),
         blueprints=BlueprintsConfig(selector_model=_MODEL_SPEC),
@@ -101,7 +102,7 @@ def _runner_patches(benchmark_mock, build_side_effect, run_side_effect) -> list:
     mock_logger.results_path.exists.return_value = False
     return [
         patch("mafc.eval.runner.VeriTaS", return_value=benchmark_mock),
-        patch("mafc.eval.runner._build_fact_check_agent", side_effect=build_side_effect),
+        patch("mafc.eval.runner.build_fact_check_agent", side_effect=build_side_effect),
         patch("mafc.eval.runner._run_sample", side_effect=run_side_effect),
         # Bypass the post-run file read + summary computation entirely so we
         # don't need a real results file on disk.
@@ -156,7 +157,7 @@ def test_thread_local_gives_one_object_per_thread():
 
 
 def test_sequential_builds_exactly_one_agent(tmp_path):
-    """concurrency=1: _build_fact_check_agent called once; every sample uses it."""
+    """concurrency=1: build_fact_check_agent called once; every sample uses it."""
     samples = [_make_sample(f"s{i}") for i in range(3)]
     config = _make_config(concurrency=1)
 
