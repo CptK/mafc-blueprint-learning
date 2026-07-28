@@ -4,7 +4,6 @@ from typing import cast
 
 import pytest
 
-from mafc.eval.veritas import benchmark as veritas_benchmark_module
 from mafc.eval.veritas.benchmark import VeriTaS, _classify_integrity_7
 from mafc.eval.veritas.labels import Veritas3Label, Veritas7Label
 from mafc.eval.veritas.types import ClaimEntry
@@ -105,13 +104,30 @@ def test_register_media_registration_error_is_raised(tmp_path, monkeypatch) -> N
         bench._register_media("<video:77> text", claim_id="77")
 
 
-def test_classify_integrity_7_fallback_branch(monkeypatch) -> None:
-    monkeypatch.setattr(
-        veritas_benchmark_module,
-        "THRESHOLDS_7",
-        [(0.0, Veritas7Label.UNKNOWN)],
-    )
-    assert _classify_integrity_7(1.0) == Veritas7Label.INTACT_CERTAIN
+@pytest.mark.parametrize(
+    ("score", "expected"),
+    [
+        # Brackets are exact sixths. Boundaries are included deliberately: the
+        # comparisons are right-open on the intact side (score > threshold) and
+        # left-closed on the compromised side (score >= threshold), so each edge
+        # value belongs to the milder class on both sides of zero.
+        (1.0, Veritas7Label.INTACT_CERTAIN),
+        (5 / 6 + 1e-9, Veritas7Label.INTACT_CERTAIN),
+        (5 / 6, Veritas7Label.INTACT_RATHER_CERTAIN),
+        (3 / 6, Veritas7Label.INTACT_RATHER_UNCERTAIN),
+        (1 / 6, Veritas7Label.UNKNOWN),
+        (0.0, Veritas7Label.UNKNOWN),
+        (-1 / 6, Veritas7Label.UNKNOWN),
+        (-1 / 6 - 1e-9, Veritas7Label.COMPROMISED_RATHER_UNCERTAIN),
+        (-3 / 6, Veritas7Label.COMPROMISED_RATHER_UNCERTAIN),
+        (-3 / 6 - 1e-9, Veritas7Label.COMPROMISED_RATHER_CERTAIN),
+        (-5 / 6, Veritas7Label.COMPROMISED_RATHER_CERTAIN),
+        (-5 / 6 - 1e-9, Veritas7Label.COMPROMISED_CERTAIN),
+        (-1.0, Veritas7Label.COMPROMISED_CERTAIN),
+    ],
+)
+def test_classify_integrity_7_brackets(score: float, expected: Veritas7Label) -> None:
+    assert _classify_integrity_7(score) == expected
 
 
 def test_init_rejects_invalid_label_scheme(tmp_path) -> None:
@@ -203,7 +219,9 @@ def test_load_data_skips_claims_with_invalid_media_registration(tmp_path, monkey
 def test_load_data_handles_bad_date_and_claim_creation_failure(tmp_path, monkeypatch) -> None:
     claims_path = tmp_path / "claims.json"
     claims = [
-        {"id": 1, "text": "ok", "integrity": {"score": 0.5}, "media": [], "date": "not-a-date"},
+        # 0.7 sits inside the (3/6, 5/6] bracket; 0.5 is exactly 3/6, which the
+        # right-open comparison puts one class down.
+        {"id": 1, "text": "ok", "integrity": {"score": 0.7}, "media": [], "date": "not-a-date"},
         {"id": 2, "text": "bad", "integrity": {"score": 0.9}, "media": []},
     ]
     _write_claims_file(claims_path, claims)
@@ -230,8 +248,10 @@ def test_load_data_handles_bad_date_and_claim_creation_failure(tmp_path, monkeyp
 def test_three_class_thresholds(tmp_path, monkeypatch) -> None:
     claims_path = tmp_path / "claims.json"
     claims = [
-        {"id": 1, "text": "c1", "integrity": {"score": 0.33}, "media": []},
-        {"id": 2, "text": "c2", "integrity": {"score": -0.33}, "media": []},
+        # Thresholds are exact sixths (INTACT_THRESHOLD = 1/3), so stay clear of the
+        # boundary: 0.33 reads as just-above one third but is 0.0033 below it.
+        {"id": 1, "text": "c1", "integrity": {"score": 0.5}, "media": []},
+        {"id": 2, "text": "c2", "integrity": {"score": -0.5}, "media": []},
         {"id": 3, "text": "c3", "integrity": {"score": 0.0}, "media": []},
     ]
     _write_claims_file(claims_path, claims)
