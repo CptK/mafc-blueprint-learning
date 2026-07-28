@@ -49,6 +49,19 @@ class WebSearchAgentConfig(AgentModelConfig):
     summarization_presence_penalty: float = 0.0
 
 
+class MediaAgentConfig(AgentModelConfig):
+    # Reads embedded C2PA provenance manifests (AI-generated/edited/captured
+    # declarations). Off by default since most media carries no manifest at all.
+    use_c2pa: bool = False
+    # Runs the TruFor model to detect digital manipulation (splicing, copy-move,
+    # inpainting). Off by default: it's a local model, not a metadata lookup, so
+    # it costs a GPU/CPU inference per image.
+    use_trufor: bool = False
+    # Runs Sightengine's genai/deepfake/ai_speech models (external API call,
+    # billed per request). Off by default.
+    use_sightengine: bool = False
+
+
 class JudgeAgentConfig(AgentModelConfig):
     # Number of independent judge samples per claim; >1 aggregates them
     # (mean numeric label, snapped to the nearest allowed label).
@@ -58,7 +71,7 @@ class JudgeAgentConfig(AgentModelConfig):
 class AgentsConfig(BaseModel):
     fact_check: FactCheckAgentConfig
     web_search: WebSearchAgentConfig
-    media: AgentModelConfig
+    media: MediaAgentConfig
     judge: JudgeAgentConfig
 
 

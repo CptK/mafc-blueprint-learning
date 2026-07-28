@@ -88,7 +88,13 @@ def build_fact_check_agent(
         judge_cfg.model, temperature=judge_cfg.temperature, max_response_length=judge_cfg.max_response_length
     )
 
-    media_agent = MediaAgent(model=media_model, summarization_model=media_model)
+    media_agent = MediaAgent(
+        model=media_model,
+        summarization_model=media_model,
+        use_c2pa=media_cfg.use_c2pa,
+        use_trufor=media_cfg.use_trufor,
+        use_sightengine=media_cfg.use_sightengine,
+    )
     web_search_agent = WebSearchAgent(
         main_model=worker_model,
         summarization_model=summarization_model,
