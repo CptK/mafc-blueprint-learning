@@ -206,7 +206,7 @@ class EmbeddingClusterSynthesizer:
 
         unique_labels = sorted(set(labels.tolist()))
         n_noise = int((labels == -1).sum())
-        n_clusters = len([l for l in unique_labels if l >= 0])
+        n_clusters = len([label for label in unique_labels if label >= 0])
         logger.info(f"[EmbeddingClusterSynthesizer] HDBSCAN: {n_clusters} clusters, {n_noise} noise points.")
 
         clusters: list[_EmbeddingCluster] = []

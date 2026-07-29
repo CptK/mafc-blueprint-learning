@@ -127,8 +127,8 @@ def test_already_confirmed_pages_are_skipped(patched_fetch, monkeypatch) -> None
         return original(url)
 
     monkeypatch.setattr(rv, "_candidate_image_urls", spy)
-    digest = ReferentDigest(
-        ris_ran=True, exact={"factcheck.org/debunk": "https://factcheck.org/debunk"}
+    digest = ReferentDigest(ris_ran=True, exact={"factcheck.org/debunk": "https://factcheck.org/debunk"})
+    rv.verify_evidence_referents(
+        FakeClaim([CLAIM_FRAME]), [_evidence("https://factcheck.org/debunk")], digest
     )
-    rv.verify_evidence_referents(FakeClaim([CLAIM_FRAME]), [_evidence("https://factcheck.org/debunk")], digest)
     assert calls == []

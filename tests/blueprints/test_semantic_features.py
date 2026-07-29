@@ -19,9 +19,7 @@ class StubModel(Model):
 
 
 def _gate(feature: str, value: bool) -> BlueprintEntryConditions:
-    return BlueprintEntryConditions(
-        all=[BlueprintCondition(feature=feature, op="==", value=value)]
-    )
+    return BlueprintEntryConditions(all=[BlueprintCondition(feature=feature, op="==", value=value)])
 
 
 def test_semantic_features_default_to_undetermined():
@@ -34,16 +32,12 @@ def test_undetermined_semantic_feature_never_eliminates():
     """The safety property: a failed extraction must degrade to the tie-break."""
     features = extract_claim_features("Some claim.")
     for value in (True, False):
-        matched, reasons = evaluate_entry_conditions(
-            features, _gate("asserts_synthetic_origin", value)
-        )
+        matched, reasons = evaluate_entry_conditions(features, _gate("asserts_synthetic_origin", value))
         assert matched, reasons
 
 
 def test_determined_semantic_feature_does_eliminate():
-    features = extract_claim_features(
-        "Some claim.", {"asserts_synthetic_origin": False}
-    )
+    features = extract_claim_features("Some claim.", {"asserts_synthetic_origin": False})
     matched, _ = evaluate_entry_conditions(features, _gate("asserts_synthetic_origin", True))
     assert not matched
 

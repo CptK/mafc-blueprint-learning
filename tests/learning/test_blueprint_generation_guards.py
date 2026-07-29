@@ -26,7 +26,9 @@ from mafc.learning.blueprint_contrast import BlueprintContrastPass, _ContrastRev
 from mafc.learning.embedding_utils import pick_diverse_representatives, split_oversized_clusters
 
 
-def _make_blueprint(name: str = "bp", max_iterations: int = 3, description: str = "Neutral verification of claims.") -> Blueprint:
+def _make_blueprint(
+    name: str = "bp", max_iterations: int = 3, description: str = "Neutral verification of claims."
+) -> Blueprint:
     return Blueprint(
         name=name,
         description=description,
@@ -42,7 +44,9 @@ def _make_blueprint(name: str = "bp", max_iterations: int = 3, description: str 
                 BlueprintActionNode(
                     id="n1",
                     type="actions",
-                    actions=[BlueprintAction(action="web_search", intent="find sources", query_guidance="search")],
+                    actions=[
+                        BlueprintAction(action="web_search", intent="find sources", query_guidance="search")
+                    ],
                     transition=[],
                 ),
             ],
@@ -189,7 +193,9 @@ def test_contrast_revision_applied(contrast_pass: BlueprintContrastPass) -> None
     revision = _ContrastRevision(
         name="media_bp",
         description="Handles video/image claims needing origin tracing; unlike text_bp, requires media.",
-        selector_hints={"positive": {"features": ["has_video"], "examples": ["A clip said to show event X."]}},
+        selector_hints={
+            "positive": {"features": ["has_video"], "examples": ["A clip said to show event X."]}
+        },
     )
     revised = contrast_pass._apply_revision(bp, revision)
     assert revised.description.startswith("Handles video/image claims")

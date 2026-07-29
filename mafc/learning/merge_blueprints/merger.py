@@ -110,9 +110,7 @@ class BlueprintTreeMerger:
             candidates = [e for e in tree.entries if not e.is_fallback]
             idx = self.matcher.match_entry(bp_routing, [e.description for e in candidates])
             if idx is None:
-                tree.entries.append(
-                    EntryBranch(bp.name, bp.entry_conditions, start, description=bp_routing)
-                )
+                tree.entries.append(EntryBranch(bp.name, bp.entry_conditions, start, description=bp_routing))
                 logger.debug(f"[TreeMerger] '{bp.name}' -> new router branch.")
             else:
                 entry = candidates[idx]

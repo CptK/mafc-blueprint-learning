@@ -37,12 +37,19 @@ def _textured_frame(seed: int, size: int = 480) -> np.ndarray:
         w, h = rng.integers(40, 160, 2)
         color = tuple(int(c) for c in rng.integers(0, 255, 3))
         if rng.random() < 0.5:
-            cv2.rectangle(img, (int(x0), int(y0)), (int(min(x0 + w, size - 1)), int(min(y0 + h, size - 1))), color, -1)
+            cv2.rectangle(
+                img, (int(x0), int(y0)), (int(min(x0 + w, size - 1)), int(min(y0 + h, size - 1))), color, -1
+            )
         else:
             cv2.circle(img, (int(x0 + 40), int(y0 + 40)), int(w // 3), color, -1)
     cv2.putText(
-        img, f"SAMPLE{seed}", (int(rng.integers(20, size // 3)), int(rng.integers(60, size - 20))),
-        cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 0), 4,
+        img,
+        f"SAMPLE{seed}",
+        (int(rng.integers(20, size // 3)), int(rng.integers(60, size - 20))),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.6,
+        (0, 255, 0),
+        4,
     )
     return img
 

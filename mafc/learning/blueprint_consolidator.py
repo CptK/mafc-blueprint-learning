@@ -359,9 +359,9 @@ class BlueprintConsolidator:
                     )
                     continue
                 if self.max_merged_size is not None and self.merge_size_lookup is not None:
-                    combined_size = self.merge_size_lookup.get(
-                        base_name, 0
-                    ) + self.merge_size_lookup.get(other_name, 0)
+                    combined_size = self.merge_size_lookup.get(base_name, 0) + self.merge_size_lookup.get(
+                        other_name, 0
+                    )
                     if combined_size > self.max_merged_size:
                         logger.info(
                             f"[BlueprintConsolidator] Vetoed merge ({base_name} + {other_name}): "
@@ -369,25 +369,19 @@ class BlueprintConsolidator:
                         )
                         continue
 
-                merged_name = self._execute_merge(
-                    registry, coverage, base_name, other_name, result
-                )
+                merged_name = self._execute_merge(registry, coverage, base_name, other_name, result)
                 if merged_name is None:
                     continue
                 # A merge renames the survivor, so the next fold must target the new
                 # name and inherit the accumulated coverage and claim count.
                 if merged_name != base_name:
-                    coverage[merged_name] = coverage.get(base_name, []) + coverage.get(
-                        other_name, []
-                    )
+                    coverage[merged_name] = coverage.get(base_name, []) + coverage.get(other_name, [])
                     if self.merge_size_lookup is not None:
                         self.merge_size_lookup[merged_name] = self.merge_size_lookup.get(
                             base_name, 0
                         ) + self.merge_size_lookup.get(other_name, 0)
                 else:
-                    coverage[base_name] = coverage.get(base_name, []) + coverage.get(
-                        other_name, []
-                    )
+                    coverage[base_name] = coverage.get(base_name, []) + coverage.get(other_name, [])
                     if self.merge_size_lookup is not None:
                         self.merge_size_lookup[base_name] = self.merge_size_lookup.get(
                             base_name, 0

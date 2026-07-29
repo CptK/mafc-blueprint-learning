@@ -45,9 +45,7 @@ def test_certain_confusion_counts_per_side() -> None:
 
 
 def test_baseline_magnitudes() -> None:
-    mags = baseline_magnitudes(
-        ["intact (certain)", "compromised (rather certain)", "unknown"]
-    )
+    mags = baseline_magnitudes(["intact (certain)", "compromised (rather certain)", "unknown"])
     assert abs(mags[0] - 1.0) < 1e-9
     assert abs(mags[1] - 2 / 3) < 1e-9
     assert mags[2] == 0.0

@@ -89,9 +89,7 @@ def test_non_ris_evidence_is_ignored() -> None:
 
 
 def test_no_match_reported() -> None:
-    digest = extract_referent_digest(
-        [_ris_evidence("No provenance could be established for this media.")]
-    )
+    digest = extract_referent_digest([_ris_evidence("No provenance could be established for this media.")])
     assert digest.no_match_reported
     block = format_referent_block(digest)
     assert block is not None and "found no matches" in block

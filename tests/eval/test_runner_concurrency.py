@@ -24,7 +24,6 @@ from mafc.tools.web_search.integrations.scrapemm_retriever import ScrapeMMRetrie
 
 from mafc.eval.run_config import (
     MediaAgentConfig,
-    AgentModelConfig,
     JudgeAgentConfig,
     AgentsConfig,
     BenchmarkConfig,

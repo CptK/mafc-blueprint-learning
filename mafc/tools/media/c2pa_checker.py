@@ -167,7 +167,9 @@ class C2PAChecker(Tool[CheckC2PAProvenance, C2PAProvenanceResults]):
 
         if reader is None:
             return C2PAProvenanceResults(
-                notes=["no C2PA manifest; this is the common case and says nothing about authenticity or if AI was involved"]
+                notes=[
+                    "no C2PA manifest; this is the common case and says nothing about authenticity or if AI was involved"
+                ]
             )
 
         try:

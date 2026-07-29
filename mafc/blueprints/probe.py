@@ -119,9 +119,7 @@ def embed_claim(text: str, model: str = DEFAULT_EMBEDDING_MODEL) -> np.ndarray |
     try:
         from openai import OpenAI
 
-        response = OpenAI(api_key=api_key, timeout=60).embeddings.create(
-            model=model, input=[text]
-        )
+        response = OpenAI(api_key=api_key, timeout=60).embeddings.create(model=model, input=[text])
         return np.array(response.data[0].embedding, dtype=np.float32)
     except Exception as exc:  # noqa: BLE001 - any embedding failure degrades to tie-break
         logger.warning(f"[BlueprintProbe] Claim embedding failed, falling back: {exc}")

@@ -339,8 +339,10 @@ class BranchMatcher:
             return descriptions
         prompt = _SHARPEN_USER.format(branches=_enumerate(descriptions), n=len(descriptions))
         result = self._call(_SHARPEN_SYSTEM, prompt, _parse_sharpened)
-        if result is None or len(result.descriptions) != len(descriptions) or not all(
-            d.strip() for d in result.descriptions
+        if (
+            result is None
+            or len(result.descriptions) != len(descriptions)
+            or not all(d.strip() for d in result.descriptions)
         ):
             logger.warning("[TreeMerger] router sharpening failed; keeping branch descriptions.")
             return descriptions

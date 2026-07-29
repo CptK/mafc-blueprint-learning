@@ -184,7 +184,9 @@ class SightengineDetectionResults(Results):
 
     ai_generated_score: float | None = None  # 0-1, higher = more likely AI-generated
     deepfake_score: float | None = None  # 0-1, higher = more likely a deepfake
-    ai_speech_score: float | None = None  # 0-1, higher = more likely synthetic speech; videos only, None if not checked
+    ai_speech_score: float | None = (
+        None  # 0-1, higher = more likely synthetic speech; videos only, None if not checked
+    )
     ai_generated_threshold: float = DEFAULT_AI_GENERATED_THRESHOLD
     deepfake_threshold: float = DEFAULT_DEEPFAKE_THRESHOLD
     ai_speech_threshold: float = DEFAULT_AI_SPEECH_THRESHOLD
@@ -224,7 +226,7 @@ class SightengineDetectionResults(Results):
 
     @property
     def verdict(self) -> str:
-        """"unknown" means nothing was scored (see `is_useful`). "not_ai_detected" means
+        """ "unknown" means nothing was scored (see `is_useful`). "not_ai_detected" means
         scores were checked but none crossed their threshold — a (soft) negative result,
         not an inconclusive one; don't confuse it with "unknown"."""
         if not self.is_useful():
@@ -237,13 +239,17 @@ class SightengineDetectionResults(Results):
             return f"Sightengine check failed: {self.error}"
         if not self.is_useful():
             return "No useful results"
-        parts = [f"Sightengine verdict: **{self.verdict}**. All scores are on a 0-1 scale (higher = more likely)."]
+        parts = [
+            f"Sightengine verdict: **{self.verdict}**. All scores are on a 0-1 scale (higher = more likely)."
+        ]
         if self.ai_generated_score is not None:
             parts.append(
                 f"AI-generated score: {self.ai_generated_score:.3f} (threshold {self.ai_generated_threshold:.2f})."
             )
         if self.deepfake_score is not None:
-            parts.append(f"Deepfake score: {self.deepfake_score:.3f} (threshold {self.deepfake_threshold:.2f}).")
+            parts.append(
+                f"Deepfake score: {self.deepfake_score:.3f} (threshold {self.deepfake_threshold:.2f})."
+            )
         if self.ai_speech_score is not None:
             parts.append(
                 f"AI-speech score: {self.ai_speech_score:.3f} (threshold {self.ai_speech_threshold:.2f})."
@@ -359,9 +365,7 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
             notes=list(scores.notes),
         )
 
-    def _result_from_record(
-        self, record: SightengineRecord, from_cache: bool
-    ) -> SightengineDetectionResults:
+    def _result_from_record(self, record: SightengineRecord, from_cache: bool) -> SightengineDetectionResults:
         result = self._build_result(
             ai_generated_score=record.ai_generated_score,
             deepfake_score=record.deepfake_score,
@@ -410,7 +414,9 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
         except _CredentialsMissing as e:
             return SightengineDetectionResults(error=str(e))
         except requests.RequestException as e:
-            logger.error(f"[Tool:{self.name}] Request to Sightengine failed for {action.media.reference}: {e}")
+            logger.error(
+                f"[Tool:{self.name}] Request to Sightengine failed for {action.media.reference}: {e}"
+            )
             return SightengineDetectionResults(error=f"request failed: {e}")
         except Exception as e:
             logger.error(f"[Tool:{self.name}] Failed to check {action.media.reference}: {e}")
@@ -423,9 +429,7 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
 
     # --- score fetching -------------------------------------------------------
 
-    def _compute_image_scores(
-        self, media: Image, api_user: str, api_secret: str
-    ) -> _SightengineScores:
+    def _compute_image_scores(self, media: Image, api_user: str, api_secret: str) -> _SightengineScores:
         params = {"models": "genai,deepfake", "api_user": api_user, "api_secret": api_secret}
         with open(media.file_path, "rb") as f:
             r = requests.post(IMAGE_CHECK_URL, files={"media": f}, data=params, timeout=self.timeout)
@@ -444,9 +448,7 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
             error=None,
         )
 
-    def _compute_video_scores(
-        self, media: Video, api_user: str, api_secret: str
-    ) -> _SightengineScores:
+    def _compute_video_scores(self, media: Video, api_user: str, api_secret: str) -> _SightengineScores:
         duration = media.duration
         if duration and duration > MAX_SYNC_VIDEO_SECONDS:
             visual = self._score_video_async(media, api_user, api_secret)
@@ -500,7 +502,10 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
         trimmed_path = self._trim_video(media.file_path)
         if trimmed_path is None:
             return _VideoScores(
-                None, None, 0, None,
+                None,
+                None,
+                0,
+                None,
                 "async video analysis is not available on this Sightengine plan, and trimming the "
                 "video for a fallback sync check failed (ffmpeg missing or errored)",
             )
@@ -530,8 +535,16 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
         try:
             for extra_args in (["-c", "copy"], []):
                 proc = subprocess.run(
-                    ["ffmpeg", "-y", "-i", str(video_path), "-t", str(MAX_SYNC_VIDEO_SECONDS),
-                     *extra_args, str(out_path)],
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        str(video_path),
+                        "-t",
+                        str(MAX_SYNC_VIDEO_SECONDS),
+                        *extra_args,
+                        str(out_path),
+                    ],
                     capture_output=True,
                     timeout=FFMPEG_TIMEOUT_SECONDS,
                 )
@@ -566,7 +579,9 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
 
         media_id = (output.get("media") or {}).get("id")
         if not media_id:
-            return _VideoScores(None, None, 0, None, "Sightengine did not return a job id for the async video check")
+            return _VideoScores(
+                None, None, 0, None, "Sightengine did not return a job id for the async video check"
+            )
 
         poll_params = {"id": media_id, "api_user": api_user, "api_secret": api_secret}
         deadline = time.monotonic() + self.async_max_wait
@@ -584,14 +599,22 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
                 frames = job.get("frames") or []
                 if not frames:
                     return _VideoScores(
-                        None, None, 0, None,
+                        None,
+                        None,
+                        0,
+                        None,
                         f"Sightengine async video job finished with status {status!r} but returned no frames",
                     )
-                return self._aggregate_frames(frames, note=f"scored via Sightengine's async video job ({status})")
+                return self._aggregate_frames(
+                    frames, note=f"scored via Sightengine's async video job ({status})"
+                )
 
             if time.monotonic() > deadline:
                 return _VideoScores(
-                    None, None, 0, None,
+                    None,
+                    None,
+                    0,
+                    None,
                     f"Sightengine async video job did not finish within {self.async_max_wait:.0f}s",
                 )
 

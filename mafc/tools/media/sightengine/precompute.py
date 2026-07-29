@@ -106,13 +106,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--videos", action="store_true", help="also score videos (paid, and slower)")
     parser.add_argument(
-        "--ai-speech", action="store_true",
+        "--ai-speech",
+        action="store_true",
         help="also check videos' audio track with ai_speech (requires an Enterprise Sightengine plan)",
     )
     parser.add_argument(
-        "--video-aggregation", default="mean", choices=["max", "mean", "median"],
+        "--video-aggregation",
+        default="mean",
+        choices=["max", "mean", "median"],
         help="how per-frame video scores collapse into one (default: mean, matching "
-             "Sightengine's own web viewer)",
+        "Sightengine's own web viewer)",
     )
     parser.add_argument("--limit", type=int, default=None, help="only process the first N files")
     args = parser.parse_args(argv)

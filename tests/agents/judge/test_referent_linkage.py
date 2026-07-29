@@ -65,9 +65,7 @@ def test_judge_prompt_contains_referent_block_and_tags() -> None:
 def test_judge_prompt_unchanged_without_ris_evidence() -> None:
     model = SequencedModel([_VALID_RESPONSE])
     judge = JudgeAgent(model, CLASS_DEFINITIONS)
-    result = judge.run(
-        make_session(evidences=[_web_evidence("https://factcheck.org/a", "Some finding.")])
-    )
+    result = judge.run(make_session(evidences=[_web_evidence("https://factcheck.org/a", "Some finding.")]))
     assert result.result is not None
     prompt = _user_prompt(model)
     assert "Media referent status" not in prompt

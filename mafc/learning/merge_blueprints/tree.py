@@ -173,8 +173,10 @@ class MergedStrategyTree:
         for entry in ordered_entries:
             text = entry.description or describe_entry_conditions(entry.conditions)
             if entry.is_fallback:
-                text = f"Take this branch only if none of the other branches fits: {text}" if entry.description else (
-                    "Take this branch only if none of the other branches fits (generic fallback)."
+                text = (
+                    f"Take this branch only if none of the other branches fits: {text}"
+                    if entry.description
+                    else ("Take this branch only if none of the other branches fits (generic fallback).")
                 )
             router.edges.append(MergeEdge(text, entry.start))
 

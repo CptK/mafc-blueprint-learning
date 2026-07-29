@@ -197,9 +197,7 @@ def test_n_samples_mean_numeric_snaps_to_nearest_label() -> None:
             '{"label":"uncertain","justification":"Thin evidence."}',
         ]
     )
-    agent = JudgeAgent(
-        model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3, label_numeric=numeric
-    )
+    agent = JudgeAgent(model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3, label_numeric=numeric)
     session = make_session()
     agent.run(session)
 
@@ -217,9 +215,7 @@ def test_n_samples_mean_numeric_disagreement_lands_on_middle_label() -> None:
             '{"label":"uncertain","justification":"Mixed."}',
         ]
     )
-    agent = JudgeAgent(
-        model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3, label_numeric=numeric
-    )
+    agent = JudgeAgent(model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3, label_numeric=numeric)
     session = make_session()
     agent.run(session)
 

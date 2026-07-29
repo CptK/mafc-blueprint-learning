@@ -14,7 +14,6 @@ import yaml
 from mafc.agents.fact_check.models import CheckStatus, FactCheckSessionState
 from mafc.blueprints.models import (
     Blueprint,
-    BlueprintAction,
     BlueprintActionNode,
     BlueprintEntryConditions,
     BlueprintPolicyConstraints,
@@ -104,7 +103,9 @@ def _state(**kwargs) -> FactCheckSessionState:
             nodes=[
                 BlueprintSynthesisNode(id="n1", type="synthesis", transition=[]),
                 BlueprintSynthesisNode(
-                    id="lane", type="synthesis", transition=[],
+                    id="lane",
+                    type="synthesis",
+                    transition=[],
                     activates_checks=["lane_check", "global_check"],
                 ),
             ],
@@ -143,9 +144,9 @@ def test_activation_adds_node_checks_once() -> None:
 def test_merge_attaches_checks_to_lane_entries_not_globally() -> None:
     model = ScriptedModel(
         [
-            json.dumps({"match_index": 0, "rationale": "same"}),      # statements -> quotes branch
-            json.dumps({"pairs": [], "unmatched_signal": [0]}),        # branch alignment
-            json.dumps({"description": "Quotes and statements."}),     # description fold
+            json.dumps({"match_index": 0, "rationale": "same"}),  # statements -> quotes branch
+            json.dumps({"pairs": [], "unmatched_signal": [0]}),  # branch alignment
+            json.dumps({"description": "Quotes and statements."}),  # description fold
         ]
     )
     merger = BlueprintTreeMerger(model, reconcile=False, consolidate=False, sharpen=False)
@@ -159,11 +160,11 @@ def test_merge_attaches_checks_to_lane_entries_not_globally() -> None:
     # Definitions all sit at the root; every one is referenced by a lane entry
     # (no global-only checks in this pool), so none is active from the start.
     assert sorted(c.id for c in bp.required_checks) == [
-        "generic_check", "quotes_check", "statements_check",
+        "generic_check",
+        "quotes_check",
+        "statements_check",
     ]
-    refs_by_node = {
-        n.id: n.activates_checks for n in bp.verification_graph.nodes if n.activates_checks
-    }
+    refs_by_node = {n.id: n.activates_checks for n in bp.verification_graph.nodes if n.activates_checks}
     assert refs_by_node["generic/n1"] == ["generic_check"]
     assert sorted(refs_by_node["quotes/n1"]) == ["quotes_check", "statements_check"]
     assert len(refs_by_node) == 2
@@ -176,8 +177,12 @@ def test_colliding_check_ids_with_different_descriptions_are_renamed() -> None:
 
     tree = MergedStrategyTree()
     tree.allowed_actions = ["web_search"]
-    node_a = MergeNode("a/n1", "synthesis", checks=[BlueprintRequiredCheck(id="src", description="Version A.")])
-    node_b = MergeNode("b/n1", "synthesis", checks=[BlueprintRequiredCheck(id="src", description="Version B.")])
+    node_a = MergeNode(
+        "a/n1", "synthesis", checks=[BlueprintRequiredCheck(id="src", description="Version A.")]
+    )
+    node_b = MergeNode(
+        "b/n1", "synthesis", checks=[BlueprintRequiredCheck(id="src", description="Version B.")]
+    )
     gate = BlueprintEntryConditions(any=[BlueprintCondition(feature="has_claim_text", op="==", value=True)])
     tree.entries = [EntryBranch("a", gate, node_a, "A lane."), EntryBranch("b", gate, node_b, "B lane.")]
 

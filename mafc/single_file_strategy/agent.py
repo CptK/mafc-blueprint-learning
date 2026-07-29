@@ -227,7 +227,6 @@ class StrategyAgent(Agent):
 
         # Drop unknown tools defensively (schema already restricts, but be safe).
         calls = [tc for tc in decision.tool_calls if tc.tool in self.tools]
-        done = decision.done or not calls or last_round and not calls
 
         trace.record_round(
             round_index=round_idx,

@@ -60,11 +60,7 @@ def extract_claim_features(
 
     if semantic_features:
         feature_values.update(
-            {
-                key: value
-                for key, value in semantic_features.items()
-                if key in SEMANTIC_FEATURE_NAMES
-            }
+            {key: value for key, value in semantic_features.items() if key in SEMANTIC_FEATURE_NAMES}
         )
 
     return ClaimFeatures.model_validate(feature_values)

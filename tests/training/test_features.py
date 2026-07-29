@@ -45,8 +45,9 @@ def test_extract_row_target_and_leakage_free() -> None:
         retrieval_failures=1,
         evidence_growth=[0, 5],
     )
-    claim = ClaimRecord(id="x1", text="some claim text", integrity_score=-0.9,
-                        language="en", n_media=1, has_media=True)
+    claim = ClaimRecord(
+        id="x1", text="some claim text", integrity_score=-0.9, language="en", n_media=1, has_media=True
+    )
     row = extract_row(trace, claim, FeatureExtractorConfig())
     assert row.target == 0.9  # abs(integrity_score)
     # judge direction is a feature; signed score / true label are NOT present

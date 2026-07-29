@@ -64,10 +64,7 @@ class SemanticFeatureResponse(BaseModel):
 
     def to_feature_values(self) -> dict[str, bool | None]:
         """Map the raw yes/no/unknown strings onto tri-state booleans."""
-        return {
-            key: _TRISTATE.get((value or "").strip().lower())
-            for key, value in self.model_dump().items()
-        }
+        return {key: _TRISTATE.get((value or "").strip().lower()) for key, value in self.model_dump().items()}
 
 
 class SemanticFeatureExtractor:
@@ -92,13 +89,9 @@ class SemanticFeatureExtractor:
         prompt = Prompt(text=_EXTRACTION_PROMPT + claim_text)
         for attempt in range(1, _MAX_EXTRACTION_ATTEMPTS + 1):
             try:
-                raw = self.model.generate(
-                    [Message(role=MessageRole.USER, content=prompt)]
-                ).text.strip()
+                raw = self.model.generate([Message(role=MessageRole.USER, content=prompt)]).text.strip()
                 if raw.startswith("```"):
-                    raw = "\n".join(
-                        line for line in raw.splitlines() if not line.startswith("```")
-                    ).strip()
+                    raw = "\n".join(line for line in raw.splitlines() if not line.startswith("```")).strip()
                 payload = json.loads(extract_json_object(raw))
                 return SemanticFeatureResponse.model_validate(payload).to_feature_values()
             except (json.JSONDecodeError, ValueError, AttributeError) as exc:

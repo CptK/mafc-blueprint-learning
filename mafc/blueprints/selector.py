@@ -19,7 +19,6 @@ from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.learning.models import ArticleAnalysis
 
-
 # Model.generate already retries transient API *exceptions*. These retries cover the
 # other failure mode: a successful call whose body is empty, truncated, or not valid
 # JSON. Without them the selector silently routes the claim to the generic blueprint.
@@ -202,7 +201,9 @@ class BlueprintSelector:
                 all_blueprints=all_blueprint_names,
             )
 
-        probe_result = self._select_with_probe(claim, claim_features, survivors, rejected, all_blueprint_names)
+        probe_result = self._select_with_probe(
+            claim, claim_features, survivors, rejected, all_blueprint_names
+        )
         if probe_result is not None:
             return probe_result
 
@@ -263,9 +264,7 @@ class BlueprintSelector:
         else:
             selected_name, confidence = prediction.blueprint_name, prediction.confidence
 
-        selected_blueprint = next(
-            blueprint for blueprint in survivors if blueprint.name == selected_name
-        )
+        selected_blueprint = next(blueprint for blueprint in survivors if blueprint.name == selected_name)
         return BlueprintSelectionResult(
             selected_blueprint=selected_blueprint,
             selection_mode=BlueprintSelectionMode.EMBEDDING_PROBE,
@@ -313,11 +312,7 @@ class BlueprintSelector:
 
             if parsed is not None:
                 selected_blueprint = next(
-                    (
-                        blueprint
-                        for blueprint in survivors
-                        if blueprint.name == parsed.selected_blueprint
-                    ),
+                    (blueprint for blueprint in survivors if blueprint.name == parsed.selected_blueprint),
                     None,
                 )
                 if selected_blueprint is not None:

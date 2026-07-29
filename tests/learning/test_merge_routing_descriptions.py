@@ -47,15 +47,15 @@ class ScriptedModel(Model):
         return Response(text=self.outputs.pop(0) if self.outputs else "{}", total_cost=0.0)
 
 
-def _blueprint(name: str, description: str, examples: list[str] | None = None, gated: bool = True) -> Blueprint:
+def _blueprint(
+    name: str, description: str, examples: list[str] | None = None, gated: bool = True
+) -> Blueprint:
     conditions = (
         BlueprintEntryConditions(any=[BlueprintCondition(feature="has_claim_text", op="==", value=True)])
         if gated
         else BlueprintEntryConditions()
     )
-    hints = BlueprintSelectorHints.model_validate(
-        {"positive": {"features": [], "examples": examples or []}}
-    )
+    hints = BlueprintSelectorHints.model_validate({"positive": {"features": [], "examples": examples or []}})
     return Blueprint(
         name=name,
         description=description,
@@ -69,7 +69,9 @@ def _blueprint(name: str, description: str, examples: list[str] | None = None, g
                 BlueprintActionNode(
                     id="n1",
                     type="actions",
-                    actions=[BlueprintAction(action="web_search", intent=f"verify {name}", query_guidance="q")],
+                    actions=[
+                        BlueprintAction(action="web_search", intent=f"verify {name}", query_guidance="q")
+                    ],
                     transition=[],
                 ),
             ],
@@ -78,7 +80,9 @@ def _blueprint(name: str, description: str, examples: list[str] | None = None, g
 
 
 def test_routing_description_combines_description_and_examples() -> None:
-    bp = _blueprint("quotes", "Verifies attributed quotes.", ["Politician X said Y.", "CEO Z claimed W.", "third"])
+    bp = _blueprint(
+        "quotes", "Verifies attributed quotes.", ["Politician X said Y.", "CEO Z claimed W.", "third"]
+    )
     text = routing_description(bp)
     assert text.startswith("Verifies attributed quotes.")
     assert "Typical claims: Politician X said Y. | CEO Z claimed W." in text
@@ -88,7 +92,9 @@ def test_routing_description_combines_description_and_examples() -> None:
 def test_router_emits_descriptions_with_fallback_last() -> None:
     tree = MergedStrategyTree()
     tree.allowed_actions = ["web_search"]
-    fallback = EntryBranch("generic", BlueprintEntryConditions(), MergeNode("g/n1", "synthesis"), description="")
+    fallback = EntryBranch(
+        "generic", BlueprintEntryConditions(), MergeNode("g/n1", "synthesis"), description=""
+    )
     quotes = EntryBranch(
         "quotes",
         BlueprintEntryConditions(any=[BlueprintCondition(feature="has_claim_text", op="==", value=True)]),

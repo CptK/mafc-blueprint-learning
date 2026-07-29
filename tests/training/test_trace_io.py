@@ -56,8 +56,12 @@ def test_normalise_strategy_trace() -> None:
     trace = {
         "judge_run": _judge_run("intact (rather certain)"),
         "rounds": [
-            {"round": 1, "tool_calls": [{"tool": "web_search"}, {"tool": "media"}],
-             "done": True, "evidence_count_after": 6},
+            {
+                "round": 1,
+                "tool_calls": [{"tool": "web_search"}, {"tool": "media"}],
+                "done": True,
+                "evidence_count_after": 6,
+            },
         ],
         "summary": {"errors": [], "total_output_tokens": 1000},
     }

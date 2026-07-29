@@ -58,9 +58,7 @@ def validate_entry_gates(
     texts = [text for text in claim_texts if text]
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(texts)))) as pool:
         semantic = list(pool.map(extractor.extract, texts))
-    feature_sets = [
-        extract_claim_features(text, features) for text, features in zip(texts, semantic)
-    ]
+    feature_sets = [extract_claim_features(text, features) for text, features in zip(texts, semantic)]
     coverage_before = _coverage(conditions, feature_sets)
     coverage = coverage_before
     dropped: list[BlueprintCondition] = []

@@ -294,9 +294,7 @@ class Blueprint(BlueprintBaseModel):
             return data
         graph = data.get("verification_graph")
         nodes = graph.get("nodes") if isinstance(graph, dict) else None
-        if not isinstance(nodes, list) or not any(
-            isinstance(n, dict) and n.get("checks") for n in nodes
-        ):
+        if not isinstance(nodes, list) or not any(isinstance(n, dict) and n.get("checks") for n in nodes):
             return data
 
         checks: list = [c for c in (data.get("required_checks") or []) if isinstance(c, dict)]
