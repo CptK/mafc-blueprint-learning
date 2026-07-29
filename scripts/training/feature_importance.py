@@ -50,17 +50,28 @@ _FAMILIES: list[tuple[str, list[str], list[str]]] = [
     (
         "search_struggle",
         [
-            "n_iterations", "hit_max_iterations", "n_delegated_tasks", "n_errors",
-            "retrieval_failures", "retrieval_failure_rate", "evidence_growth_total",
-            "evidence_growth_steps", "runtime_seconds", "total_calls",
+            "n_iterations",
+            "hit_max_iterations",
+            "n_delegated_tasks",
+            "n_errors",
+            "retrieval_failures",
+            "retrieval_failure_rate",
+            "evidence_growth_total",
+            "evidence_growth_steps",
+            "runtime_seconds",
+            "total_calls",
         ],
         [],
     ),
     (
         "judge_hedging",
         [
-            "justification_char_len", "justification_word_len", "hedge_count",
-            "hedge_density", "judge_output_tokens", "judge_repair_fired",
+            "justification_char_len",
+            "justification_word_len",
+            "hedge_count",
+            "hedge_density",
+            "judge_output_tokens",
+            "judge_repair_fired",
             "judge_errors_present",
         ],
         [],
@@ -70,8 +81,13 @@ _FAMILIES: list[tuple[str, list[str], list[str]]] = [
     (
         "difficulty_priors",
         [
-            "has_media", "n_media", "language", "claim_char_len", "claim_word_len",
-            "blueprint_name", "claim_vs_evidence_months",
+            "has_media",
+            "n_media",
+            "language",
+            "claim_char_len",
+            "claim_word_len",
+            "blueprint_name",
+            "claim_vs_evidence_months",
         ],
         ["cf_"],
     ),
@@ -89,9 +105,7 @@ def _mae(y: np.ndarray, p: np.ndarray) -> float:
     return float(np.mean(np.abs(y - p)))
 
 
-def grouped_permutation_importance(
-    df: pd.DataFrame, k: int, repeats: int, seed: int
-) -> dict:
+def grouped_permutation_importance(df: pd.DataFrame, k: int, repeats: int, seed: int) -> dict:
     feature_cols, _ = feature_columns(df)
     # Map each feature column to its family, and build per-family + per-(structured)
     # column groups. The two embedding blocks are permuted as whole families only.

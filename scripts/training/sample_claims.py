@@ -44,11 +44,11 @@ DEFAULT_CLAIMS = [
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--claims", nargs="+", default=DEFAULT_CLAIMS,
-                    help="claims.json files or their containing dirs")
+    ap.add_argument(
+        "--claims", nargs="+", default=DEFAULT_CLAIMS, help="claims.json files or their containing dirs"
+    )
     ap.add_argument("--target-n", type=int, default=None, help="number of claims to select")
-    ap.add_argument("--hard-band", type=float, nargs=2, default=(0.5, 1.0),
-                    help="|score| band to oversample")
+    ap.add_argument("--hard-band", type=float, nargs=2, default=(0.5, 1.0), help="|score| band to oversample")
     ap.add_argument("--hard-weight", type=float, default=3.0)
     ap.add_argument("--easy-weight", type=float, default=1.0)
     ap.add_argument("--unknown-weight", type=float, default=1.0)
@@ -85,20 +85,18 @@ def main() -> None:
     )
 
     manifest = [
-        {"id": s.id, "score": s.score, "direction": s.direction,
-         "stratum": s.stratum, "weight": s.weight}
+        {"id": s.id, "score": s.score, "direction": s.direction, "stratum": s.stratum, "weight": s.weight}
         for s in selected
     ]
-    out.with_suffix(".manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    out.with_suffix(".manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     with out.with_suffix(".manifest.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=["id", "score", "direction", "stratum", "weight"])
         w.writeheader()
         w.writerows(manifest)
 
-    logger.info(f"Wrote {yaml_path}, {out.with_suffix('.manifest.csv')}, "
-                f"{out.with_suffix('.manifest.json')}")
+    logger.info(
+        f"Wrote {yaml_path}, {out.with_suffix('.manifest.csv')}, " f"{out.with_suffix('.manifest.json')}"
+    )
 
 
 if __name__ == "__main__":

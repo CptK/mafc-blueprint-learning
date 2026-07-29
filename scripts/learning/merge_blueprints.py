@@ -39,49 +39,66 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "--blueprints-dir", required=True, metavar="PATH",
+        "--blueprints-dir",
+        required=True,
+        metavar="PATH",
         help="Directory containing the blueprint YAML/JSON files to merge.",
     )
     parser.add_argument(
-        "--out", "-o", required=True, metavar="PATH",
+        "--out",
+        "-o",
+        required=True,
+        metavar="PATH",
         help="Path to write the merged blueprint YAML.",
     )
     parser.add_argument(
-        "--model", default="claude_4.8_opus",
+        "--model",
+        default="claude_4.8_opus",
         help="LLM for branch matching — shorthand from config/available_models.csv "
         "(default: claude_4.8_opus).",
     )
     parser.add_argument(
-        "--name", default="merged",
+        "--name",
+        default="merged",
         help="Name field for the merged blueprint (default: merged).",
     )
     parser.add_argument(
-        "--description", default="Merged strategy tree consolidating multiple blueprints.",
+        "--description",
+        default="Merged strategy tree consolidating multiple blueprints.",
         help="Description field for the merged blueprint.",
     )
     parser.add_argument(
-        "--seed-first", default="generic", metavar="NAMES",
+        "--seed-first",
+        default="generic",
+        metavar="NAMES",
         help="Comma-separated blueprint names to place first as the merge spine "
         "(default: generic). Names not present are ignored.",
     )
     parser.add_argument(
-        "--no-reconcile", action="store_true",
+        "--no-reconcile",
+        action="store_true",
         help="Skip the final pass that merges sibling branches split apart by merge order.",
     )
     parser.add_argument(
-        "--no-consolidate", action="store_true",
+        "--no-consolidate",
+        action="store_true",
         help="Skip the pass that rewrites verbose action nodes into concise action lists.",
     )
     parser.add_argument(
-        "--max-actions", type=int, default=4,
+        "--max-actions",
+        type=int,
+        default=4,
         help="Max actions per node after consolidation (default: 4).",
     )
     parser.add_argument(
-        "--no-sharpen", action="store_true",
+        "--no-sharpen",
+        action="store_true",
         help="Skip the final contrast pass over router branch descriptions.",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=4096,
+        "--max-tokens",
+        type=int,
+        default=4096,
         help="Max response tokens for the LLM seams (default: 4096).",
     )
     args = parser.parse_args()
@@ -108,9 +125,7 @@ def main() -> None:
         max_actions=args.max_actions,
         sharpen=not args.no_sharpen,
     )
-    result = merger.merge(
-        blueprints, name=args.name, description=args.description, progress=True
-    )
+    result = merger.merge(blueprints, name=args.name, description=args.description, progress=True)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

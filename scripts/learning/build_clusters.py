@@ -94,16 +94,15 @@ def _process_dir(
 
     analyses_path = data_dir / "article_analyses.json"
     if not analyses_path.exists():
-        logger.warning(f"[{data_dir.name}] article_analyses.json not found — run build_article_analyses.py first.")
+        logger.warning(
+            f"[{data_dir.name}] article_analyses.json not found — run build_article_analyses.py first."
+        )
         return
 
     all_embeddings = _load_embeddings(embeddings_path)
     analyses = load_analyses(analyses_path)
 
-    eligible_ids = [
-        cid for cid, model_vecs in all_embeddings.items()
-        if embedding_model in model_vecs
-    ]
+    eligible_ids = [cid for cid, model_vecs in all_embeddings.items() if embedding_model in model_vecs]
 
     if not eligible_ids:
         logger.warning(
@@ -120,6 +119,7 @@ def _process_dir(
     if reduce_dims is not None:
         try:
             import logging
+
             logging.getLogger("numba").setLevel(logging.WARNING)
             logging.getLogger("umap").setLevel(logging.WARNING)
             import umap as umap_lib
@@ -158,20 +158,20 @@ def _process_dir(
     labels: np.ndarray = clusterer.fit_predict(X)
 
     unique_labels = sorted(set(labels.tolist()))
-    cluster_indices = [l for l in unique_labels if l >= 0]
+    cluster_indices = [label for label in unique_labels if label >= 0]
     n_noise = int((labels == -1).sum())
     logger.info(f"[{data_dir.name}] {len(cluster_indices)} clusters, {n_noise} noise points.")
 
     index_lists = [
-        [i for i, lbl in enumerate(labels.tolist()) if lbl == cluster_idx]
-        for cluster_idx in cluster_indices
+        [i for i, lbl in enumerate(labels.tolist()) if lbl == cluster_idx] for cluster_idx in cluster_indices
     ]
 
     # Split clusters exceeding max_cluster_frac of the clustered points: a blueprint
     # synthesized from a mega-cluster degrades into a shallow catch-all at eval time.
     n_clustered_total = len(eligible_ids) - n_noise
     split_lists = split_oversized_clusters(
-        X, index_lists,
+        X,
+        index_lists,
         max_frac=max_cluster_frac,
         min_cluster_size=min_cluster_size,
         n_total=n_clustered_total,
@@ -187,9 +187,7 @@ def _process_dir(
     parent_labels: dict[int, str] = {}
     for parent_pos, indices in enumerate(index_lists):
         if parent_was_split[parent_pos] > 1:
-            parent_analyses = [
-                analyses[eligible_ids[i]] for i in indices if eligible_ids[i] in analyses
-            ]
+            parent_analyses = [analyses[eligible_ids[i]] for i in indices if eligible_ids[i] in analyses]
             parent_labels[parent_pos], _ = label_cluster(parent_analyses, parent_pos)
 
     # Label each (possibly split) cluster by its dominant strategy features.
@@ -198,11 +196,13 @@ def _process_dir(
         claim_ids = [eligible_ids[i] for i in indices]
         cluster_analyses = [analyses[cid] for cid in claim_ids if cid in analyses]
         base_label, _ = label_cluster(cluster_analyses, cluster_pos)
-        labeled_parts.append({
-            "base_label": base_label,
-            "claim_ids": claim_ids,
-            "parent_pos": parent_pos,
-        })
+        labeled_parts.append(
+            {
+                "base_label": base_label,
+                "claim_ids": claim_ids,
+                "parent_pos": parent_pos,
+            }
+        )
 
     # Repack split siblings that share the same strategy label, up to the cap.
     # Leaf sub-clustering shatters a mega-cluster into many shards; shards with an
@@ -238,12 +238,14 @@ def _process_dir(
         claim_ids = part["claim_ids"]
         cluster_analyses = [analyses[cid] for cid in claim_ids if cid in analyses]
         base_label, rationale = label_cluster(cluster_analyses, cluster_pos)
-        raw_clusters.append({
-            "base_label": base_label,
-            "rationale": rationale,
-            "claim_ids": claim_ids,
-            "parent_label": parent_labels.get(part["parent_pos"]),
-        })
+        raw_clusters.append(
+            {
+                "base_label": base_label,
+                "rationale": rationale,
+                "claim_ids": claim_ids,
+                "parent_label": parent_labels.get(part["parent_pos"]),
+            }
+        )
 
     if merge_same_label:
         # Merge all HDBSCAN clusters that share the same base label into one,
@@ -271,12 +273,14 @@ def _process_dir(
         for m in merged.values():
             count = seen_merged.get(m["label"], 0) + 1
             seen_merged[m["label"]] = count
-            clusters.append({
-                "label": m["label"] if count == 1 else f"{m['label']}_{count}",
-                "rationale": m["rationale"],
-                "size": len(m["claim_ids"]),
-                "claim_ids": m["claim_ids"],
-            })
+            clusters.append(
+                {
+                    "label": m["label"] if count == 1 else f"{m['label']}_{count}",
+                    "rationale": m["rationale"],
+                    "size": len(m["claim_ids"]),
+                    "claim_ids": m["claim_ids"],
+                }
+            )
     else:
         # Deduplicate: append _2, _3, … when the same base label appears multiple times
         seen_labels: dict[str, int] = {}
@@ -305,20 +309,22 @@ def _process_dir(
     }
     if umap_params is not None:
         output["umap_params"] = umap_params
-    output.update({
-        "hdbscan_params": {
-            "min_cluster_size": min_cluster_size,
-            "min_samples": min_samples,
-            "cluster_selection_epsilon": epsilon,
-            "cluster_selection_method": cluster_selection_method,
-        },
-        "max_cluster_frac": max_cluster_frac,
-        "n_total": len(eligible_ids),
-        "n_clustered": len(eligible_ids) - n_noise,
-        "n_noise": n_noise,
-        "n_clusters": len(clusters),
-        "clusters": clusters,
-    })
+    output.update(
+        {
+            "hdbscan_params": {
+                "min_cluster_size": min_cluster_size,
+                "min_samples": min_samples,
+                "cluster_selection_epsilon": epsilon,
+                "cluster_selection_method": cluster_selection_method,
+            },
+            "max_cluster_frac": max_cluster_frac,
+            "n_total": len(eligible_ids),
+            "n_clustered": len(eligible_ids) - n_noise,
+            "n_noise": n_noise,
+            "n_clusters": len(clusters),
+            "clusters": clusters,
+        }
+    )
 
     with open(out_path, "w") as f:
         json.dump(output, f, indent=2)
@@ -330,63 +336,89 @@ def _process_dir(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
-        "--data-dir", nargs="+", required=True, metavar="PATH",
+        "--data-dir",
+        nargs="+",
+        required=True,
+        metavar="PATH",
         help="One or more dataset directories containing embeddings.json.",
     )
     parser.add_argument(
-        "--embedding-model", default=DEFAULT_EMBEDDING_MODEL,
+        "--embedding-model",
+        default=DEFAULT_EMBEDDING_MODEL,
         help=f"Which model's embeddings to cluster (default: {DEFAULT_EMBEDDING_MODEL}).",
     )
 
     umap_group = parser.add_argument_group("UMAP (dimensionality reduction)")
     umap_group.add_argument(
-        "--reduce-dims", type=int, default=None, metavar="N",
+        "--reduce-dims",
+        type=int,
+        default=None,
+        metavar="N",
         help="Reduce embeddings to N dims with UMAP before clustering. "
-             "Strongly recommended for high-dimensional embeddings (e.g. 50). "
-             "Requires umap-learn (pip install umap-learn).",
+        "Strongly recommended for high-dimensional embeddings (e.g. 50). "
+        "Requires umap-learn (pip install umap-learn).",
     )
     umap_group.add_argument(
-        "--umap-neighbors", type=int, default=15,
+        "--umap-neighbors",
+        type=int,
+        default=15,
         help="UMAP n_neighbors — larger values = more global structure (default: 15).",
     )
     umap_group.add_argument(
-        "--umap-min-dist", type=float, default=0.0,
+        "--umap-min-dist",
+        type=float,
+        default=0.0,
         help="UMAP min_dist — use 0.0 for clustering (keeps clusters tight). Default: 0.0.",
     )
 
     hdbscan_group = parser.add_argument_group("HDBSCAN")
     hdbscan_group.add_argument(
-        "--min-cluster-size", type=int, default=5,
+        "--min-cluster-size",
+        type=int,
+        default=5,
         help="Minimum claims for a cluster to survive (default: 5).",
     )
     hdbscan_group.add_argument(
-        "--min-samples", type=int, default=None,
+        "--min-samples",
+        type=int,
+        default=None,
         help="HDBSCAN min_samples — controls noise sensitivity. Defaults to --min-cluster-size.",
     )
     hdbscan_group.add_argument(
-        "--epsilon", type=float, default=0.0,
+        "--epsilon",
+        type=float,
+        default=0.0,
         help="HDBSCAN cluster_selection_epsilon — merges nearby micro-clusters (default: 0.0).",
     )
     hdbscan_group.add_argument(
-        "--cluster-selection-method", default="leaf", choices=["eom", "leaf"],
+        "--cluster-selection-method",
+        default="leaf",
+        choices=["eom", "leaf"],
         help="'leaf' = finer clusters; 'eom' = fewer larger clusters (default: leaf).",
     )
 
     parser.add_argument(
-        "--max-cluster-frac", type=float, default=0.2,
+        "--max-cluster-frac",
+        type=float,
+        default=0.2,
         help="Maximum fraction of clustered claims a single cluster may hold; larger "
-             "clusters are recursively split (HDBSCAN leaf, KMeans fallback). A blueprint "
-             "synthesized from a mega-cluster degrades into a shallow catch-all. "
-             "Set 0 to disable (default: 0.2).",
+        "clusters are recursively split (HDBSCAN leaf, KMeans fallback). A blueprint "
+        "synthesized from a mega-cluster degrades into a shallow catch-all. "
+        "Set 0 to disable (default: 0.2).",
     )
     parser.add_argument(
-        "--merge-same-label", action="store_true",
+        "--merge-same-label",
+        action="store_true",
         help="Merge all clusters sharing the same base label (e.g. event_claim_official_records, "
-             "event_claim_official_records_2, …) into a single cluster, combining their claims.",
+        "event_claim_official_records_2, …) into a single cluster, combining their claims.",
     )
-    parser.add_argument("--force", action="store_true", help="Recompute even if clusters.json already exists.")
+    parser.add_argument(
+        "--force", action="store_true", help="Recompute even if clusters.json already exists."
+    )
     args = parser.parse_args()
 
     min_samples = args.min_samples if args.min_samples is not None else args.min_cluster_size

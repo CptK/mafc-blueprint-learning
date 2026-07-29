@@ -26,7 +26,11 @@ from mafc.learning.embedding_utils import GOOD_RICHNESS
 
 def _bar(value: int, total: int, width: int = 30) -> str:
     filled = round(width * value / total) if total else 0
-    return f"[{'█' * filled}{'░' * (width - filled)}] {value:>5} ({100 * value / total:5.1f}%)" if total else "n/a"
+    return (
+        f"[{'█' * filled}{'░' * (width - filled)}] {value:>5} ({100 * value / total:5.1f}%)"
+        if total
+        else "n/a"
+    )
 
 
 def _print_counter(counter: Counter, total: int, top_n: int = 10) -> None:
@@ -77,7 +81,7 @@ def report_dir(data_dir: Path) -> None:
         evidence_counter.update(a.evidence_types)
 
     decisive_occurrences: Counter = Counter()  # raw count of decisive link occurrences
-    decisive_claims: Counter = Counter()       # distinct claims where action was decisive
+    decisive_claims: Counter = Counter()  # distinct claims where action was decisive
     n_with_any_decisive = 0
     n_with_links = 0
     for a in analyses.values():
@@ -91,8 +95,12 @@ def report_dir(data_dir: Path) -> None:
 
     n_eligible = sum(1 for a in analyses.values() if a.process_richness in GOOD_RICHNESS)
 
-    print(f"\n  Analyses coverage:     {n_analyzed}/{n_with_article}  ({100 * n_analyzed / n_with_article:.1f}% of claims with article)")
-    print(f"  Eligible for embed:    {n_eligible}/{n_analyzed}  ({100 * n_eligible / n_analyzed:.1f}% — process_richness in {{full, partial}})")
+    print(
+        f"\n  Analyses coverage:     {n_analyzed}/{n_with_article}  ({100 * n_analyzed / n_with_article:.1f}% of claims with article)"
+    )
+    print(
+        f"  Eligible for embed:    {n_eligible}/{n_analyzed}  ({100 * n_eligible / n_analyzed:.1f}% — process_richness in {{full, partial}})"
+    )
 
     print("\n  Process richness:")
     _print_counter(richness_counter, n_analyzed)
@@ -104,13 +112,19 @@ def report_dir(data_dir: Path) -> None:
     _print_counter(evidence_counter, sum(evidence_counter.values()))
 
     print("\n  Decisive actions:")
-    print(f"    action_evidence_links present: {n_with_links}/{n_analyzed}  ({100 * n_with_links / n_analyzed:.1f}%)")
+    print(
+        f"    action_evidence_links present: {n_with_links}/{n_analyzed}  ({100 * n_with_links / n_analyzed:.1f}%)"
+    )
     if n_with_links:
-        print(f"    at least one decisive action:  {n_with_any_decisive}/{n_with_links}  ({100 * n_with_any_decisive / n_with_links:.1f}% of those with links)")
+        print(
+            f"    at least one decisive action:  {n_with_any_decisive}/{n_with_links}  ({100 * n_with_any_decisive / n_with_links:.1f}% of those with links)"
+        )
     if decisive_claims:
         print(f"\n    % of claims where action was decisive (distinct claims, denominator = {n_analyzed}):")
         _print_counter(decisive_claims, n_analyzed)
-        print(f"\n    share of total decisive occurrences (multi-label, denominator = {sum(decisive_occurrences.values())} occurrences):")
+        print(
+            f"\n    share of total decisive occurrences (multi-label, denominator = {sum(decisive_occurrences.values())} occurrences):"
+        )
         _print_counter(decisive_occurrences, sum(decisive_occurrences.values()))
 
     # --- Embeddings ---
@@ -137,7 +151,10 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--data-dir", nargs="+", required=True, metavar="PATH",
+        "--data-dir",
+        nargs="+",
+        required=True,
+        metavar="PATH",
         help="One or more dataset directories.",
     )
     args = parser.parse_args()

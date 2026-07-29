@@ -50,11 +50,12 @@ from pathlib import Path
 
 import yaml
 
+from mafc.common.logger import logger
+from mafc.eval.run_config import BenchmarkRunConfig
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from mafc.common.logger import logger
-from mafc.eval.run_config import BenchmarkRunConfig
 
 _STATE_FILENAME = "state.json"
 _NEAR_MISS_THRESHOLD = 0.34  # one 7-class bin (1/3) + epsilon
@@ -187,9 +188,7 @@ def _build_report(
                 for r in worst
             ],
         }
-        is_flagged = len(rs) >= min_n and (
-            mse >= pool_mse + flag_margin or len(flips) >= min_flips
-        )
+        is_flagged = len(rs) >= min_n and (mse >= pool_mse + flag_margin or len(flips) >= min_flips)
         entry["flagged"] = is_flagged
         if is_flagged:
             flagged.append(bp)
@@ -346,7 +345,9 @@ def _pick_claims(
     return picks
 
 
-def _launch_run(state: dict, workdir: Path, round_name: str, sample_ids: list[str], concurrency: int | None) -> Path:
+def _launch_run(
+    state: dict, workdir: Path, round_name: str, sample_ids: list[str], concurrency: int | None
+) -> Path:
     """Create a run dir with a config and execute it via run_benchmark --resume."""
     run_dir = workdir / "runs" / round_name
     if run_dir.exists():
@@ -372,8 +373,10 @@ def _launch_run(state: dict, workdir: Path, round_name: str, sample_ids: list[st
         env={**__import__("os").environ, "PYTHONPATH": str(REPO_ROOT)},
     )
     if proc.returncode != 0:
-        raise SystemExit(f"benchmark run failed (exit {proc.returncode}); resume with: "
-                         f"PYTHONPATH=. python scripts/run_benchmark.py --resume {run_dir}")
+        raise SystemExit(
+            f"benchmark run failed (exit {proc.returncode}); resume with: "
+            f"PYTHONPATH=. python scripts/run_benchmark.py --resume {run_dir}"
+        )
     return run_dir
 
 
@@ -487,8 +490,10 @@ def cmd_update(args: argparse.Namespace) -> None:
         route_counts[bp] += 1
     n_routed = sum(route_counts.values()) or 1
 
-    out_dir = Path(args.out_dir) if args.out_dir else _next_feedback_dir(
-        state["original_blueprint_dir"], args.workdir
+    out_dir = (
+        Path(args.out_dir)
+        if args.out_dir
+        else _next_feedback_dir(state["original_blueprint_dir"], args.workdir)
     )
     if out_dir.exists():
         raise SystemExit(f"{out_dir} already exists — refusing to overwrite.")
@@ -587,9 +592,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
 
     old_results = _load_results(state, old_dir)
     num = _label_numeric_map()
-    sample_ids = sorted(
-        cid for cid, r in old_results.items() if r.get("blueprint_name") in buckets
-    )
+    sample_ids = sorted(cid for cid, r in old_results.items() if r.get("blueprint_name") in buckets)
     if not sample_ids:
         raise SystemExit(f"No prior results for buckets {buckets}.")
 
@@ -642,19 +645,30 @@ def cmd_validate(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     def common(p: argparse.ArgumentParser) -> None:
         p.add_argument("--workdir", type=Path, required=True, help="Feedback-loop state directory.")
 
     def report_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--flag-margin", type=float, default=0.08,
-                       help="Flag buckets with MSE >= pool + margin (default 0.08).")
-        p.add_argument("--min-n", type=int, default=15,
-                       help="Minimum bucket sample size before flagging (default 15).")
-        p.add_argument("--min-flips", type=int, default=3,
-                       help="Flag buckets with at least this many direction flips (default 3).")
+        p.add_argument(
+            "--flag-margin",
+            type=float,
+            default=0.08,
+            help="Flag buckets with MSE >= pool + margin (default 0.08).",
+        )
+        p.add_argument(
+            "--min-n", type=int, default=15, help="Minimum bucket sample size before flagging (default 15)."
+        )
+        p.add_argument(
+            "--min-flips",
+            type=int,
+            default=3,
+            help="Flag buckets with at least this many direction flips (default 3).",
+        )
 
     def run_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--concurrency", type=int, default=None, help="Override run concurrency.")
@@ -663,7 +677,12 @@ def main() -> None:
     p = sub.add_parser("route", help="Selector-only routing pass (no traces).")
     common(p)
     p.add_argument("--config", required=True, help="Benchmark config supplying models + blueprint dir.")
-    p.add_argument("--training-dir", type=Path, required=True, help="Training dataset directory (e.g. data/veritas_2025_with_fact_checks).")
+    p.add_argument(
+        "--training-dir",
+        type=Path,
+        required=True,
+        help="Training dataset directory (e.g. data/veritas_2025_with_fact_checks).",
+    )
     p.add_argument("--blueprint-dir", default=None, help="Override config's blueprints.config_dir.")
     p.add_argument("--split", default="2025_train", help="Variant label for runs (default 2025_train).")
     p.add_argument("--workers", type=int, default=8, help="Parallel selector calls (default 8).")
@@ -673,8 +692,12 @@ def main() -> None:
     p = sub.add_parser("screen", help="Trace-run N claims per high-traffic bucket.")
     common(p)
     p.add_argument("--per-bucket", type=int, default=20, help="Claims per bucket (default 20).")
-    p.add_argument("--traffic-cover", type=float, default=0.85,
-                   help="Screen buckets covering this share of routed traffic (default 0.85).")
+    p.add_argument(
+        "--traffic-cover",
+        type=float,
+        default=0.85,
+        help="Screen buckets covering this share of routed traffic (default 0.85).",
+    )
     run_args(p)
     report_args(p)
     p.set_defaults(func=cmd_screen)
@@ -697,14 +720,22 @@ def main() -> None:
     p.add_argument("--blueprints", nargs="*", default=None, help="Buckets to update (default: flagged).")
     p.add_argument("--model", default="claude_4.8_opus", help="Updater LLM (default claude_4.8_opus).")
     p.add_argument("--max-tokens", type=int, default=20000)
-    p.add_argument("--max-records", type=int, default=40,
-                   help="Outcome records per blueprint sent to the updater (default 40).")
-    p.add_argument("--out-dir", default=None, help="Explicit output dir (default <workdir>/blueprints/<name>-fbN).")
+    p.add_argument(
+        "--max-records",
+        type=int,
+        default=40,
+        help="Outcome records per blueprint sent to the updater (default 40).",
+    )
+    p.add_argument(
+        "--out-dir", default=None, help="Explicit output dir (default <workdir>/blueprints/<name>-fbN)."
+    )
     p.set_defaults(func=cmd_update)
 
     p = sub.add_parser("validate", help="Paired re-run of previously-run claims on the updated dir.")
     common(p)
-    p.add_argument("--blueprints", nargs="*", default=None, help="Buckets to validate (default: last updated).")
+    p.add_argument(
+        "--blueprints", nargs="*", default=None, help="Buckets to validate (default: last updated)."
+    )
     run_args(p)
     p.set_defaults(func=cmd_validate)
 

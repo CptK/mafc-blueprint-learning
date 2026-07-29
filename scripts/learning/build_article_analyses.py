@@ -59,11 +59,7 @@ def _process_dir(
     claims = _load_claims(data_dir)
     analyses: dict[str, ArticleAnalysis] = {} if force else load_analyses(out_path)
 
-    pending = [
-        c for c in claims
-        if c.get("article_content")
-        and str(c["id"]) not in analyses
-    ]
+    pending = [c for c in claims if c.get("article_content") and str(c["id"]) not in analyses]
     no_article = [c for c in claims if not c.get("article_content")]
 
     if no_article:
@@ -130,38 +126,49 @@ def _process_dir(
                     save_analyses(analyses, out_path)
                 logger.info(
                     f"[{data_dir.name}] {nonlocal_completed}/{len(pending)}"
-                    + (f" ({failures} failed)" if failures else "") + "."
+                    + (f" ({failures} failed)" if failures else "")
+                    + "."
                 )
 
     save_analyses(analyses, out_path)
     logger.info(
         f"[{data_dir.name}] Done. {len(analyses)} analyses saved to {out_path}"
-        + (f" ({failures} failures — re-run to retry)" if failures else "") + "."
+        + (f" ({failures} failures — re-run to retry)" if failures else "")
+        + "."
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
-        "--data-dir", nargs="+", required=True, metavar="PATH",
+        "--data-dir",
+        nargs="+",
+        required=True,
+        metavar="PATH",
         help="One or more dataset directories containing claims.json.",
     )
     parser.add_argument(
-        "--model", default="gemini_3.5_flash",
+        "--model",
+        default="gemini_3.5_flash",
         help="LLM model specifier for ArticleAnalyzer (default: gemini_3.5_flash).",
     )
     parser.add_argument(
-        "--max-response-length", type=int, default=20000,
+        "--max-response-length",
+        type=int,
+        default=20000,
         help="Max output tokens for the LLM (default: 20000). The analysis JSON can be "
-             "long — the 2048-token model default is too low and causes truncation.",
+        "long — the 2048-token model default is too low and causes truncation.",
     )
     parser.add_argument("--workers", type=int, default=10, help="Parallel workers (default: 10).")
     parser.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Re-analyze all claims, ignoring any existing article_analyses.json.",
     )
     args = parser.parse_args()
-    
+
     model = make_model(args.model, temperature=0.0, max_response_length=args.max_response_length)
     analyzer = ArticleAnalyzer(model)
 

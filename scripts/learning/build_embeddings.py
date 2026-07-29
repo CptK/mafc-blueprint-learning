@@ -92,7 +92,9 @@ def _process_dir(
 ) -> None:
     analyses_path = data_dir / "article_analyses.json"
     if not analyses_path.exists():
-        logger.warning(f"[{data_dir.name}] article_analyses.json not found — run build_article_analyses.py first.")
+        logger.warning(
+            f"[{data_dir.name}] article_analyses.json not found — run build_article_analyses.py first."
+        )
         return
 
     analyses = load_analyses(analyses_path)
@@ -102,17 +104,11 @@ def _process_dir(
     embeddings: dict[str, dict[str, list[float]]] = {} if force else _load_embeddings(out_path)
 
     # Filter to claims with sufficient process richness
-    eligible = {
-        cid: a for cid, a in analyses.items()
-        if a.process_richness in GOOD_RICHNESS
-    }
+    eligible = {cid: a for cid, a in analyses.items() if a.process_richness in GOOD_RICHNESS}
     discarded = len(analyses) - len(eligible)
 
     # Skip claims already embedded under this model
-    pending_ids = [
-        cid for cid in eligible
-        if cid not in embeddings or embedding_model not in embeddings[cid]
-    ]
+    pending_ids = [cid for cid in eligible if cid not in embeddings or embedding_model not in embeddings[cid]]
 
     logger.info(
         f"[{data_dir.name}] {len(eligible)}/{len(analyses)} eligible "
@@ -150,17 +146,24 @@ def _process_dir(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
-        "--data-dir", nargs="+", required=True, metavar="PATH",
+        "--data-dir",
+        nargs="+",
+        required=True,
+        metavar="PATH",
         help="One or more dataset directories containing article_analyses.json.",
     )
     parser.add_argument(
-        "--embedding-model", default="text-embedding-3-large",
+        "--embedding-model",
+        default="text-embedding-3-large",
         help="OpenAI embedding model (default: text-embedding-3-large).",
     )
     parser.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Re-embed all claims, ignoring existing embeddings for this model.",
     )
     args = parser.parse_args()

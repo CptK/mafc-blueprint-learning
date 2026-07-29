@@ -97,8 +97,7 @@ def main() -> None:
         logger.warning("No usable date column for temporal CV; falling back to kfold.")
         args.cv = "kfold"
         date_series = None
-    cv = cross_validate(feat_only, cfg, k=args.folds, mode=args.cv,
-                        date_series=date_series, seed=args.seed)
+    cv = cross_validate(feat_only, cfg, k=args.folds, mode=args.cv, date_series=date_series, seed=args.seed)
     oof = cv["oof"]
     valid = ~np.isnan(oof)
     logger.info(f"CV ({args.cv}) overall: {cv['overall']}")
@@ -127,9 +126,7 @@ def main() -> None:
     signed_pred = [sign_of_direction(d) * m for d, m in zip(judge_dirs, mags)]
     pred_labels_7 = [label_from_signed_score(v) for v in signed_pred]
     model_metrics = evaluate(true_labels_7, pred_labels_7, gt_scores, mags)
-    base_metrics = evaluate(
-        true_labels_7, judge_labels, gt_scores, baseline_magnitudes(judge_labels)
-    )
+    base_metrics = evaluate(true_labels_7, judge_labels, gt_scores, baseline_magnitudes(judge_labels))
     report = cont_report + "\n" + compare_reports(base_metrics, model_metrics)
     model_metrics["continuous"] = cont
     base_metrics["continuous"] = base_cont
@@ -143,9 +140,11 @@ def main() -> None:
     model_path = out_dir / "magnitude_regressor.joblib"
     save_model(final, model_path)
 
-    (out_dir / "cv.json").write_text(json.dumps(
-        {"mode": cv["mode"], "k": cv["k"], "folds": cv["folds"], "overall": cv["overall"]},
-        indent=2))
+    (out_dir / "cv.json").write_text(
+        json.dumps(
+            {"mode": cv["mode"], "k": cv["k"], "folds": cv["folds"], "overall": cv["overall"]}, indent=2
+        )
+    )
     (out_dir / "metrics_regressor.json").write_text(json.dumps(model_metrics, indent=2, default=float))
     (out_dir / "metrics_baseline.json").write_text(json.dumps(base_metrics, indent=2, default=float))
     (out_dir / "learning_curve.json").write_text(json.dumps(curve, indent=2))

@@ -44,6 +44,7 @@ _SUMMARY_FILENAME = "cluster_summary.txt"
 # Data loading
 # ---------------------------------------------------------------------------
 
+
 def _load_json(path: Path) -> dict:
     with open(path) as f:
         return json.load(f)
@@ -59,6 +60,7 @@ def _load_claims_by_id(data_dir: Path) -> dict[str, str]:
 # 2-D UMAP projection
 # ---------------------------------------------------------------------------
 
+
 def _project_2d(X: np.ndarray, n_neighbors: int) -> np.ndarray:
     logging.getLogger("numba").setLevel(logging.WARNING)
     logging.getLogger("umap").setLevel(logging.WARNING)
@@ -71,7 +73,7 @@ def _project_2d(X: np.ndarray, n_neighbors: int) -> np.ndarray:
     reducer = umap_lib.UMAP(
         n_components=2,
         n_neighbors=n_neighbors,
-        min_dist=0.1,   # slightly spread out for readability vs 0.0 for clustering
+        min_dist=0.1,  # slightly spread out for readability vs 0.0 for clustering
         metric="euclidean",
         random_state=42,
     )
@@ -82,9 +84,10 @@ def _project_2d(X: np.ndarray, n_neighbors: int) -> np.ndarray:
 # Visualization
 # ---------------------------------------------------------------------------
 
+
 def _plot(
     coords_2d: np.ndarray,
-    point_labels: list[str],   # cluster label or "noise" per point
+    point_labels: list[str],  # cluster label or "noise" per point
     cluster_names: list[str],  # ordered unique cluster names (no "noise")
     out_path: Path,
 ) -> None:
@@ -94,27 +97,39 @@ def _plot(
     fig, ax = plt.subplots(figsize=(14, 10))
 
     # Noise first (background)
-    noise_mask = np.array([l == "noise" for l in point_labels])
+    noise_mask = np.array([label == "noise" for label in point_labels])
     if noise_mask.any():
         ax.scatter(
-            coords_2d[noise_mask, 0], coords_2d[noise_mask, 1],
-            c="lightgrey", s=8, alpha=0.4, linewidths=0, label="noise",
+            coords_2d[noise_mask, 0],
+            coords_2d[noise_mask, 1],
+            c="lightgrey",
+            s=8,
+            alpha=0.4,
+            linewidths=0,
+            label="noise",
         )
 
     # Clusters
     for name in cluster_names:
-        mask = np.array([l == name for l in point_labels])
+        mask = np.array([label == name for label in point_labels])
         color = color_map[name]
         ax.scatter(
-            coords_2d[mask, 0], coords_2d[mask, 1],
-            c=[color], s=18, alpha=0.7, linewidths=0,
+            coords_2d[mask, 0],
+            coords_2d[mask, 1],
+            c=[color],
+            s=18,
+            alpha=0.7,
+            linewidths=0,
         )
         # Label at centroid
         cx, cy = coords_2d[mask, 0].mean(), coords_2d[mask, 1].mean()
         short = name if len(name) <= 32 else name[:30] + "…"
         ax.annotate(
-            short, (cx, cy),
-            fontsize=6.5, ha="center", va="center",
+            short,
+            (cx, cy),
+            fontsize=6.5,
+            ha="center",
+            va="center",
             bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.6, lw=0),
         )
 
@@ -124,17 +139,29 @@ def _plot(
 
     # Compact legend
     handles = [
-        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=color_map[n],
-                   markersize=7, label=n)
+        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=color_map[n], markersize=7, label=n)
         for n in cluster_names
     ]
     if noise_mask.any():
         handles.append(
-            plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="lightgrey",
-                       markersize=7, label=f"noise ({noise_mask.sum()})")
+            plt.Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor="lightgrey",
+                markersize=7,
+                label=f"noise ({noise_mask.sum()})",
+            )
         )
-    ax.legend(handles=handles, fontsize=7, loc="upper left",
-              bbox_to_anchor=(1.01, 1), borderaxespad=0, framealpha=0.8)
+    ax.legend(
+        handles=handles,
+        fontsize=7,
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1),
+        borderaxespad=0,
+        framealpha=0.8,
+    )
 
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -145,6 +172,7 @@ def _plot(
 # ---------------------------------------------------------------------------
 # Cluster summary
 # ---------------------------------------------------------------------------
+
 
 def _representative_claim_ids(
     cluster_claim_ids: list[str],
@@ -200,6 +228,7 @@ def _write_summary(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def _process_dir(data_dir: Path, embedding_model: str, n_samples: int) -> None:
     for filename in ("clusters.json", "embeddings.json", "claims.json"):
         if not (data_dir / filename).exists():
@@ -222,7 +251,7 @@ def _process_dir(data_dir: Path, embedding_model: str, n_samples: int) -> None:
     clustered_ids: set[str] = {cid for c in clusters for cid in c["claim_ids"]}
     cid_to_label: dict[str, str] = {cid: c["label"] for c in clusters for cid in c["claim_ids"]}
     point_labels = [cid_to_label.get(cid, "noise") for cid in eligible_ids]
-    cluster_names = [c["label"] for c in clusters]   # preserves size-sorted order
+    cluster_names = [c["label"] for c in clusters]  # preserves size-sorted order
 
     # 2D projection
     X = np.array([all_embeddings[cid][used_model] for cid in eligible_ids], dtype=np.float32)
@@ -231,7 +260,9 @@ def _process_dir(data_dir: Path, embedding_model: str, n_samples: int) -> None:
     coords_2d = _project_2d(X, n_neighbors=n_neighbors)
 
     _plot(coords_2d, point_labels, cluster_names, data_dir / _FIG_FILENAME)
-    _write_summary(clusters, claims_by_id, analyses_by_id, id_to_idx, coords_2d, n_samples, data_dir / _SUMMARY_FILENAME)
+    _write_summary(
+        clusters, claims_by_id, analyses_by_id, id_to_idx, coords_2d, n_samples, data_dir / _SUMMARY_FILENAME
+    )
 
     logger.info(
         f"[{data_dir.name}] Done. {len(clusters)} clusters, "
@@ -240,18 +271,26 @@ def _process_dir(data_dir: Path, embedding_model: str, n_samples: int) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
-        "--data-dir", nargs="+", required=True, metavar="PATH",
+        "--data-dir",
+        nargs="+",
+        required=True,
+        metavar="PATH",
         help="One or more dataset directories containing clusters.json.",
     )
     parser.add_argument(
-        "--embedding-model", default=DEFAULT_EMBEDDING_MODEL,
+        "--embedding-model",
+        default=DEFAULT_EMBEDDING_MODEL,
         help=f"Embedding model key to use (default: {DEFAULT_EMBEDDING_MODEL}). "
-             "Overridden by the model stored in clusters.json.",
+        "Overridden by the model stored in clusters.json.",
     )
     parser.add_argument(
-        "--samples", type=int, default=3,
+        "--samples",
+        type=int,
+        default=3,
         help="Number of representative claims to show per cluster (default: 3).",
     )
     args = parser.parse_args()

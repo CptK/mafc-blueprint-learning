@@ -7,7 +7,6 @@ import shutil
 import sys
 from pathlib import Path
 
-
 OPTIONAL_CLAIM_ID_MAPS = ["article_analyses.json", "embeddings.json"]
 
 
@@ -24,9 +23,11 @@ def merge_splits(source_dirs: list[Path], target_dir: Path) -> None:
     seen_claim_ids: set[int] = set()
     seen_media_files: set[str] = set()
     optional_maps: dict[str, dict] = {name: {} for name in OPTIONAL_CLAIM_ID_MAPS}
-    total_meta = {"claim_counts": {"intact": 0, "nei": 0, "compromised": 0, "total": 0},
-                  "media_counts": {"images": 0, "videos": 0},
-                  "sources": []}
+    total_meta = {
+        "claim_counts": {"intact": 0, "nei": 0, "compromised": 0, "total": 0},
+        "media_counts": {"images": 0, "videos": 0},
+        "sources": [],
+    }
 
     for source_dir in source_dirs:
         if not source_dir.is_dir():
@@ -80,13 +81,15 @@ def merge_splits(source_dirs: list[Path], target_dir: Path) -> None:
                 total_meta["claim_counts"][key] += meta.get("claim_counts", {}).get(key, 0)
             total_meta["media_counts"]["images"] += meta.get("media_counts", {}).get("images", 0)
             total_meta["media_counts"]["videos"] += meta.get("media_counts", {}).get("videos", 0)
-            total_meta["sources"].append({
-                "path": str(source_dir),
-                "year": meta.get("year"),
-                "quarter": meta.get("quarter"),
-                "claims_added": added,
-                "claims_skipped_duplicate": duplicates,
-            })
+            total_meta["sources"].append(
+                {
+                    "path": str(source_dir),
+                    "year": meta.get("year"),
+                    "quarter": meta.get("quarter"),
+                    "claims_added": added,
+                    "claims_skipped_duplicate": duplicates,
+                }
+            )
 
         print(f"  {source_dir.name}: {added} claims added, {duplicates} duplicates skipped")
 
@@ -118,9 +121,7 @@ def merge_splits(source_dirs: list[Path], target_dir: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Merge multiple veritas dataset splits into one."
-    )
+    parser = argparse.ArgumentParser(description="Merge multiple veritas dataset splits into one.")
     parser.add_argument("sources", nargs="+", type=Path, help="Source split directories")
     parser.add_argument("--target", "-t", type=Path, required=True, help="Target directory to create")
     args = parser.parse_args()

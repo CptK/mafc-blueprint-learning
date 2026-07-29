@@ -92,38 +92,79 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--data-dir", nargs="+", required=True, metavar="PATH",
-                        help="Dataset dir(s) with claims.json and article_analyses.json.")
-    parser.add_argument("--out-dir", required=True, metavar="PATH",
-                        help="Run directory for strategy.md, snapshots, log, and state.json.")
-    parser.add_argument("--model", default="claude_4.8_opus",
-                        help="LLM shorthand or specifier (default: claude_4.8_opus).")
-    parser.add_argument("--batch-size", type=int, default=10,
-                        help="Fact-check analyses folded per LLM call (default: 10).")
-    parser.add_argument("--epochs", type=int, default=1,
-                        help="Passes over the corpus (default: 1 — single pass).")
-    parser.add_argument("--max-words", type=int, default=2000,
-                        help="Soft length target the model aims for; not enforced (default: 2000).")
-    parser.add_argument("--consolidate-every", type=int, default=5,
-                        help="Run a quality consolidation pass every N folds, plus once at the end. "
-                             "0 disables consolidation (default: 5).")
-    parser.add_argument("--max-tokens", type=int, default=20000,
-                        help="Max LLM response tokens; the doc can be long (default: 20000).")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Shuffle seed; epoch e uses seed+e (default: 42).")
-    parser.add_argument("--richness", choices=["good", "all"], default="good",
-                        help="'good' keeps full/partial-process articles; 'all' keeps everything (default: good).")
-    parser.add_argument("--resume-from", metavar="PATH",
-                        help="Existing strategy .md to continue from instead of starting empty.")
-    parser.add_argument("--start-epoch", type=int, default=0,
-                        help="0-based epoch index to start numbering at when resuming (default: 0).")
-    parser.add_argument("--seed-skeleton", action="store_true",
-                        help="Start from the recommended skeleton instead of an empty document.")
-    parser.add_argument("--resume", action="store_true",
-                        help="Resume a crashed/stopped run in --out-dir from its last checkpoint "
-                             "(reads state.json + strategy.md; reuses the saved run parameters).")
-    parser.add_argument("--limit", type=int, default=None,
-                        help="Cap number of records (quick smoke tests).")
+    parser.add_argument(
+        "--data-dir",
+        nargs="+",
+        required=True,
+        metavar="PATH",
+        help="Dataset dir(s) with claims.json and article_analyses.json.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        required=True,
+        metavar="PATH",
+        help="Run directory for strategy.md, snapshots, log, and state.json.",
+    )
+    parser.add_argument(
+        "--model", default="claude_4.8_opus", help="LLM shorthand or specifier (default: claude_4.8_opus)."
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=10, help="Fact-check analyses folded per LLM call (default: 10)."
+    )
+    parser.add_argument(
+        "--epochs", type=int, default=1, help="Passes over the corpus (default: 1 — single pass)."
+    )
+    parser.add_argument(
+        "--max-words",
+        type=int,
+        default=2000,
+        help="Soft length target the model aims for; not enforced (default: 2000).",
+    )
+    parser.add_argument(
+        "--consolidate-every",
+        type=int,
+        default=5,
+        help="Run a quality consolidation pass every N folds, plus once at the end. "
+        "0 disables consolidation (default: 5).",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=20000,
+        help="Max LLM response tokens; the doc can be long (default: 20000).",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42, help="Shuffle seed; epoch e uses seed+e (default: 42)."
+    )
+    parser.add_argument(
+        "--richness",
+        choices=["good", "all"],
+        default="good",
+        help="'good' keeps full/partial-process articles; 'all' keeps everything (default: good).",
+    )
+    parser.add_argument(
+        "--resume-from",
+        metavar="PATH",
+        help="Existing strategy .md to continue from instead of starting empty.",
+    )
+    parser.add_argument(
+        "--start-epoch",
+        type=int,
+        default=0,
+        help="0-based epoch index to start numbering at when resuming (default: 0).",
+    )
+    parser.add_argument(
+        "--seed-skeleton",
+        action="store_true",
+        help="Start from the recommended skeleton instead of an empty document.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume a crashed/stopped run in --out-dir from its last checkpoint "
+        "(reads state.json + strategy.md; reuses the saved run parameters).",
+    )
+    parser.add_argument("--limit", type=int, default=None, help="Cap number of records (quick smoke tests).")
     args = parser.parse_args()
 
     data_dirs = [Path(p) for p in args.data_dir]
@@ -193,15 +234,18 @@ def main() -> None:
         c_result = synth.consolidate(current_doc)
         new_doc = c_result.strategy_md
         state.total_consolidations += 1
-        append_fold_log(out_dir, {
-            "epoch": epoch,
-            "batch": batch,
-            "kind": "consolidate",
-            "n": 0,
-            "ok": c_result.ok,
-            "doc_words": len(new_doc.split()),
-            "changelog": c_result.changelog,
-        })
+        append_fold_log(
+            out_dir,
+            {
+                "epoch": epoch,
+                "batch": batch,
+                "kind": "consolidate",
+                "n": 0,
+                "ok": c_result.ok,
+                "doc_words": len(new_doc.split()),
+                "changelog": c_result.changelog,
+            },
+        )
         logger.info(
             f"[{label}] consolidated {words_before} -> {len(new_doc.split())} words"
             f"{'' if c_result.ok else ' [FAILED(parse), unchanged]'}"
@@ -228,19 +272,21 @@ def main() -> None:
             if not result.ok:
                 state.failed_folds += 1
 
-            append_fold_log(out_dir, {
-                "epoch": epoch,
-                "batch": b,
-                "kind": "fold",
-                "n": len(batch),
-                "ok": result.ok,
-                "doc_words": len(doc.split()),
-                "changelog": result.changelog,
-            })
+            append_fold_log(
+                out_dir,
+                {
+                    "epoch": epoch,
+                    "batch": b,
+                    "kind": "fold",
+                    "n": len(batch),
+                    "ok": result.ok,
+                    "doc_words": len(doc.split()),
+                    "changelog": result.changelog,
+                },
+            )
             status = "ok" if result.ok else "FAILED(parse)"
             logger.info(
-                f"[epoch {epoch + 1} batch {b + 1}/{len(batches)}] {status} — "
-                f"{len(doc.split())} words"
+                f"[epoch {epoch + 1} batch {b + 1}/{len(batches)}] {status} — " f"{len(doc.split())} words"
             )
             consolidated_last = False
 

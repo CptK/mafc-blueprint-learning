@@ -104,10 +104,7 @@ def _vectors_for(
     embedding_model: str,
 ) -> tuple[list[str], np.ndarray]:
     """Return (ids, L2-normalized vectors) for the claims that have embeddings."""
-    ids = [
-        cid for cid in claim_ids
-        if cid in all_embeddings and embedding_model in all_embeddings[cid]
-    ]
+    ids = [cid for cid in claim_ids if cid in all_embeddings and embedding_model in all_embeddings[cid]]
     if not ids:
         return [], np.empty((0, 0), dtype=np.float32)
     X = np.array([all_embeddings[cid][embedding_model] for cid in ids], dtype=np.float32)
@@ -139,10 +136,7 @@ def _bisect_cluster(
     if len(ids) < 4:
         return None
     labels = KMeans(n_clusters=2, n_init=10, random_state=42).fit_predict(X)
-    halves = [
-        [ids[i] for i in range(len(ids)) if labels[i] == k]
-        for k in (0, 1)
-    ]
+    halves = [[ids[i] for i in range(len(ids)) if labels[i] == k] for k in (0, 1)]
     if min(len(h) for h in halves) < 2:
         return None
     # Claims without embeddings still belong to the cluster; keep them in the larger half.
@@ -206,10 +200,14 @@ def _synthesize_cluster(
 
     if result is None:
         logger.warning(f"[{label}] Updater returned nothing — skipping.")
-        log_entries.append({
-            "cluster_label": label, "cluster_size": size,
-            "n_representatives": len(records), "status": "failed",
-        })
+        log_entries.append(
+            {
+                "cluster_label": label,
+                "cluster_size": size,
+                "n_representatives": len(records),
+                "status": "failed",
+            }
+        )
         return []
 
     if result.should_split and depth < _MAX_SPLIT_DEPTH:
@@ -221,38 +219,61 @@ def _synthesize_cluster(
                 half_analyses = [analyses_by_id[cid] for cid in half if cid in analyses_by_id]
                 child_base, _ = label_cluster(half_analyses, k)
                 child_label = f"{label}/split{k + 1}_{child_base}"
-                outputs.extend(_synthesize_cluster(
-                    child_label, half, updater, generic_bp, all_embeddings, embedding_model,
-                    analyses_by_id, claims_by_id, n_samples, n_clustered_total,
-                    log_entries, depth=depth + 1,
-                ))
+                outputs.extend(
+                    _synthesize_cluster(
+                        child_label,
+                        half,
+                        updater,
+                        generic_bp,
+                        all_embeddings,
+                        embedding_model,
+                        analyses_by_id,
+                        claims_by_id,
+                        n_samples,
+                        n_clustered_total,
+                        log_entries,
+                        depth=depth + 1,
+                    )
+                )
             if outputs:
-                log_entries.append({
-                    "cluster_label": label, "cluster_size": size,
-                    "status": "split", "split_rationale": result.split_rationale,
-                })
+                log_entries.append(
+                    {
+                        "cluster_label": label,
+                        "cluster_size": size,
+                        "status": "split",
+                        "split_rationale": result.split_rationale,
+                    }
+                )
                 return outputs
-        logger.warning(f"[{label}] Split requested but bisection/synthesis failed — keeping unsplit blueprint.")
+        logger.warning(
+            f"[{label}] Split requested but bisection/synthesis failed — keeping unsplit blueprint."
+        )
 
     if result.updated_blueprint is None:
         logger.warning(f"[{label}] No blueprint produced (should_split without usable split) — skipping.")
-        log_entries.append({
-            "cluster_label": label, "cluster_size": size,
-            "n_representatives": len(records), "status": "failed",
-            "split_rationale": result.split_rationale,
-        })
+        log_entries.append(
+            {
+                "cluster_label": label,
+                "cluster_size": size,
+                "n_representatives": len(records),
+                "status": "failed",
+                "split_rationale": result.split_rationale,
+            }
+        )
         return []
 
-    log_entries.append({
-        "cluster_label": label,
-        "cluster_size": size,
-        "n_representatives": len(records),
-        "status": "ok",
-        "blueprint_name": result.updated_blueprint.name,
-        "should_split": result.should_split,
-        "split_rationale": result.split_rationale,
-        "reasoning": result.reasoning,
-    })
+    log_entries.append(
+        {
+            "cluster_label": label,
+            "cluster_size": size,
+            "n_representatives": len(records),
+            "status": "ok",
+            "blueprint_name": result.updated_blueprint.name,
+            "should_split": result.should_split,
+            "split_rationale": result.split_rationale,
+            "reasoning": result.reasoning,
+        }
+    )
     return [(result.updated_blueprint, claim_ids, records)]
 
 
@@ -304,15 +325,23 @@ def _process_dir(
 
     # --- Stage 1+2: per-cluster synthesis with split handling ---
     log_entries: list[dict] = []
-    pool: list = []           # Blueprint objects, uniquely named
-    sizes: dict[str, int] = {}       # blueprint name -> cluster size
+    pool: list = []  # Blueprint objects, uniquely named
+    sizes: dict[str, int] = {}  # blueprint name -> cluster size
     reps: dict[str, list[ClaimLearningRecord]] = {}  # blueprint name -> representative records
 
     for cluster in clusters:
         outputs = _synthesize_cluster(
-            cluster["label"], cluster["claim_ids"], updater, generic_bp,
-            all_embeddings, embedding_model, analyses_by_id, claims_by_id,
-            n_samples, n_clustered_total, log_entries,
+            cluster["label"],
+            cluster["claim_ids"],
+            updater,
+            generic_bp,
+            all_embeddings,
+            embedding_model,
+            analyses_by_id,
+            claims_by_id,
+            n_samples,
+            n_clustered_total,
+            log_entries,
         )
         for bp, cluster_claim_ids, records in outputs:
             name = _unique_name(bp.name, set(sizes))
@@ -361,10 +390,7 @@ def _process_dir(
 
     # --- Stage 4: iteration floors — by expected traffic share, then by graph depth ---
     # Both are floors, so applying them in sequence yields the max of the two.
-    pool = [
-        enforce_iteration_floor(bp, sizes.get(bp.name, 0) / max(n_clustered_total, 1))
-        for bp in pool
-    ]
+    pool = [enforce_iteration_floor(bp, sizes.get(bp.name, 0) / max(n_clustered_total, 1)) for bp in pool]
     pool = [enforce_path_budget(bp) for bp in pool]
 
     # --- Stage 5: contrast pass (descriptions/selector hints partition the claim space) ---
@@ -384,17 +410,13 @@ def _process_dir(
         # Representatives accumulate on every merge, so a heavily-merged blueprint can
         # carry hundreds. A coverage estimate does not need them all — sample enough
         # for a stable fraction and stop.
-        repaired_pool.append(
-            validate_entry_gates(bp, texts[:_GATE_VALIDATION_SAMPLE], extractor).blueprint
-        )
+        repaired_pool.append(validate_entry_gates(bp, texts[:_GATE_VALIDATION_SAMPLE], extractor).blueprint)
     pool = repaired_pool
 
     undiscriminating = [
         bp.name
         for bp in pool
-        if not any(
-            condition.feature in SEMANTIC_FEATURE_NAMES for condition in bp.entry_conditions.all
-        )
+        if not any(condition.feature in SEMANTIC_FEATURE_NAMES for condition in bp.entry_conditions.all)
     ]
     if undiscriminating:
         logger.warning(
@@ -422,11 +444,11 @@ def _process_dir(
             {
                 "clusters": log_entries,
                 "consolidation_merges": consolidation_summary,
-                "final_blueprints": [
-                    {"name": bp.name, "cluster_size": sizes.get(bp.name)} for bp in pool
-                ],
+                "final_blueprints": [{"name": bp.name, "cluster_size": sizes.get(bp.name)} for bp in pool],
             },
-            f, indent=2, ensure_ascii=False,
+            f,
+            indent=2,
+            ensure_ascii=False,
         )
 
     logger.info(
@@ -440,39 +462,54 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "--data-dir", nargs="+", required=True, metavar="PATH",
+        "--data-dir",
+        nargs="+",
+        required=True,
+        metavar="PATH",
         help="One or more dataset directories containing clusters.json.",
     )
     parser.add_argument(
-        "--generic-blueprint", required=True, metavar="PATH",
+        "--generic-blueprint",
+        required=True,
+        metavar="PATH",
         help="Path to the generic/template blueprint (YAML or JSON).",
     )
     parser.add_argument(
-        "--out-dir", required=True, metavar="PATH",
+        "--out-dir",
+        required=True,
+        metavar="PATH",
         help="Directory to write synthesized blueprint YAML files and synthesis_log.json.",
     )
     parser.add_argument(
-        "--model", default="claude_4.8_opus",
+        "--model",
+        default="claude_4.8_opus",
         help="LLM for synthesis — shorthand from config/available_models.csv (default: claude_4.8_opus).",
     )
     parser.add_argument(
-        "--samples", type=int, default=15,
+        "--samples",
+        type=int,
+        default=15,
         help="Representative claims per cluster to send to the LLM (default: 15).",
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=20000,
+        "--max-tokens",
+        type=int,
+        default=20000,
         help="Max response tokens for the LLM — blueprint JSON easily exceeds the 2048 default (default: 20000).",
     )
     parser.add_argument(
-        "--no-consolidate", action="store_true",
+        "--no-consolidate",
+        action="store_true",
         help="Skip the pool-level merge pass for strategic near-duplicates.",
     )
     parser.add_argument(
-        "--no-contrast", action="store_true",
+        "--no-contrast",
+        action="store_true",
         help="Skip the pool-level description/selector-hint differentiation pass.",
     )
     parser.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Overwrite an out-dir that already contains blueprints.",
     )
     args = parser.parse_args()

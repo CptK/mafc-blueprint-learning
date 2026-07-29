@@ -75,10 +75,14 @@ def main() -> None:
         pred, gs = d.get("predicted"), d.get("gt_integrity_score")
         if pred in (None, "None", "") or gs in (None, "None", ""):
             continue
-        res_rows.append({
-            "claim_id": str(d["claim_id"]), "ground_truth": d["ground_truth"],
-            "judge_label": str(pred), "gt_score": float(gs),
-        })
+        res_rows.append(
+            {
+                "claim_id": str(d["claim_id"]),
+                "ground_truth": d["ground_truth"],
+                "judge_label": str(pred),
+                "gt_score": float(gs),
+            }
+        )
     df = feats.merge(pd.DataFrame(res_rows), on="claim_id", how="inner").reset_index(drop=True)
     if df.empty:
         logger.error("No usable rows (need judge label + gt score). Nothing written.")
@@ -117,14 +121,16 @@ def main() -> None:
     cm = cal_metrics.get("confusion_matrix") or {}
     if cm:
         save_confusion_matrix_png(
-            cm, out_dir / "confusion_matrix_7class.pdf",
+            cm,
+            out_dir / "confusion_matrix_7class.pdf",
             title="Confusion Matrix (7-class) — calibrated",
             subtitle=f"accuracy={cal_metrics.get('accuracy', 0):.1%}",
         )
     cm3 = (cal_metrics.get("coarsened_3class") or {}).get("confusion_matrix") or {}
     if cm3:
         save_confusion_matrix_png(
-            cm3, out_dir / "confusion_matrix_3class_coarsened.pdf",
+            cm3,
+            out_dir / "confusion_matrix_3class_coarsened.pdf",
             title="Confusion Matrix (3-class coarsened) — calibrated",
             subtitle=f"accuracy={cal_metrics['coarsened_3class'].get('accuracy', 0):.1%}",
         )
@@ -137,12 +143,21 @@ def main() -> None:
         for cid, t, jl, jd, m, cs, cl in zip(
             df["claim_id"], true_labels, judge_labels, judge_dirs, mag, cal_signed, cal_labels
         ):
-            fh.write(json.dumps({
-                "claim_id": cid, "ground_truth": t, "judge_label": jl,
-                "judge_direction": jd, "magnitude": float(m),
-                "calibrated_score": float(cs), "calibrated_label": cl,
-                "correct": bool(cl == t),
-            }) + "\n")
+            fh.write(
+                json.dumps(
+                    {
+                        "claim_id": cid,
+                        "ground_truth": t,
+                        "judge_label": jl,
+                        "judge_direction": jd,
+                        "magnitude": float(m),
+                        "calibrated_score": float(cs),
+                        "calibrated_label": cl,
+                        "correct": bool(cl == t),
+                    }
+                )
+                + "\n"
+            )
 
     summary = {
         "n": len(df),
@@ -150,13 +165,15 @@ def main() -> None:
             "accuracy_7class": cal_metrics.get("accuracy"),
             "macro_f1_7class": cal_metrics.get("macro", {}).get("f1"),
             "accuracy_3class": cal_metrics.get("coarsened_3class", {}).get("accuracy"),
-            "continuous_mse": cal_cont["mse"], "continuous_mae": cal_cont["mae"],
+            "continuous_mse": cal_cont["mse"],
+            "continuous_mae": cal_cont["mae"],
         },
         "baseline_judge": {
             "accuracy_7class": base_metrics.get("accuracy"),
             "macro_f1_7class": base_metrics.get("macro", {}).get("f1"),
             "accuracy_3class": base_metrics.get("coarsened_3class", {}).get("accuracy"),
-            "continuous_mse": base_cont["mse"], "continuous_mae": base_cont["mae"],
+            "continuous_mse": base_cont["mse"],
+            "continuous_mae": base_cont["mae"],
         },
         "model": str(args.model),
     }
@@ -168,7 +185,9 @@ def main() -> None:
     print(f"  continuous MAE   baseline={b['continuous_mae']:.4f}   calibrated={c['continuous_mae']:.4f}")
     print(f"  7-class accuracy baseline={b['accuracy_7class']:.2%}   calibrated={c['accuracy_7class']:.2%}")
     print(f"  3-class accuracy baseline={b['accuracy_3class']:.2%}   calibrated={c['accuracy_3class']:.2%}")
-    print(f"\nWrote: {out_dir}/  (confusion matrices, metrics_report.txt, summary.json, calibrated_predictions.jsonl)")
+    print(
+        f"\nWrote: {out_dir}/  (confusion matrices, metrics_report.txt, summary.json, calibrated_predictions.jsonl)"
+    )
 
 
 if __name__ == "__main__":
