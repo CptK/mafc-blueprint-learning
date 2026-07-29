@@ -29,6 +29,16 @@ selfhosted_url = os.environ.get("selfhosted_url", None)
 geolocator_url = os.environ.get("geolocator_url", "http://0.0.0.0:5555")
 data_path = os.environ.get("data_path", "data/")
 
+# TruFor manipulation detection
+# Read-only stores of precomputed scores, e.g. "data/veritas_2026_q1/trufor:data/other/trufor"
+trufor_stores = [Path(p) for p in os.environ.get("trufor_stores", "").split(":") if p]
+trufor_cache_dir = temp_dir / "trufor"  # where on-the-fly scores get cached
+
+# Sightengine AI-generated / deepfake / ai_speech detection
+# Read-only stores of precomputed scores, e.g. "data/veritas_2026_q1/sightengine:data/other/sightengine"
+sightengine_stores = [Path(p) for p in os.environ.get("sightengine_stores", "").split(":") if p]
+sightengine_cache_dir = temp_dir / "sightengine"  # where on-the-fly scores get cached
+
 # Geolocator defaults
 default_countries_path = Path(__file__).resolve().with_name("default_countries_list.txt")
 with default_countries_path.open("r", encoding="utf-8") as f:
