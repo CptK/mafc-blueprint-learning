@@ -126,6 +126,17 @@ class C2PAProvenanceResults(Results):
     def __str__(self) -> str:
         if self.error:
             return f"C2PA check failed: {self.error}"
+        if self.provenance == "absent":
+            # Stated here rather than left to a caller-supplied note: this text
+            # now reaches the planner on every unsigned file, and an absent
+            # manifest read as "clean" would be a false exoneration. Most media
+            # online carries no manifest, and re-encoding strips it from
+            # legitimate camera-signed files.
+            return (
+                "C2PA provenance: **no manifest present**. This is the common case and "
+                "says nothing about authenticity or whether AI was involved — the check "
+                "has been run, and re-running it will not yield more."
+            )
         lines = [f"C2PA provenance: **{self.verdict}** (manifest {self.provenance})."]
         if self.generator:
             lines.append(f"Claim generator: {self.generator}.")
@@ -250,6 +261,13 @@ class C2PAChecker(Tool[CheckC2PAProvenance, C2PAProvenanceResults]):
     def _summarize(self, result: C2PAProvenanceResults, **kwargs) -> MultimodalSequence | None:
         if result.error is not None:
             return None
-        if not result.is_useful():
-            return None
+        # Report even when no manifest was found. Returning None here left the
+        # planner with no answer at all, so it could re-delegate the same check
+        # indefinitely, never learning that it had already been run. "No
+        # manifest is present" is a finding — the same reasoning the reverse
+        # image search path uses for its no-match case.
+        #
+        # is_useful() stays False: this is not positive evidence, and the text
+        # says so explicitly, because absence of a manifest is the norm and
+        # implies nothing about authenticity.
         return MultimodalSequence(str(result))

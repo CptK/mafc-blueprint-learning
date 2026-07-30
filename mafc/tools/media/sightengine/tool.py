@@ -238,7 +238,14 @@ class SightengineDetectionResults(Results):
         if self.error is not None:
             return f"Sightengine check failed: {self.error}"
         if not self.is_useful():
-            return "No useful results"
+            # Reaches the planner, so it has to say what happened rather than
+            # just "nothing": a bare "no results" reads as a transient glitch
+            # worth retrying, which is exactly the loop this avoids.
+            return (
+                "Sightengine returned no scores for this media — none of its models could be run "
+                "on it, so no AI-generation or deepfake check was completed. This is not evidence "
+                "about authenticity either way, and re-running is unlikely to help."
+            )
         parts = [
             f"Sightengine verdict: **{self.verdict}**. All scores are on a 0-1 scale (higher = more likely)."
         ]
@@ -729,8 +736,10 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
     def _summarize(self, result: SightengineDetectionResults, **kwargs) -> MultimodalSequence | None:
         if result.error is not None:
             return None
-        if not result.is_useful():
-            return None
+        # Report even when no model produced a score. Returning None left the
+        # planner with no answer, so it could keep re-delegating the same check
+        # without ever learning it had run. is_useful() stays False — this is
+        # not positive evidence — but the planner is told the check happened.
         return MultimodalSequence(str(result))
 
     def _resolve_key(self) -> tuple[str | None, str | None]:
