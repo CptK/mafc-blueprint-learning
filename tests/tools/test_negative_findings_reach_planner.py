@@ -57,9 +57,9 @@ def test_empty_result_still_renders_a_report(result, disclaimer) -> None:
 def test_empty_result_is_not_positive_evidence(result, disclaimer) -> None:
     """It must be reported, and it must not read as a clean bill of health."""
     assert result.is_useful() is False
-    assert disclaimer in str(result).lower() or disclaimer in str(result), (
-        f"missing the disclaimer that makes this safe to report: {str(result)!r}"
-    )
+    assert disclaimer in str(result).lower() or disclaimer in str(
+        result
+    ), f"missing the disclaimer that makes this safe to report: {str(result)!r}"
 
 
 @pytest.mark.parametrize("result, disclaimer", EMPTY_RESULTS)

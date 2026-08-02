@@ -37,6 +37,9 @@ def test_anthropic_format_input_text(monkeypatch) -> None:
 
 def test_anthropic_format_input_image_and_video(monkeypatch) -> None:
     class FakeImage:
+        width = 100
+        height = 100
+
         def get_base64_encoded(self):
             return "abc"
 
@@ -58,6 +61,9 @@ def test_anthropic_format_input_image_and_video(monkeypatch) -> None:
 
 def test_anthropic_format_input_image_too_large(monkeypatch) -> None:
     class FakeImage:
+        width = 100
+        height = 100
+
         def get_base64_encoded(self):
             return "abc"
 
