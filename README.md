@@ -9,7 +9,7 @@ This repo implements a multi-agent fact-checking system for multimodal claims (t
 Benchmarks are configured via a YAML file (see `config/experiments/` for examples) and run with:
 
 ```bash
-python -m scripts.run_benchmark --config config/experiments/veritas_baseline.yaml
+python -m scripts.run_benchmark --config config/experiments/baselines/veritas_baseline.yaml
 ```
 
 Results and per-claim traces are written to `out/<run>/`.
