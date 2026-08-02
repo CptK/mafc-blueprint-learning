@@ -1,11 +1,11 @@
 """
 Extract country-of-origin labels for images in the VeriTaS dataset using an LLM,
-then copy the confidently-labeled real photographs into geolocation-test/veritas_data/
-in the same format as geolocation-test/self_collected_data/ (images/<id>.<ext> + labels.csv).
+then copy the confidently-labeled real photographs into geolocation_test/veritas_data/
+in the same format as geolocation_test/self_collected_data/ (images/<id>.<ext> + labels.csv).
 
 Usage:
-    python scripts/collect_geolocation_data.py --limit 20 --out geolocation-test/veritas_data_sample
-    python scripts/collect_geolocation_data.py --out geolocation-test/veritas_data
+    python scripts/ablations/geo_tools_analysis/collect_geolocation_data.py --limit 20 --out geolocation_test/veritas_data_sample
+    python scripts/ablations/geo_tools_analysis/collect_geolocation_data.py --out geolocation_test/veritas_data
 """
 
 import argparse
@@ -19,7 +19,7 @@ from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = REPO_ROOT / "data" / "veritas_2025_with_fact_checks"
 CLAIMS_PATH = DATA_DIR / "claims.json"
 
