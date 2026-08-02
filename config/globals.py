@@ -39,6 +39,16 @@ trufor_cache_dir = temp_dir / "trufor"  # where on-the-fly scores get cached
 sightengine_stores = [Path(p) for p in os.environ.get("sightengine_stores", "").split(":") if p]
 sightengine_cache_dir = temp_dir / "sightengine"  # where on-the-fly scores get cached
 
+# Oracle manipulation detector — ceiling experiments ONLY, reads the answer key.
+# e.g. "data/veritas_2026_q1/media_integrity_labels.json"
+_oracle_labels = os.environ.get("oracle_labels_path", "")
+oracle_labels_path = Path(_oracle_labels) if _oracle_labels else None
+
+# GenD face-deepfake detection
+# Read-only stores of precomputed scores, e.g. "data/veritas_2026_q1/gend:data/other/gend"
+gend_stores = [Path(p) for p in os.environ.get("gend_stores", "").split(":") if p]
+gend_cache_dir = temp_dir / "gend"  # where on-the-fly scores get cached
+
 # Geolocator defaults
 default_countries_path = Path(__file__).resolve().with_name("default_countries_list.txt")
 with default_countries_path.open("r", encoding="utf-8") as f:
