@@ -197,6 +197,10 @@ class SightengineDetectionResults(Results):
     from_cache: bool = False  # served from a precomputed store / cache rather than a live API call
     notes: list[str] = field(default_factory=list)
     error: str | None = None
+    # Set when nothing was scored for a *known* reason (currently: store-only mode
+    # with no precomputed score). Kept separate from `error`, which means the check
+    # was attempted and failed — here it was deliberately never attempted.
+    not_scored_reason: str | None = None
 
     def is_useful(self) -> bool:
         return self.error is None and (
@@ -241,6 +245,12 @@ class SightengineDetectionResults(Results):
             # Reaches the planner, so it has to say what happened rather than
             # just "nothing": a bare "no results" reads as a transient glitch
             # worth retrying, which is exactly the loop this avoids.
+            if self.not_scored_reason is not None:
+                return (
+                    f"Sightengine did not check this media: {self.not_scored_reason} "
+                    "No AI-generation or deepfake check was completed, so this is not evidence "
+                    "about authenticity either way, and re-running will not help."
+                )
             return (
                 "Sightengine returned no scores for this media — none of its models could be run "
                 "on it, so no AI-generation or deepfake check was completed. This is not evidence "
@@ -295,6 +305,7 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
         stores: list[str | Path] | None = None,
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
+        store_only: bool = False,
         ai_generated_threshold: float = DEFAULT_AI_GENERATED_THRESHOLD,
         deepfake_threshold: float = DEFAULT_DEEPFAKE_THRESHOLD,
         ai_speech_threshold: float = DEFAULT_AI_SPEECH_THRESHOLD,
@@ -311,6 +322,11 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
         cache_dir: writable store for newly fetched scores. Defaults to temp/sightengine.
         use_cache: set False to score without reading/writing the writable cache
             (the read-only stores are still consulted).
+        store_only: never call the (paid) API — serve only what a store or the cache
+            already holds, and report anything else as unchecked. Set this for
+            experiments on a precomputed dataset, where media arriving from evidence
+            retrieval would otherwise be billed: a single retrieved video can cost more
+            than the whole benchmark's images.
         ai_generated_threshold: score above which the genai model counts as a positive verdict.
         deepfake_threshold: score above which the deepfake model counts as a positive verdict.
         ai_speech_threshold: score above which the ai_speech model counts as a positive verdict.
@@ -340,6 +356,12 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
             if use_cache
             else None
         )
+        self.store_only = store_only
+        if store_only:
+            logger.info(
+                f"[Tool:{self.name}] store-only mode: no API calls will be made; media without a "
+                f"precomputed score is reported as unchecked."
+            )
         self.ai_generated_threshold = ai_generated_threshold
         self.deepfake_threshold = deepfake_threshold
         self.ai_speech_threshold = ai_speech_threshold
@@ -415,6 +437,19 @@ class SightengineChecker(Tool[SightengineDetectionAction, SightengineDetectionRe
         record = self._lookup(sha)
         if record is not None:
             return self._result_from_record(record, from_cache=True)
+
+        if self.store_only:
+            # Media that did not come from the precomputed dataset — typically an
+            # image or video picked up during evidence retrieval. Scoring it would
+            # be a live, billed call, which is exactly what this mode exists to
+            # prevent, so report it as unchecked instead.
+            logger.info(
+                f"[Tool:{self.name}] store-only: no precomputed score for "
+                f"{action.media.reference}; skipping the API call."
+            )
+            return SightengineDetectionResults(
+                not_scored_reason="it has no precomputed score and live scoring is disabled for this run."
+            )
 
         try:
             record = self.compute_record(action.media)
