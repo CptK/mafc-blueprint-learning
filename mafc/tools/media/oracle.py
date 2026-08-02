@@ -11,7 +11,7 @@ at all, then no amount of Sightengine spend can pay for itself, and the whole
 line of work is closed by a cheap experiment instead of an expensive one.
 
 Labels come from media_integrity_labels.json (see
-scripts/media_forensics/label_media_integrity.py).
+scripts/ablations/detector_comparison/label_media_integrity.py).
 
 WHAT THIS DELIBERATELY DOES NOT RETURN
 --------------------------------------
