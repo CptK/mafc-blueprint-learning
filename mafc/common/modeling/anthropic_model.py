@@ -14,15 +14,53 @@ from mafc.common.logger import logger
 encoding = tiktoken.get_encoding("cl100k_base")
 
 # Models that do not accept `temperature` or `top_p` sampling parameters.
+# On these, sampling parameters were removed rather than deprecated: sending any
+# of them returns a 400, so they must be dropped from the request entirely.
+# Steer these models by prompting instead.
 _NO_SAMPLING_PARAMS: frozenset[str] = frozenset(
     {
         "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-fable-5",
     }
 )
 
 
 def _resolve_anthropic_key() -> str | None:
     return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("anthropic_api_key")
+
+
+# Anthropic rejects a request carrying many images if any of them exceeds this on
+# either dimension ("max allowed size for many-image requests"). Judge prompts
+# routinely carry a dozen or more evidence images, so every image is downscaled to
+# fit rather than gambling on the per-request image count. Gemini has no such
+# limit, which is why traces recorded on Gemini can only be replayed here after
+# resizing.
+_MAX_IMAGE_EDGE_PX = 2000
+
+
+def _encode_image_within_limits(image: Image) -> str:
+    """Base64-encode an image, downscaling so neither edge exceeds the API limit.
+
+    Aspect ratio is preserved; images already within the limit are encoded
+    untouched, so this is a no-op for the common case.
+    """
+    longest_edge = max(image.width, image.height)
+    if longest_edge <= _MAX_IMAGE_EDGE_PX:
+        return image.get_base64_encoded()
+
+    scale = _MAX_IMAGE_EDGE_PX / longest_edge
+    new_size = (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
+    logger.debug(
+        f"[Anthropic] Downscaling {image.reference} from {image.width}x{image.height} "
+        f"to {new_size[0]}x{new_size[1]} to satisfy the {_MAX_IMAGE_EDGE_PX}px limit."
+    )
+    pil_image = image.image
+    from ezmm.common.items.image import to_base64  # local import: avoids a cycle at module load
+
+    return to_base64(pil_image.resize(new_size))
 
 
 def count_image_tokens_estimate(image: Image) -> int:
@@ -64,7 +102,7 @@ def format_input(content: MultimodalSequence, context_window: int) -> list[dict]
             img_tokens = count_image_tokens_estimate(block)
             if img_tokens > remaining:
                 break
-            image_encoded = block.get_base64_encoded()
+            image_encoded = _encode_image_within_limits(block)
             content_formatted.append(
                 {
                     "type": "image",
