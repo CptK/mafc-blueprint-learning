@@ -20,6 +20,7 @@ from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
 from mafc.tools.geolocate.geolocate import Geolocate, Geolocator
 from mafc.tools.media.c2pa_checker import C2PAChecker, CheckC2PAProvenance
+from mafc.tools.media.oracle import CheckOracleManipulation, OracleManipulationChecker
 from mafc.tools.media.sightengine import SightengineChecker, SightengineDetectionAction
 from mafc.tools.media.trufor import DetectTruForManipulation, TruFor
 from mafc.tools.tool import Tool
@@ -38,7 +39,15 @@ class MediaAgent(Agent):
 
     allowed_tools = cast(
         list[type[Tool]],
-        [ReverseImageSearchTool, Geolocator, C2PAChecker, TruFor, SightengineChecker, GoogleSearchPlatform],
+        [
+            ReverseImageSearchTool,
+            Geolocator,
+            C2PAChecker,
+            TruFor,
+            SightengineChecker,
+            OracleManipulationChecker,
+            GoogleSearchPlatform,
+        ],
     )
 
     def __init__(
@@ -54,6 +63,8 @@ class MediaAgent(Agent):
         trufor_checker: TruFor | None = None,
         use_sightengine: bool = False,
         sightengine_checker: SightengineChecker | None = None,
+        use_oracle: bool = False,
+        oracle_checker: OracleManipulationChecker | None = None,
         agent_id: str | None = None,
         trace_dir: str | None = None,
     ):
@@ -64,6 +75,8 @@ class MediaAgent(Agent):
         self.c2pa_checker = c2pa_checker or (C2PAChecker() if use_c2pa else None)
         self.trufor_checker = trufor_checker or (TruFor() if use_trufor else None)
         self.sightengine_checker = sightengine_checker or (SightengineChecker() if use_sightengine else None)
+        # Ceiling experiments only — reads the answer key. See mafc/tools/media/oracle.py.
+        self.oracle_checker = oracle_checker or (OracleManipulationChecker() if use_oracle else None)
         self.trace_dir = trace_dir
 
     def run(self, session: AgentSession, trace_scope=None) -> AgentResult:
@@ -356,6 +369,10 @@ class MediaAgent(Agent):
                         self.sightengine_checker.perform(SightengineDetectionAction(media_item.reference)),
                     )
                 )
+            elif tool_name == "check_oracle_manipulation" and self.oracle_checker is not None:
+                results.append(
+                    (tool_name, self.oracle_checker.perform(CheckOracleManipulation(media_item.reference)))
+                )
         return results
 
     def _run_authenticity_fanout(self, media_item: Image | Video) -> list[tuple[str, ToolResult]]:
@@ -389,6 +406,15 @@ class MediaAgent(Agent):
                 (
                     "sightengine_detection",
                     self.sightengine_checker.perform(SightengineDetectionAction(media_item.reference)),
+                )
+            )
+        # Ceiling experiments only. Normally the sole enabled detector, so it
+        # replaces the others rather than voting alongside them.
+        if self.oracle_checker is not None:
+            results.append(
+                (
+                    "check_oracle_manipulation",
+                    self.oracle_checker.perform(CheckOracleManipulation(media_item.reference)),
                 )
             )
         return results

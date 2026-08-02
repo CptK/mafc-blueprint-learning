@@ -46,7 +46,7 @@ def _valid_tools_for(agent) -> set[str]:
     tools = {"reverse_image_search", "geolocate"}
     if any(
         getattr(agent, attr, None) is not None
-        for attr in ("c2pa_checker", "trufor_checker", "sightengine_checker")
+        for attr in ("c2pa_checker", "trufor_checker", "sightengine_checker", "oracle_checker")
     ):
         tools.add("assess_authenticity")
     return tools

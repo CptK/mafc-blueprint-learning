@@ -65,6 +65,17 @@ class MediaAgentConfig(AgentModelConfig):
     # Runs Sightengine's genai/deepfake/ai_speech models (external API call,
     # billed per request). Off by default.
     use_sightengine: bool = False
+    # Serve Sightengine scores only from the precomputed stores, never from the
+    # (paid) API. Media without a precomputed score is reported as unchecked.
+    # Set this for experiments on a precomputed dataset: media picked up during
+    # evidence retrieval would otherwise be billed live, and one retrieved video
+    # can cost more than the whole benchmark's images.
+    sightengine_store_only: bool = False
+    # CEILING EXPERIMENTS ONLY. Replaces manipulation detection with the
+    # ground-truth label, to measure what a perfect detector would be worth.
+    # Any run with this on is NOT valid pipeline performance. Requires
+    # `oracle_labels_path`.
+    use_oracle: bool = False
 
 
 class JudgeAgentConfig(AgentModelConfig):

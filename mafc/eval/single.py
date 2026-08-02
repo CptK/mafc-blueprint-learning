@@ -27,6 +27,7 @@ from mafc.agents.common import AgentSession
 from mafc.agents.fact_check.agent import FactCheckAgent
 from mafc.agents.judge.agent import JudgeAgent
 from mafc.agents.media.agent import MediaAgent
+from mafc.tools.media.sightengine import SightengineChecker
 from mafc.agents.web_search.agent import WebSearchAgent
 from mafc.blueprints import BlueprintRegistry, BlueprintSelector
 from mafc.blueprints.probe import PROBE_FILENAME, BlueprintProbe
@@ -90,12 +91,19 @@ def build_fact_check_agent(
         judge_cfg.model, temperature=judge_cfg.temperature, max_response_length=judge_cfg.max_response_length
     )
 
+    # Built here rather than by MediaAgent so store-only mode can be wired in from
+    # the run config; MediaAgent's own `use_sightengine` flag builds a default checker.
+    sightengine_checker = (
+        SightengineChecker(store_only=media_cfg.sightengine_store_only) if media_cfg.use_sightengine else None
+    )
     media_agent = MediaAgent(
         model=media_model,
         summarization_model=media_model,
         use_c2pa=media_cfg.use_c2pa,
         use_trufor=media_cfg.use_trufor,
         use_sightengine=media_cfg.use_sightengine,
+        sightengine_checker=sightengine_checker,
+        use_oracle=media_cfg.use_oracle,
     )
     web_search_agent = WebSearchAgent(
         main_model=worker_model,
