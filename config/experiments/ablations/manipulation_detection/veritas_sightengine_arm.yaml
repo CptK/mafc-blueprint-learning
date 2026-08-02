@@ -1,0 +1,354 @@
+# SIGHTENGINE ARM: what does the best REAL detector contribute end-to-end?
+#
+# Identical to out/veritas-2026_q1-7class-20260728-124458 in every respect
+# (blueprints eom_v4, hybrid routing, models, judge n_samples) EXCEPT that the
+# media agent gets the Sightengine detector. Compare against the oracle arm
+# (out/veritas-2026_q1-7class-20260801-131339) to see how much of the ceiling a
+# real detector reaches, and against the baseline for its absolute effect.
+#
+# Sample: the 277 claims whose image carries a non-"unknown" integrity label
+# (211 manipulated / 112 authentic images) and that carry NO video. Videos are
+# excluded because the detector evaluation in the appendix is images-only and
+# because the Sightengine arm would otherwise incur live video billing.
+#
+# Compare PAIRED against the same claim_ids in
+# out/veritas-2026_q1-7class-20260728-124458.
+#
+# store_only: true means NO live API calls. Every one of these 277 claims' images
+# is in the precomputed store (373/374 labelled images are), so this run costs 0
+# Sightengine operations; media picked up during evidence retrieval is reported as
+# unchecked instead of being billed.
+#
+# Requires: sightengine_stores=data/veritas_2026_q1/sightengine
+
+benchmark:
+  name: veritas
+  split: 2026_q1
+  label_scheme: 7
+  data_path: data/veritas_2026_q1
+  sample_ids:
+  - '115340'
+  - '105161'
+  - '105687'
+  - '103344'
+  - '109876'
+  - '104548'
+  - '115343'
+  - '102266'
+  - '102401'
+  - '103026'
+  - '103080'
+  - '103973'
+  - '103505'
+  - '115426'
+  - '103144'
+  - '102623'
+  - '110332'
+  - '102421'
+  - '105755'
+  - '102605'
+  - '103909'
+  - '110283'
+  - '102855'
+  - '105203'
+  - '119570'
+  - '110417'
+  - '115461'
+  - '119713'
+  - '106115'
+  - '103962'
+  - '105202'
+  - '103172'
+  - '103919'
+  - '110151'
+  - '103979'
+  - '102009'
+  - '102666'
+  - '103745'
+  - '105734'
+  - '109712'
+  - '110194'
+  - '105070'
+  - '103343'
+  - '101955'
+  - '102662'
+  - '104692'
+  - '104561'
+  - '115498'
+  - '102852'
+  - '105763'
+  - '105197'
+  - '105473'
+  - '103598'
+  - '103659'
+  - '105217'
+  - '104828'
+  - '105529'
+  - '105852'
+  - '110425'
+  - '102362'
+  - '102895'
+  - '103977'
+  - '105544'
+  - '103013'
+  - '110527'
+  - '104507'
+  - '103237'
+  - '103533'
+  - '105136'
+  - '103075'
+  - '105300'
+  - '103480'
+  - '102348'
+  - '103566'
+  - '103163'
+  - '102494'
+  - '104446'
+  - '109891'
+  - '104535'
+  - '105222'
+  - '105802'
+  - '102273'
+  - '103341'
+  - '105093'
+  - '103558'
+  - '115449'
+  - '104256'
+  - '102404'
+  - '105455'
+  - '104164'
+  - '103225'
+  - '104636'
+  - '102746'
+  - '114456'
+  - '104835'
+  - '115352'
+  - '103859'
+  - '103081'
+  - '103084'
+  - '103014'
+  - '103644'
+  - '103468'
+  - '105929'
+  - '105044'
+  - '102032'
+  - '110443'
+  - '104002'
+  - '102295'
+  - '104797'
+  - '103132'
+  - '104323'
+  - '115385'
+  - '104327'
+  - '102028'
+  - '103309'
+  - '105204'
+  - '104888'
+  - '102979'
+  - '105914'
+  - '104990'
+  - '102920'
+  - '101935'
+  - '119610'
+  - '105355'
+  - '106197'
+  - '104526'
+  - '105666'
+  - '103445'
+  - '103692'
+  - '103322'
+  - '105267'
+  - '119686'
+  - '105876'
+  - '104580'
+  - '105619'
+  - '102724'
+  - '115342'
+  - '105372'
+  - '102029'
+  - '109892'
+  - '110056'
+  - '105227'
+  - '102196'
+  - '105345'
+  - '103147'
+  - '115399'
+  - '109858'
+  - '104732'
+  - '110363'
+  - '110140'
+  - '104734'
+  - '105568'
+  - '103224'
+  - '102037'
+  - '103950'
+  - '102389'
+  - '102492'
+  - '104009'
+  - '115338'
+  - '115488'
+  - '104652'
+  - '102307'
+  - '104547'
+  - '110142'
+  - '103314'
+  - '102236'
+  - '103454'
+  - '110137'
+  - '103935'
+  - '115420'
+  - '103336'
+  - '102133'
+  - '102399'
+  - '110284'
+  - '102337'
+  - '119615'
+  - '103395'
+  - '105317'
+  - '110162'
+  - '102211'
+  - '103347'
+  - '103126'
+  - '115351'
+  - '105157'
+  - '102500'
+  - '102279'
+  - '119572'
+  - '104273'
+  - '102881'
+  - '105547'
+  - '102929'
+  - '103319'
+  - '103614'
+  - '102104'
+  - '105117'
+  - '105114'
+  - '105057'
+  - '102709'
+  - '106227'
+  - '103860'
+  - '119692'
+  - '103302'
+  - '102809'
+  - '104195'
+  - '102647'
+  - '102132'
+  - '102484'
+  - '103956'
+  - '104805'
+  - '105997'
+  - '105334'
+  - '104198'
+  - '105229'
+  - '115389'
+  - '110661'
+  - '102573'
+  - '105995'
+  - '104132'
+  - '103106'
+  - '102329'
+  - '115452'
+  - '105399'
+  - '105016'
+  - '102480'
+  - '105811'
+  - '104087'
+  - '105251'
+  - '119602'
+  - '103599'
+  - '104201'
+  - '110382'
+  - '102762'
+  - '104930'
+  - '103728'
+  - '103776'
+  - '119582'
+  - '110648'
+  - '105712'
+  - '106107'
+  - '103188'
+  - '102197'
+  - '115476'
+  - '110649'
+  - '102983'
+  - '115432'
+  - '104268'
+  - '110033'
+  - '105128'
+  - '104076'
+  - '104166'
+  - '105719'
+  - '105964'
+  - '104540'
+  - '105018'
+  - '102514'
+  - '105793'
+  - '109776'
+  - '104011'
+  - '103360'
+  - '103386'
+  - '105353'
+  - '104386'
+  - '101908'
+  - '104161'
+  - '104975'
+  - '105019'
+  - '102610'
+  - '102184'
+  - '103941'
+  - '104958'
+  - '104586'
+  - '103883'
+  - '105318'
+  - '109925'
+  - '105833'
+  - '103329'
+  - '103529'
+
+agents:
+  fact_check:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    workers: 4
+
+  web_search:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 20000
+    workers: 4
+    max_iterations: 2
+    max_queries_per_step: 3
+    max_results_per_query: 3
+    summarization_model: gemini_3_flash
+    summarization_thinking: false
+    summarization_max_response_length: 5000
+
+  media:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    use_c2pa: false
+    use_trufor: false
+    use_sightengine: true
+    sightengine_store_only: true   # never call the paid API; serve precomputed scores only
+    use_oracle: false
+
+  judge:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    n_samples: 3
+
+blueprints:
+  selector_model: gemini_3_flash
+  selector_max_response_length: 8192
+  config_dir: out/learned_blueprints/2025/eom_v4
+  selection_method: hybrid
+  probe_confidence_threshold: 0.8
+
+run:
+  concurrency: 8
+  timeout_per_sample:
+  traces: true
+  log_level: INFO

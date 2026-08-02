@@ -1,0 +1,50 @@
+benchmark:
+  name: veritas
+  split: 2026_q1
+  label_scheme: 7          # 3 (true/false/other) or 7 (full VeriTaS scheme)
+  #first_n: 4               # run first N samples; remove to run all
+
+agents:
+  fact_check:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000  # increase for reasoning models (reasoning tokens count here too)
+    workers: 8               # parallel delegation tasks within one planning round
+
+  web_search:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 20000  # per-source summarization output; 4096 is enough for non-reasoning
+    workers: 4               # parallel summarization calls per query (uses vLLM batching)
+    max_iterations: 2        # web search rounds per delegated task
+    max_queries_per_step: 3  # search queries issued per round (planner may issue fewer)
+    max_results_per_query: 3 # sources retrieved per search query
+    summarization_model: gemini_3_flash
+    summarization_thinking: false
+    summarization_max_response_length: 5000
+
+  media:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    use_c2pa: false
+    use_trufor: false
+    use_sightengine: false
+
+  judge:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    n_samples: 3             # independent judge samples; aggregated via mean numeric label
+
+# Strategy.md baseline: a single free-text playbook replaces the blueprint pool.
+# Build the document first with scripts/strategy/build_strategy.py.
+strategy:
+  path: out/strategy_full_v2/strategy_empty.md   # the 500-sample doc; swap to out/strategy_full/strategy.md when the full build finishes
+  max_rounds: 2            # 1 = one-shot (plan once, delegate in parallel, synthesize, judge)
+
+run:
+  concurrency: 12           # claims processed in parallel (each in its own thread)
+  timeout_per_sample:      # seconds per claim; leave empty for no timeout
+  traces: true             # write per-claim trace files to out/<run>/traces/
+  log_level: INFO          # DEBUG for verbose model I/O

@@ -1,0 +1,63 @@
+# ABLATION: does the embedding probe earn its keep?
+#
+# Identical to the hybrid full run (out/veritas-2026_q1-7class-20260728-124458,
+# MSE 0.2430) in every respect except routing: same eom_v4 pool, same runtime,
+# same models, same full 2026_q1 split. Only selection_method changes.
+#
+# The probe is NOT loaded under llm_tiebreak, so no OpenAI embedding calls are
+# made and routing is decided entirely by the LLM tie-break over descriptions
+# and selector hints.
+#
+# Compare paired against the hybrid run on all ~995 claims:
+#   ~equal or better -> the probe added an OpenAI dependency and a per-claim
+#                       embedding call for nothing; drop it
+#   worse            -> the probe is doing real work; the within-run split that
+#                       hinted otherwise was confounded by claim difficulty
+#
+# Also the clean comparison against eom_v3 (0.2835), which ran pure llm_tiebreak:
+# that delta currently mixes pool change with routing change.
+
+benchmark:
+  name: veritas
+  split: 2026_q1
+  label_scheme: 7
+  data_path: data/veritas_2026_q1
+agents:
+  fact_check:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    workers: 4
+  web_search:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 20000
+    workers: 4
+    max_iterations: 2
+    max_queries_per_step: 3
+    max_results_per_query: 3
+    summarization_model: gemini_3_flash
+    summarization_thinking: false
+    summarization_max_response_length: 5000
+  media:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    use_c2pa: false
+    use_trufor: false
+    use_sightengine: false
+  judge:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    n_samples: 3
+blueprints:
+  selector_model: gemini_3_flash
+  selector_max_response_length: 8192
+  config_dir: out/learned_blueprints/2025/eom_v4
+  selection_method: llm_tiebreak
+run:
+  concurrency: 8
+  timeout_per_sample: null
+  traces: true
+  log_level: INFO

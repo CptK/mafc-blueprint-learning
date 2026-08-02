@@ -1,0 +1,199 @@
+# A/B validation of the reworded recontextualized_media blueprint.
+# Same setup as out/veritas-2026_q1-7class-20260702-232712, restricted to the 146
+# claims that run routed to recontextualized_media, with config_dir pointing at the
+# fixed blueprint copy (out/learned_blueprints/2025/eom-recontext-fix).
+# Note: selection runs fresh, so a few claims may route to a different blueprint —
+# the paired per-claim comparison against the original run remains valid either way.
+benchmark:
+  name: veritas
+  split: 2026_q1
+  label_scheme: 7
+  data_path: data/veritas_2026_q1
+  sample_ids:
+    - "105687"
+    - "104308"
+    - "103137"
+    - "103942"
+    - "103080"
+    - "101903"
+    - "102390"
+    - "102619"
+    - "115426"
+    - "103998"
+    - "102579"
+    - "104280"
+    - "104598"
+    - "102038"
+    - "103131"
+    - "102915"
+    - "104034"
+    - "104232"
+    - "104196"
+    - "103952"
+    - "105296"
+    - "103847"
+    - "103962"
+    - "103919"
+    - "103172"
+    - "105235"
+    - "104912"
+    - "104042"
+    - "103369"
+    - "103745"
+    - "105070"
+    - "102911"
+    - "109712"
+    - "110547"
+    - "103783"
+    - "102242"
+    - "105883"
+    - "104561"
+    - "102226"
+    - "105197"
+    - "105217"
+    - "105313"
+    - "105562"
+    - "103074"
+    - "105852"
+    - "103002"
+    - "106228"
+    - "104014"
+    - "103533"
+    - "104149"
+    - "103087"
+    - "104723"
+    - "102494"
+    - "104668"
+    - "102326"
+    - "104836"
+    - "104787"
+    - "103561"
+    - "102404"
+    - "103378"
+    - "103911"
+    - "105004"
+    - "115416"
+    - "109942"
+    - "104835"
+    - "103081"
+    - "103014"
+    - "102031"
+    - "105929"
+    - "105287"
+    - "102295"
+    - "104797"
+    - "104323"
+    - "119675"
+    - "104699"
+    - "102717"
+    - "104327"
+    - "110257"
+    - "105914"
+    - "102485"
+    - "105326"
+    - "105878"
+    - "115337"
+    - "115404"
+    - "105876"
+    - "102975"
+    - "105619"
+    - "115342"
+    - "105771"
+    - "110363"
+    - "104734"
+    - "102037"
+    - "105253"
+    - "102236"
+    - "101841"
+    - "103454"
+    - "103935"
+    - "106035"
+    - "119615"
+    - "105519"
+    - "105317"
+    - "110162"
+    - "103126"
+    - "119572"
+    - "102289"
+    - "102120"
+    - "102881"
+    - "104966"
+    - "103236"
+    - "103738"
+    - "102929"
+    - "105523"
+    - "103614"
+    - "104263"
+    - "109713"
+    - "102206"
+    - "103999"
+    - "105421"
+    - "105997"
+    - "102365"
+    - "115368"
+    - "102329"
+    - "109841"
+    - "104070"
+    - "119600"
+    - "102762"
+    - "103728"
+    - "104220"
+    - "110649"
+    - "102197"
+    - "104295"
+    - "115432"
+    - "105784"
+    - "105865"
+    - "105064"
+    - "104540"
+    - "105793"
+    - "105442"
+    - "103933"
+    - "103883"
+    - "103273"
+    - "103222"
+    - "106066"
+    - "106052"
+    - "105833"
+    - "119698"
+
+agents:
+  fact_check:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    workers: 4
+
+  web_search:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 20000
+    workers: 4
+    max_iterations: 2
+    max_queries_per_step: 3
+    max_results_per_query: 3
+    summarization_model: gemini_3_flash
+    summarization_thinking: false
+    summarization_max_response_length: 5000
+
+  media:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+
+  judge:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    n_samples: 3
+
+blueprints:
+  selector_model: gemini_3_flash
+  selector_max_response_length: 8192
+  config_dir: out/learned_blueprints/2025/eom-recontext-fix
+
+run:
+  concurrency: 8
+  timeout_per_sample:
+  traces: true
+  log_level: INFO

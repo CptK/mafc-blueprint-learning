@@ -1,0 +1,56 @@
+benchmark:
+  name: veritas
+  split: 2026_q1
+  label_scheme: 7          # 3 (true/false/other) or 7 (full VeriTaS scheme)
+  data_path:  data/veritas_2026_q1  # override default data/<name>_<split> path
+  # sample_ids: ["123", "456"]  # run specific samples only
+  # first_n: 200               # run first N samples; remove to run all
+
+agents:
+  fact_check:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000  # increase for reasoning models (reasoning tokens count here too)
+    workers: 4               # parallel delegation tasks within one claim
+
+  web_search:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 20000  # per-source summarization output; 4096 is enough for non-reasoning
+    workers: 4               # parallel summarization calls per query (uses vLLM batching)
+    max_iterations: 2        # web search rounds per delegated task
+    max_queries_per_step: 3  # search queries issued per round (planner may issue fewer)
+    max_results_per_query: 3 # sources retrieved per search query
+    summarization_model: gemini_3_flash     # smaller model for per-source summarization; defaults to model above
+    summarization_thinking: false              # disable thinking mode; recommended for simple tasks
+    summarization_max_response_length: 5000   # no thinking tokens needed; ≤7 bullet points output
+
+  media:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    use_c2pa: false
+    use_trufor: false
+    use_sightengine: false
+
+  judge:
+    model: gemini_3_flash
+    temperature: 1.0
+    max_response_length: 64000
+    n_samples: 3             # independent judge samples; aggregated via mean numeric label
+
+blueprints:
+  selector_model: gemini_3_flash
+  selector_max_response_length: 8192  # increase for reasoning models (thinking tokens count here too)
+  # config_dir:  config/blueprints
+  # config_dir: /Users/marcus/Documents/Workspace/mafc-blueprint-learning/config/merged_blueprint
+  # config_dir: out/learned_blueprints/2025/eom_new
+  config_dir: out/learned_blueprints/2025/eom_v4
+  selection_method: hybrid          # llm_tiebreak (default) | embedding_probe | hybrid
+  probe_confidence_threshold: 0.8   # hybrid only
+
+run:
+  concurrency: 8           # claims processed in parallel (each in its own thread)
+  timeout_per_sample:      # seconds per claim; leave empty for no timeout
+  traces: true             # write per-claim trace files to out/<run>/traces/
+  log_level: INFO          # DEBUG for verbose model I/O
