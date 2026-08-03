@@ -9,8 +9,9 @@ answered on different units and can disagree:
 | `manipulation_detection/` | Does giving the pipeline a detector change its verdict? | one claim |
 
 A detector can win the first and be worthless in the second — that is the point
-of running both. `detector_comparison/` says Sightengine's AI-generation head is
-the only usable signal (AUC 0.79 on the detectable subset);
+of running both. `detector_comparison/` says Sightengine is the only usable
+signal (AUC 0.74 for the `ai_gen` head alone, 0.79 combined with `deepfake`, on
+the detectable subset);
 `manipulation_detection/` says wiring it in changes nothing end-to-end, and
 neither would a *perfect* detector.
 

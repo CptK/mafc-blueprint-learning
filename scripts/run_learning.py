@@ -13,7 +13,7 @@ Steps
 
 Usage
 -----
-    python scripts/run_learning.py --config config/experiments/learning_veritas.yaml
+    python scripts/run_learning.py --config config/experiments/learning/learning_veritas.yaml
 """
 
 from __future__ import annotations
