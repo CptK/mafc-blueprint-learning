@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from mafc.blueprints.models import Blueprint
+from mafc.blueprints.topology import enforce_path_budget
 
 SUPPORTED_BLUEPRINT_EXTENSIONS = {".yaml", ".yml", ".json"}
 
@@ -16,13 +17,19 @@ NON_BLUEPRINT_FILENAMES = {"index.json", "synthesis_log.json", "selector_probe.j
 
 
 def load_blueprint(path: str | Path) -> Blueprint:
-    """Load and validate a single blueprint file from disk."""
+    """Load, validate, and repair a single blueprint file from disk.
+
+    The iteration budget is raised to the longest path through the verification graph
+    when the file declares less, so a blueprint can always reach the end of its deepest
+    branch. Enforcing it here rather than at generation time covers hand-authored
+    blueprints too, which under-declared it and stranded their deepest layers.
+    """
     blueprint_path = Path(path)
     if not blueprint_path.is_file():
         raise FileNotFoundError(f"Blueprint file not found: {blueprint_path}")
 
     payload = _read_blueprint_payload(blueprint_path)
-    return Blueprint.model_validate(payload)
+    return enforce_path_budget(Blueprint.model_validate(payload))
 
 
 def load_blueprints(path: str | Path) -> list[Blueprint]:

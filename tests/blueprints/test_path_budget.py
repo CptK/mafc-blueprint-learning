@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import yaml
+
+from mafc.blueprints.loader import load_blueprint
 from mafc.blueprints.models import Blueprint
-from mafc.blueprints.topology import longest_path_nodes
-from mafc.learning.blueprint_contrast import enforce_path_budget
+from mafc.blueprints.topology import enforce_path_budget, longest_path_nodes
 
 
 def _blueprint(nodes: list[dict], max_iterations: int = 2, start: str = "n0") -> Blueprint:
@@ -84,3 +86,28 @@ def test_sufficient_budget_is_left_alone():
 def test_budget_is_a_floor_never_lowered():
     bp = _blueprint([_actions("n0", "n1"), _synth("n1", "finalize")], max_iterations=9)
     assert enforce_path_budget(bp).policy_constraints.max_iterations == 9
+
+
+def test_loading_repairs_an_underdeclared_budget(tmp_path):
+    """The guard is a load-time invariant, not something the build pipeline owns.
+
+    Hand-authored blueprints never passed through the generator, so enforcing it
+    only there left them stranding their own deepest layers.
+    """
+    blueprint_path = tmp_path / "bp.yaml"
+    blueprint_path.write_text(
+        yaml.safe_dump(
+            _blueprint(
+                [
+                    _actions("n0", "n1"),
+                    _synth("n1", "n2"),
+                    _actions("n2", "n3"),
+                    _synth("n3", "finalize"),
+                ],
+                max_iterations=2,
+            ).model_dump(by_alias=True)
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_blueprint(blueprint_path).policy_constraints.max_iterations == 4

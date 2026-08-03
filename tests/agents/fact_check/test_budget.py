@@ -59,13 +59,18 @@ def test_allows_staying_when_budget_has_layer_slack(tmp_path) -> None:
 
 
 def test_forces_next_layer_when_budget_has_no_slack(tmp_path) -> None:
+    """Slack runs out only after an iteration that did not descend a layer.
+
+    The load-time path budget guarantees max_iterations exceeds the layer depth, so
+    a run cannot start without slack; it loses it by looping on a layer instead.
+    """
     forced_path = tmp_path / "forced.yaml"
     forced_path.write_text(
         """
 name: forced_progress
 description: Force layer progress when slack is gone.
 policy_constraints:
-  max_iterations: 1
+  max_iterations: 2
 verification_graph:
   start_node: layer0
   nodes:
@@ -74,6 +79,8 @@ verification_graph:
       actions:
         - action: web_search_agent
       transition:
+        - if: more evidence is needed on this layer
+          to: layer0
         - if: continue
           to: layer1
     - id: layer1
@@ -106,17 +113,21 @@ verification_graph:
         registry=registry,
         default_blueprint_name="default",
     )
+    delegate_response = json.dumps(
+        {
+            "decision_type": "delegate",
+            "rationale": "Investigate on the current layer.",
+            "tasks": [
+                {"task_id": "web_task", "agent_type": "web_search", "instruction": "Find evidence."}
+            ],
+        }
+    )
     planner = SequencedModel(
         outputs=[
-            json.dumps(
-                {
-                    "decision_type": "delegate",
-                    "rationale": "Try to stay even though there is no slack.",
-                    "tasks": [
-                        {"task_id": "web_task", "agent_type": "web_search", "instruction": "Find evidence."}
-                    ],
-                }
-            ),
+            delegate_response,
+            json.dumps({"next_node_id": "layer0", "rationale": "Spend the slack here."}),
+            delegate_response,
+            json.dumps({"next_node_id": "layer1", "rationale": "No slack left — advance."}),
             "Forced advancement worked.",
         ]
     )
@@ -134,5 +145,6 @@ verification_graph:
     result = agent.run(session)
 
     assert result.result is not None
-    assert "stay_allowed: False" in planner.calls[0]
-    assert "concise fact-check synthesis" in planner.calls[1]
+    assert "stay_allowed: True" in planner.calls[0]
+    assert "stay_allowed: False" in planner.calls[2]
+    assert "concise fact-check synthesis" in planner.calls[-1]

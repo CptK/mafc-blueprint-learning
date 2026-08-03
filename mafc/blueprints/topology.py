@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from mafc.blueprints.models import Blueprint
+from mafc.common.logger import logger
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,31 @@ def longest_path_nodes(blueprint: Blueprint) -> int:
         return 1 + deepest
 
     return walk(start, frozenset())
+
+
+def enforce_path_budget(blueprint: Blueprint) -> Blueprint:
+    """Raise max_iterations so the blueprint can reach the end of its deepest branch.
+
+    One iteration executes one node, and synthesis nodes consume one just like action
+    nodes do. Authors reliably under-count this — budgets come out one short of the
+    longest path — which silently strands the deepest branch: it is never reached, so
+    the checks attached to it never activate and read as 'unchecked' rather than
+    failing. This is a floor, not a target; early-exit transitions still end runs sooner.
+
+    Applied on load (see ``mafc.blueprints.loader``) so hand-authored and generated
+    blueprints are repaired on the same path.
+    """
+    required = longest_path_nodes(blueprint)
+    current = blueprint.policy_constraints.max_iterations
+    if current >= required:
+        return blueprint
+
+    logger.info(
+        f"[enforce_path_budget] '{blueprint.name}' max_iterations {current} -> {required}: "
+        f"its longest path visits {required} nodes, so the deepest branch was unreachable."
+    )
+    constraints = blueprint.policy_constraints.model_copy(update={"max_iterations": required})
+    return blueprint.model_copy(update={"policy_constraints": constraints})
 
 
 def analyze_blueprint_topology(blueprint: Blueprint) -> BlueprintTopology:
