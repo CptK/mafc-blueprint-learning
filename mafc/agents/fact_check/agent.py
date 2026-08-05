@@ -46,6 +46,7 @@ from mafc.blueprints.selector import BlueprintSelector
 from mafc.common.claim import Claim
 from mafc.common.evidence import Evidence
 from mafc.common.logger import logger
+from mafc.common.media_referent import annotate_evidence_referents
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
@@ -846,6 +847,13 @@ class FactCheckAgent(Agent):
                 if ev.source not in seen_sources:
                     seen_sources.add(ev.source)
                     deduped_evidences.append(ev)
+            # Resolve referent status across the assembled set before judging: the
+            # page that carries a debunk and the reverse-image-search hit that
+            # identifies the media are different evidence items, so the link
+            # between them only exists at this level. Stamped onto the items here,
+            # it is serialized with them and the judge stays a pure function.
+            if session.claim is not None:
+                annotate_evidence_referents(session.claim, deduped_evidences)
             judge_session = AgentSession(
                 id=f"{session.id}:judge",
                 goal=Prompt(text="Judge the claim using accepted evidence."),

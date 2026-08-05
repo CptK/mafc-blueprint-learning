@@ -1,4 +1,10 @@
-"""Tests for referent-digest extraction from reverse-image-search evidence."""
+"""Tests for referent-digest extraction from reverse-image-search evidence.
+
+These build evidence without a stored ``referent``, so they exercise the legacy
+text-parsing fallback that keeps archived traces rejudgeable. The structured path
+that live runs use is covered in tests/agents/media/test_utils.py and
+tests/agents/judge/test_referent_linkage.py.
+"""
 
 from __future__ import annotations
 

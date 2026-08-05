@@ -203,6 +203,18 @@ def extract_predicted_label(agent_result) -> str | None:
     return decision.get("label") or None
 
 
+def extract_predicted_score(agent_result) -> float | None:
+    """The judge's aggregate before it was snapped to a label, when available.
+
+    None for runs whose judge had no numeric label mapping; regression metrics
+    then fall back to the label's own value.
+    """
+    judge_run = (agent_result.trace or {}).get("judge_run") or {}
+    decision = judge_run.get("decision") or {}
+    score = decision.get("score")
+    return float(score) if isinstance(score, (int, float)) else None
+
+
 def extract_cost(agent_result) -> dict[str, Any]:
     trace_summary = (agent_result.trace or {}).get("summary") or {}
     return {
@@ -290,6 +302,7 @@ def run_fact_check(
     start = time.monotonic()
     errors: list[str] = []
     predicted: str | None = None
+    predicted_score: float | None = None
     cost = _zero_cost()
     blueprint_info = {"blueprint_name": "unknown", "selection_mode": "unknown", "n_iterations": 0}
     required_checks: dict[str, str] = {}
@@ -306,6 +319,7 @@ def run_fact_check(
         )
         result = agent.run(session, true_label=sample.label.value)
         predicted = extract_predicted_label(result)
+        predicted_score = extract_predicted_score(result)
         errors = list(result.errors)
         cost = extract_cost(result)
         blueprint_info = extract_blueprint_info(result)
@@ -322,6 +336,7 @@ def run_fact_check(
         "claim_id": sample.id,
         "ground_truth": ground_truth,
         "predicted": predicted,
+        "predicted_score": predicted_score,
         "correct": predicted == ground_truth if predicted is not None else False,
         "errors": errors,
         "duration_ms": round((time.monotonic() - start) * 1000),

@@ -15,6 +15,7 @@ class Claim(MultimodalSequence):
     dataset: str | None
     scope: tuple[int, int] | None
     verdict: BaseLabel | None
+    verdict_score: float | None
     justification: MultimodalSequence | None
 
     def __init__(
@@ -37,6 +38,7 @@ class Claim(MultimodalSequence):
         self._origin = origin
         self._meta_info = meta_info
         self.verdict = None
+        self.verdict_score = None
         self.justification = None
         super().__init__(*args)
 

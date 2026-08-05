@@ -65,6 +65,7 @@ def serialize_evidence(evidence: Evidence, raw_truncate: int = 20000) -> dict[st
         "action": evidence.action.name,
         "action_repr": str(evidence.action),
         "preview": evidence.preview,
+        "referent": evidence.referent,
         "raw": serialize_multimodal(evidence.raw, truncate=raw_truncate),
         "takeaways": serialize_multimodal(evidence.takeaways),
     }

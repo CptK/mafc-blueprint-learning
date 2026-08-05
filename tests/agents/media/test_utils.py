@@ -190,6 +190,44 @@ def test_confirmed_matches_are_classified_by_the_referent_digest() -> None:
     assert not digest.no_match_reported
 
 
+def test_confirmed_matches_store_referent_status_on_the_evidence() -> None:
+    """Match precision is recorded structurally, not left to be re-parsed from prose."""
+    sources = [_exact("https://example.com/a"), _partial("https://example.com/b")]
+    evidences = build_evidences_from_tool_result(_ris_result(sources), MEDIA_REF)
+
+    assert {e.source: e.referent for e in evidences} == {
+        "https://example.com/a": "exact",
+        "https://example.com/b": "partial",
+    }
+
+
+def test_urls_ending_in_a_parenthesis_stay_classifiable() -> None:
+    """Wikipedia-style URLs survive the structured path.
+
+    The legacy text parser strips trailing punctuation from the URLs it scrapes
+    out of prose, which truncates a closing ')' that is part of the path. The key
+    it stored could then never match the evidence item's real source, so the page
+    silently went untagged. Reading the source directly removes the ambiguity.
+    """
+    url = "https://en.wikipedia.org/wiki/C_(New_York_City_Subway_service)"
+    evidences = build_evidences_from_tool_result(_ris_result([_exact(url)]), MEDIA_REF)
+
+    assert extract_referent_digest(evidences).classify(url) == "exact"
+
+
+def test_stored_referent_survives_a_digest_built_without_match_text() -> None:
+    """The structured path alone reproduces the digest, with the prose stripped out."""
+    sources = [_exact("https://example.com/a"), _partial("https://example.com/b")]
+    evidences = build_evidences_from_tool_result(_ris_result(sources), MEDIA_REF)
+    for evidence in evidences:
+        evidence.raw = MultimodalSequence("(match note removed)")
+        evidence.takeaways = MultimodalSequence("(match note removed)")
+
+    digest = extract_referent_digest(evidences)
+    assert digest.classify("https://example.com/a") == "exact"
+    assert digest.classify("https://example.com/b") == "partial"
+
+
 # --- RIS with no sources at all ---
 
 

@@ -67,8 +67,18 @@ def _regression_from_results(
     results: list[dict[str, Any]],
     verdict_to_numeric: dict[str, float],
     pred_field: str = "predicted",
+    score_field: str | None = "predicted_score",
 ) -> dict[str, Any]:
-    """Extract paired (gt_integrity_score, pred_numeric) from result dicts and compute MSE/MAE."""
+    """Extract paired (gt_integrity_score, pred_numeric) from result dicts and compute MSE/MAE.
+
+    Ground truth is a continuous integrity score, so when the judge reports the
+    un-snapped aggregate of its samples (``score_field``) that value is scored
+    directly. Falling back to the label's own value would charge the prediction
+    with the full weight of whichever label the aggregate happened to be nearest,
+    which is error introduced by discretization rather than by the verdict.
+    Results without a score — single-sample runs, or judges with no numeric label
+    mapping — fall back to the label, for which the two are identical anyway.
+    """
     gt_scores: list[float] = []
     pred_scores: list[float] = []
     for r in results:
@@ -77,6 +87,10 @@ def _regression_from_results(
             continue
         gt_score = r.get("gt_integrity_score")
         pred_numeric = verdict_to_numeric.get(pred_label)
+        if score_field is not None:
+            raw_score = r.get(score_field)
+            if isinstance(raw_score, (int, float)):
+                pred_numeric = float(raw_score)
         if gt_score is None or pred_numeric is None:
             continue
         try:
@@ -99,6 +113,9 @@ def compute_veritas_metrics(results: list[dict[str, Any]], label_scheme: int = 3
         ground_truth    (str)          – lowercase label value
         predicted       (str | None)   – lowercase label value, or None
         gt_integrity_score (float | None) – raw GT integrity score for MSE/MAE
+    and may contain:
+        predicted_score (float | None) – the judge's un-snapped sample aggregate,
+            used for MSE/MAE in place of the label's value when present
 
     Returns a JSON-serialisable metrics dict.
     """
@@ -130,7 +147,11 @@ def compute_veritas_metrics(results: list[dict[str, Any]], label_scheme: int = 3
             for r in results
         ]
         coarsened = classification_block(y_true_c, y_pred_c, LABELS_3)
-        reg_c = _regression_from_results(coarsened_results, VERDICT_TO_NUMERIC_3, pred_field="_pred_c")
+        # Label-based on purpose: the coarsened block measures the 3-bin verdict on
+        # the {-1, 0, 1} scale, so the 7-class aggregate does not belong in it.
+        reg_c = _regression_from_results(
+            coarsened_results, VERDICT_TO_NUMERIC_3, pred_field="_pred_c", score_field=None
+        )
         if reg_c:
             coarsened.update(reg_c)
         metrics["coarsened_3class"] = coarsened

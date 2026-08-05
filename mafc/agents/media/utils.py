@@ -83,6 +83,10 @@ def build_evidences_from_tool_result(tool_result: ToolResult, media_reference: s
                     action=tool_result.action,
                     source=source.reference,
                     takeaways=MultimodalSequence(own_note),
+                    # Structured referent status, already computed for the filter above.
+                    # Recording it here is what lets downstream stages read the match
+                    # precision instead of regexing it back out of `own_note`.
+                    referent=match_precision(source),
                 )
             )
         return evidences

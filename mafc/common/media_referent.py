@@ -16,7 +16,10 @@ import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+from ezmm import MultimodalSequence
+
 from mafc.common.evidence import Evidence
+from mafc.common.logger import logger
 
 _RIS_ACTION_NAME = "reverse_image_search"
 
@@ -75,20 +78,66 @@ class ReferentDigest:
         return None
 
 
+def _record(digest: ReferentDigest, status: str, url: str) -> None:
+    """Place one (status, url) pair into the digest, respecting bucket precedence."""
+    key = normalize_url(url)
+    if not key:
+        return
+    if status == "exact":
+        digest.exact[key] = url
+        digest.partial.pop(key, None)
+    elif status == "local":
+        digest.local[key] = url
+        digest.partial.pop(key, None)
+    elif status == "partial" and key not in digest.exact and key not in digest.local:
+        digest.partial[key] = url
+
+
 def extract_referent_digest(evidences: list[Evidence]) -> ReferentDigest:
-    """Build the referent digest from all reverse-image-search evidence items."""
+    """Build the referent digest for an evidence set.
+
+    Reads the structured ``Evidence.referent`` field when present. Evidence
+    predating that field (archived traces) is parsed out of the rendered RIS text
+    instead, so old runs stay rejudgeable and comparable against new ones.
+    """
     digest = ReferentDigest()
+
+    # Whether RIS ran at all, and whether it explicitly reported no provenance,
+    # are properties of the run rather than of any one source, so they are read
+    # the same way on both paths.
     for evidence in evidences:
         if getattr(evidence.action, "name", None) != _RIS_ACTION_NAME:
             continue
         digest.ris_ran = True
+        combined = str(evidence.raw)
+        if evidence.takeaways is not None:
+            combined += "\n" + str(evidence.takeaways)
+        if _NO_MATCH_MARKER.lower() in combined.lower():
+            digest.no_match_reported = True
+
+    structured = [e for e in evidences if e.referent and e.source.startswith("http")]
+    if structured:
+        for evidence in structured:
+            _record(digest, str(evidence.referent), evidence.source)
+        return digest
+
+    return _extract_referent_digest_legacy(evidences, digest)
+
+
+def _extract_referent_digest_legacy(evidences: list[Evidence], digest: ReferentDigest) -> ReferentDigest:
+    """Recover referent status from rendered RIS text (pre-`Evidence.referent` traces).
+
+    Retained only for archived runs; live pipelines populate the structured field
+    at evidence construction. Do not extend this path — reword-sensitive parsing
+    of our own serialization is exactly what the structured field removes.
+    """
+    for evidence in evidences:
+        if getattr(evidence.action, "name", None) != _RIS_ACTION_NAME:
+            continue
         texts = [str(evidence.raw)]
         if evidence.takeaways is not None:
             texts.append(str(evidence.takeaways))
         combined = "\n".join(texts)
-
-        if _NO_MATCH_MARKER.lower() in combined.lower():
-            digest.no_match_reported = True
 
         pairs: list[tuple[str, str]] = _MATCH_PAIR_RE.findall(combined)
         # Per-page RIS evidence carries the page URL as its source; fall back to
@@ -99,15 +148,50 @@ def extract_referent_digest(evidences: list[Evidence]) -> ReferentDigest:
                 pairs = [(evidence.source, match.group(1))]
 
         for url, kind in pairs:
-            url = url.rstrip(".,;)")
-            key = normalize_url(url)
-            if not key:
-                continue
-            if kind.upper() == "EXACT":
-                digest.exact[key] = url
-                digest.partial.pop(key, None)
-            elif kind.upper() == "PARTIAL" and key not in digest.exact:
-                digest.partial[key] = url
+            _record(digest, kind.lower(), url.rstrip(".,;)"))
+    return digest
+
+
+def annotate_evidence_referents(
+    claim: MultimodalSequence, evidences: list[Evidence], verify: bool = True
+) -> ReferentDigest:
+    """Resolve referent status for a whole evidence set and stamp it onto each item.
+
+    This is the join the per-item actions cannot express: referent knowledge is
+    established by reverse image search (or local frame matching) on one evidence
+    item, while the verdict-relevant assertion — a debunk, an origin claim — sits
+    on a *different* item retrieved by text search from the same page. Matching
+    them on normalized URL is a property of the evidence set, so it is resolved
+    once here, at assembly, and persisted on the items.
+
+    Running it here rather than inside the judge keeps judging a pure function of
+    (claim, evidence): the network work happens once, is serialized into the
+    trace, and rejudging an archived run reproduces the same statuses.
+    """
+    digest = extract_referent_digest(evidences)
+
+    has_media = bool(getattr(claim, "videos", None) or getattr(claim, "images", None))
+    if verify and has_media:
+        try:
+            from mafc.common.referent_verifier import verify_evidence_referents
+
+            verify_evidence_referents(claim, evidences, digest)
+        except Exception as e:
+            logger.warning(f"[Referent] Local verification failed: {e}")
+
+    if not digest.has_referent_info:
+        return digest
+
+    for evidence in evidences:
+        status = digest.classify(evidence.source)
+        if status is None:
+            continue
+        # classify() collapses exact and local; keep the stronger, more specific
+        # provenance on the item so traces record how identity was established.
+        key = normalize_url(evidence.source)
+        if status == "exact" and key in digest.local and key not in digest.exact:
+            status = "local"
+        evidence.referent = status
     return digest
 
 

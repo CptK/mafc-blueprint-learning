@@ -86,10 +86,14 @@ class JudgeTraceRecorder(BaseTraceRecorder):
         self.trace["repair_response"] = response_text
         self.record_event("repair", {"prompt": prompt, "response_text": response_text})
 
-    def record_decision(self, label: str, justification: str) -> None:
-        payload = {"label": label, "justification": justification}
+    def record_decision(self, label: str, justification: str, score: float | None = None) -> None:
+        # `score` is the aggregate before it was snapped to `label`. Regression
+        # metrics score it directly, so the quantization is not charged against a
+        # verdict the samples did not actually agree on.
+        payload = {"label": label, "justification": justification, "score": score}
         self.trace["decision"] = payload
         self.trace["summary"]["label"] = label
+        self.trace["summary"]["score"] = score
         self.trace["summary"]["justification"] = justification
         self.record_event("decision", payload)
 

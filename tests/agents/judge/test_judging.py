@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 
 from mafc.agents.common import AgentStatus
 from mafc.agents.judge.agent import JudgeAgent
@@ -221,6 +222,50 @@ def test_n_samples_mean_numeric_disagreement_lands_on_middle_label() -> None:
 
     assert session.claim is not None
     assert session.claim.verdict == DummyLabel.UNCERTAIN
+
+
+def test_aggregate_score_is_kept_unsnapped_alongside_the_label() -> None:
+    """The label is the verdict; the score preserves what the samples averaged to,
+    so regression metrics are not charged for the discretization."""
+    numeric = {DummyLabel.TRUE: 1.0, DummyLabel.UNCERTAIN: 0.0, DummyLabel.FALSE: -1.0}
+    model = SequencedModel(
+        outputs=[
+            '{"label":"true","justification":"Supported."}',
+            '{"label":"true","justification":"Supported."}',
+            '{"label":"uncertain","justification":"Thin evidence."}',
+        ]
+    )
+    agent = JudgeAgent(model=model, class_definitions=CLASS_DEFINITIONS, n_samples=3, label_numeric=numeric)
+    session = make_session()
+    out = agent.run(session)
+
+    assert session.claim is not None
+    assert session.claim.verdict == DummyLabel.TRUE
+    assert session.claim.verdict_score == pytest.approx(2 / 3)
+    assert (out.trace or {})["decision"]["score"] == pytest.approx(2 / 3)
+
+
+def test_single_sample_score_equals_its_label_value() -> None:
+    """Nothing is averaged, so snapped and un-snapped scoring must coincide."""
+    numeric = {DummyLabel.TRUE: 1.0, DummyLabel.UNCERTAIN: 0.0, DummyLabel.FALSE: -1.0}
+    model = SequencedModel(outputs=['{"label":"true","justification":"Supported."}'])
+    agent = JudgeAgent(model=model, class_definitions=CLASS_DEFINITIONS, label_numeric=numeric)
+    session = make_session()
+    agent.run(session)
+
+    assert session.claim is not None
+    assert session.claim.verdict_score == pytest.approx(1.0)
+
+
+def test_score_is_none_without_a_numeric_mapping() -> None:
+    """Majority-vote benchmarks have no scale to report a score on."""
+    model = SequencedModel(outputs=['{"label":"true","justification":"Supported."}'])
+    agent = JudgeAgent(model=model, class_definitions=CLASS_DEFINITIONS)
+    session = make_session()
+    agent.run(session)
+
+    assert session.claim is not None
+    assert session.claim.verdict_score is None
 
 
 def test_n_samples_tolerates_invalid_samples() -> None:

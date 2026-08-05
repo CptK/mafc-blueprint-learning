@@ -117,6 +117,46 @@ def test_regression_from_results_skips_unknown_label():
     assert result == {}
 
 
+def test_regression_prefers_the_unsnapped_score_over_the_label():
+    """Ground truth is continuous, so the aggregate is scored, not its nearest label."""
+    results = [{**_r("intact", "intact", integrity_score=0.8), "predicted_score": 0.75}]
+    result = _regression_from_results(results, VERDICT_TO_NUMERIC_3)
+    # 0.75 rather than the label's 1.0: mse=(0.8-0.75)^2, mae=0.05
+    assert result["mse"] == pytest.approx(0.0025, abs=1e-6)
+    assert result["mae"] == pytest.approx(0.05, abs=1e-6)
+
+
+def test_regression_falls_back_to_the_label_without_a_score():
+    """Single-sample runs carry no aggregate; the two are identical there anyway."""
+    with_none = [{**_r("intact", "intact", integrity_score=0.8), "predicted_score": None}]
+    assert _regression_from_results(with_none, VERDICT_TO_NUMERIC_3)["mse"] == pytest.approx(0.04)
+    assert _regression_from_results([_r("intact", "intact", 0.8)], VERDICT_TO_NUMERIC_3)[
+        "mse"
+    ] == pytest.approx(0.04)
+
+
+def test_regression_ignores_the_score_when_the_label_is_missing():
+    """A score without a verdict is not a prediction."""
+    results = [{**_r("intact", None, integrity_score=0.8), "predicted_score": 0.75}]
+    assert _regression_from_results(results, VERDICT_TO_NUMERIC_3) == {}
+
+
+def test_coarsened_regression_stays_on_the_label_scale():
+    """The 3-bin block measures the coarsened verdict, so the 7-class aggregate
+    must not leak into it."""
+    results = [
+        {
+            "ground_truth": "intact (certain)",
+            "predicted": "intact (certain)",
+            "predicted_score": 0.6,
+            "gt_integrity_score": 1.0,
+        }
+    ]
+    metrics = compute_veritas_metrics(results, label_scheme=7)
+    assert metrics["mse"] == pytest.approx(0.16, abs=1e-6)  # (1.0 - 0.6)^2, un-snapped
+    assert metrics["coarsened_3class"]["mse"] == pytest.approx(0.0, abs=1e-6)  # label-based
+
+
 # ---------------------------------------------------------------------------
 # format_veritas_metrics_report
 # ---------------------------------------------------------------------------

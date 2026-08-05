@@ -12,8 +12,8 @@ from mafc.agents.judge.tracing import JudgeTraceRecorder
 from mafc.common.claim import Claim
 from mafc.common.evidence import Evidence
 from mafc.common.label import BaseLabel
-from mafc.common.logger import logger
 from mafc.common.media_referent import (
+    annotate_evidence_referents,
     extract_referent_digest,
     format_referent_block,
     referent_tag,
@@ -51,7 +51,7 @@ class JudgeAgent(Agent):
         trace_dir: str | Path | None = None,
         n_samples: int = 1,
         label_numeric: Mapping[BaseLabel, float] | None = None,
-        verify_referents: bool = True,
+        verify_referents: bool = False,
     ):
         """Initialize the judge with benchmark class definitions and optional extra rules.
 
@@ -61,9 +61,12 @@ class JudgeAgent(Agent):
             label_numeric: Optional numeric score per label. When given, aggregation
                 is the mean numeric value snapped to the nearest allowed label;
                 otherwise a majority vote over the sampled labels.
-            verify_referents: When the claim carries media, frame-match unconfirmed
-                evidence pages against the claim's media (network fetches, best
-                effort) so the referent block also covers pages Google didn't label.
+            verify_referents: Re-resolve referent status inside the judge, including
+                network frame-matching of unconfirmed pages. Off by default: the
+                pipeline resolves and stores it at evidence assembly, which keeps
+                judging deterministic and reproducible from a trace. Enable only
+                when judging evidence that predates the stored ``Evidence.referent``
+                field (archived runs), where there is nothing to read.
         """
         super().__init__(model, n_workers=n_workers, agent_id=agent_id)
         self.class_definitions = dict(class_definitions)
@@ -115,7 +118,7 @@ class JudgeAgent(Agent):
         if not decisions:
             return self._abort(session, trace, *last_error, evidences=list(session.evidences))
 
-        final_label = self._aggregate_labels([label for _, label in decisions])
+        final_label, final_score = self._aggregate_labels([label for _, label in decisions])
         # Keep the justification of a sample that matches the aggregate, if any.
         parsed = next((p for p, label in decisions if label == final_label), decisions[0][0])
         if len(decisions) > 1:
@@ -125,29 +128,43 @@ class JudgeAgent(Agent):
                     "n_samples": self.n_samples,
                     "sampled_labels": [label.value for _, label in decisions],
                     "aggregated_label": final_label.value,
+                    "aggregated_score": final_score,
                     "method": "mean_numeric" if self.label_numeric else "majority_vote",
                 },
             )
             parsed = JudgeDecisionPayload(label=final_label.value, justification=parsed.justification)
 
-        return self._succeed(session, trace, parsed, final_label)
+        return self._succeed(session, trace, parsed, final_label, final_score)
 
-    def _aggregate_labels(self, labels: list[BaseLabel]) -> BaseLabel:
-        """Aggregate sampled labels: mean numeric snapped to the nearest label if a
-        numeric mapping is available (and covers all labels), else majority vote."""
-        if len(labels) == 1:
-            return labels[0]
+    def _aggregate_labels(self, labels: list[BaseLabel]) -> tuple[BaseLabel, float | None]:
+        """Aggregate sampled labels into a verdict and its un-snapped numeric score.
+
+        With a numeric mapping covering every sampled label, the mean of the
+        sampled values is the aggregate and the reported label is that mean
+        snapped to the nearest allowed label; otherwise a majority vote decides
+        and the score is simply the winning label's value.
+
+        The mean is returned alongside the label because snapping is lossy in a
+        way that matters downstream: ground truth is continuous, so charging a
+        split panel with the full value of whichever label happened to be nearest
+        adds error the samples never expressed. The label remains the verdict —
+        the score only makes the aggregate available to metrics that can use it.
+        """
         numeric = self.label_numeric
+        if len(labels) == 1:
+            return labels[0], (numeric.get(labels[0]) if numeric else None)
         if numeric and all(label in numeric for label in labels):
             mean = sum(numeric[label] for label in labels) / len(labels)
             # min() is stable: ties resolve to class_definitions order
-            return min(
+            snapped = min(
                 (label for label in self.class_definitions if label in numeric),
                 key=lambda label: abs(numeric[label] - mean),
             )
+            return snapped, mean
         counts = Counter(labels)
         top = max(counts.values())
-        return next(label for label in labels if counts[label] == top)
+        winner = next(label for label in labels if counts[label] == top)
+        return winner, (numeric.get(winner) if numeric else None)
 
     def _setup_trace(self, session: AgentSession, trace_scope) -> JudgeTraceRecorder:
         scope = self._build_trace_scope("judge_run", session, trace_scope)
@@ -201,10 +218,12 @@ class JudgeAgent(Agent):
         trace: JudgeTraceRecorder,
         parsed: JudgeDecisionPayload,
         label: BaseLabel,
+        score: float | None = None,
     ) -> AgentResult:
         assert session.claim is not None
-        trace.record_decision(parsed.label, parsed.justification)
+        trace.record_decision(parsed.label, parsed.justification, score=score)
         session.claim.verdict = label
+        session.claim.verdict_score = score
         session.claim.justification = MultimodalSequence(parsed.justification)
         result_text = MultimodalSequence(f"Label: {label.value}\nJustification: {parsed.justification}")
         result_message = self.make_result_message(session, result_text, list(session.evidences))
@@ -236,17 +255,15 @@ class JudgeAgent(Agent):
             f"- {label.value}: {definition}" for label, definition in self.class_definitions.items()
         ]
 
-        # Link each evidence source to its visual referent status so the verdict
-        # can enforce that debunks/origins only apply to pages confirmed to show
-        # THIS media (wrong-referent flips are the dominant residual error).
-        digest = extract_referent_digest(evidences)
-        if self.verify_referents and (claim.videos or claim.images):
-            try:
-                from mafc.common.referent_verifier import verify_evidence_referents
-
-                verify_evidence_referents(claim, evidences, digest)
-            except Exception as e:
-                logger.warning(f"[JudgeAgent] Referent verification failed: {e}")
+        # Each evidence source carries a visual referent status so the verdict can
+        # enforce that debunks/origins only apply to pages confirmed to show THIS
+        # media (wrong-referent flips are the dominant residual error). The status
+        # is resolved upstream at evidence assembly and read here; verify_referents
+        # re-resolves it for archived evidence that predates the stored field.
+        if self.verify_referents:
+            digest = annotate_evidence_referents(claim, list(evidences))
+        else:
+            digest = extract_referent_digest(evidences)
         evidence_lines = []
         for evidence in evidences:
             block = format_evidence_block(evidence)
