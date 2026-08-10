@@ -268,6 +268,7 @@ class WebSearchAgent(Agent):
             n_workers=self.n_workers,
             max_results_per_query=self.max_results_per_query,
             latest_allowed_date=session.cutoff_date,
+            blocked_urls=session.blocked_urls,
             step=step,
             trace=trace,
         )

@@ -13,6 +13,7 @@ from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
 from mafc.common.modeling.model import Model, Response
+from mafc.common.source_guard import filter_blocked_sources, normalize_blocked
 from mafc.tools.web_search.common import Query, Source, WebSource
 from mafc.tools.web_search.integrations.integration import RetrievalIntegration
 
@@ -36,10 +37,16 @@ def execute_search_queries(
     n_workers: int = 1,
     max_results_per_query: int = 5,
     latest_allowed_date: date | None = None,
+    blocked_urls: set[str] | None = None,
     step: int | None = None,
     trace: WebSearchTraceRecorder | None = None,
 ) -> list[tuple[str, Sequence[Source] | None]]:
-    """Execute all search queries and return source candidates per query."""
+    """Execute all search queries and return source candidates per query.
+
+    ``blocked_urls`` are removed after the search returns rather than being folded
+    into the query, so the drop is observable: the guard logs what it caught, which
+    is how leakage past the date cutoff gets measured instead of merely prevented.
+    """
     _search_t0 = time.monotonic()
     if n_workers <= 1:
         results = [
@@ -63,18 +70,30 @@ def execute_search_queries(
     if trace is not None and step is not None:
         trace.add_timing("google_search_ms", (time.monotonic() - _search_t0) * 1000)
 
+    blocked = normalize_blocked(blocked_urls)
     candidate_sources: list[tuple[str, Sequence[Source] | None]] = []
     for result in results:
         if result.errors:
             errors.extend(result.errors)
+        # Filtered before selection, so a blocked source frees its slot for the next
+        # candidate instead of wasting it. The trace records the filtered set, so a
+        # later leak audit reading search_results sees the funnel the pipeline
+        # actually used; the guard's own log is what reports the blocks.
+        kept = (
+            filter_blocked_sources(
+                result.sources, blocked, context=f"web_search q={result.query_text[:60]!r}"
+            )
+            if result.sources is not None
+            else None
+        )
         if result.mark_seen:
             seen_queries.add(result.query_text)
-            candidate_sources.append((result.query_text, result.sources))
+            candidate_sources.append((result.query_text, kept))
         if trace is not None and step is not None:
             trace.record_search_result(
                 step=step,
                 query_text=result.query_text,
-                sources=list(result.sources) if result.sources is not None else None,
+                sources=list(kept) if kept is not None else None,
                 errors=result.errors,
                 marked_seen=result.mark_seen,
             )

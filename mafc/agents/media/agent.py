@@ -18,6 +18,7 @@ from mafc.common.logger import logger
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model, Response
 from mafc.common.modeling.prompt import Prompt
+from mafc.common.source_guard import normalize_blocked
 from mafc.tools.geolocate.geolocate import Geolocate, Geolocator
 from mafc.tools.media.c2pa_checker import C2PAChecker, CheckC2PAProvenance
 from mafc.tools.media.oracle import CheckOracleManipulation, OracleManipulationChecker
@@ -183,7 +184,7 @@ class MediaAgent(Agent):
         trace: MediaTraceRecorder,
     ) -> None:
         for tool_name, tool_result in self._run_selected_tools(
-            instruction, prior_context, media_item, errors, trace
+            instruction, prior_context, media_item, errors, trace, blocked_urls=session.blocked_urls
         ):
             trace.record_tool_result(tool_name, tool_result)
             for evidence in build_evidences_from_tool_result(tool_result, media_item.reference):
@@ -324,6 +325,7 @@ class MediaAgent(Agent):
         media_item: Image | Video,
         errors: list[str],
         trace: MediaTraceRecorder | None = None,
+        blocked_urls: set[str] | None = None,
     ) -> list[tuple[str, ToolResult]]:
         plan, planner_messages, planner_response = plan_media_tools(
             self, instruction, prior_context, errors, trace=trace
@@ -346,10 +348,21 @@ class MediaAgent(Agent):
         if trace is not None:
             trace.record_planned_tools(list(selected_tools))
 
+        blocked = normalize_blocked(blocked_urls)
         results: list[tuple[str, ToolResult]] = []
         for tool_name in selected_tools:
             if tool_name == "reverse_image_search":
-                results.append((tool_name, self.ris_tool.perform(ReverseImageSearch(media_item.reference))))
+                # RIS is the one path a date cutoff cannot police: the Vision API
+                # returns no publication date for any page, and fact-check articles
+                # embed the very media under check, so they surface here by
+                # construction. The harness blocklist is the only guard available,
+                # and Tool.perform applies it before the summary is rendered.
+                results.append(
+                    (
+                        tool_name,
+                        self.ris_tool.perform(ReverseImageSearch(media_item.reference), blocked_urls=blocked),
+                    )
+                )
             elif tool_name == "geolocate":
                 results.append((tool_name, self.geolocator.perform(Geolocate(media_item.reference))))
             elif tool_name == "assess_authenticity":

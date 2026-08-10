@@ -35,6 +35,7 @@ from mafc.blueprints.selector import BlueprintSelectionMethod
 from mafc.common.logger import logger
 from mafc.common.modeling import make_model
 from mafc.common.modeling.prompt import Prompt
+from mafc.common.source_guard import normalize_blocked
 from mafc.eval.run_config import BenchmarkRunConfig
 from mafc.single_file_strategy.agent import StrategyAgent
 from mafc.tools.web_search.google_search import GoogleSearchPlatform
@@ -316,6 +317,11 @@ def run_fact_check(
             goal=Prompt(text="Fact-check this claim using the selected blueprint."),
             claim=sample.input,
             cutoff_date=sample.input.date.date() if sample.input.date is not None else None,
+            # The review article is the source the label was derived from, so
+            # retrieving it turns the fact-check into a reading exercise. The date
+            # cutoff misses it whenever the two share a day, which VeriTaS makes
+            # common by falling back to the review date when no posting date exists.
+            blocked_urls=normalize_blocked([getattr(sample, "review_url", None)]),
         )
         result = agent.run(session, true_label=sample.label.value)
         predicted = extract_predicted_label(result)

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import random
 import requests
@@ -55,7 +55,7 @@ class SerperAPI:
         api_key = os.environ.get("SERPER_API_KEY") or os.environ.get("serper_api_key")
         if not api_key:
             logger.warning(
-                "SERPER_API_KEY not found in environment variables. " "SerperAPI will not work without it."
+                "SERPER_API_KEY not found in environment variables. SerperAPI will not work without it."
             )
         return api_key
 
@@ -67,7 +67,11 @@ class SerperAPI:
 
         tbs: str | None
         if query.end_date is not None:
-            end_date = query.end_date.strftime("%m/%d/%Y")
+            # Google's cdr range is inclusive, and the post-filter below excludes the
+            # cutoff day itself, so ask for one day less rather than paying to retrieve
+            # results that are then discarded. Google's indexed date and the `date` it
+            # reports per result can disagree, so the post-filter remains authoritative.
+            end_date = (query.end_date - timedelta(days=1)).strftime("%m/%d/%Y")
             tbs = f"cdr:1,cd_min:1/1/1900,cd_max:{end_date}"
         else:
             tbs = self.tbs
@@ -124,7 +128,7 @@ class SerperAPI:
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
                 sleep_time = min(sleep_time * 2, 600)
                 sleep_time = random.uniform(1, 10) if not sleep_time else float(sleep_time)
-                logger.warning(f"Unable to reach Serper API: {exc}. " f"Retrying after {sleep_time} seconds.")
+                logger.warning(f"Unable to reach Serper API: {exc}. Retrying after {sleep_time} seconds.")
                 time.sleep(sleep_time)
 
         if response is None:
@@ -169,8 +173,14 @@ class SerperAPI:
             except (ValueError, KeyError):
                 result_date = None
 
-            # If a date constraint is set, only keep results provably on or before that date.
-            if query.end_date is not None and (result_date is None or result_date > query.end_date):
+            # If a date constraint is set, only keep results provably published STRICTLY
+            # BEFORE it. The cutoff is the benchmark's claim date, which VeriTaS sets to
+            # the posting date when known and otherwise falls back to the review date --
+            # so a same-day result can be the fact-check article that defines the label.
+            # Measured on the 2026 Q1 run: an inclusive bound admitted the exact review
+            # URL for 253 claims, every one of them dated exactly on the cutoff.
+            # Undated results are dropped as before: unprovable means excluded.
+            if query.end_date is not None and (result_date is None or result_date >= query.end_date):
                 continue
 
             sources.append(

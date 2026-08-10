@@ -49,7 +49,10 @@ def test_search_builds_tbs_and_calls_parser(monkeypatch) -> None:
     assert out is not None
     assert captured["search_term"] == "term"
     assert captured["kwargs"]["search_type"] == "search"
-    assert captured["kwargs"]["tbs"] == "cdr:1,cd_min:1/1/1900,cd_max:02/03/2024"
+    # cd_max is the cutoff MINUS one day: Google's cdr range is inclusive while the
+    # cutoff day itself is excluded (it can be the review-article publication date),
+    # so requesting the cutoff day would only fetch results the parser then discards.
+    assert captured["kwargs"]["tbs"] == "cdr:1,cd_min:1/1/1900,cd_max:02/02/2024"
 
 
 def test_call_serper_api_retries_timeout_then_succeeds(monkeypatch) -> None:

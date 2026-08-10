@@ -64,7 +64,15 @@ class AgentSession:
     id: str
     goal: MultimodalSequence
     claim: Claim | None = None
-    cutoff_date: date | None = None  # Restrict web searches to sources published on or before this date.
+    cutoff_date: date | None = None  # Restrict web searches to sources published BEFORE this date.
+    blocked_urls: set[str] = field(default_factory=set)
+    """Normalized URLs the harness forbids as evidence, regardless of date.
+
+    Backstop for benchmark answer-key leakage where the date bound cannot reach:
+    reverse image search returns undated pages, and a fact-check can predate the
+    claim. Populated by the eval harness, never by an agent. See
+    ``mafc.common.source_guard``.
+    """
     status: AgentStatus = AgentStatus.NOT_STARTED
     messages: list[AgentMessage] = field(default_factory=list)
     evidences: list[Evidence] = field(default_factory=list)

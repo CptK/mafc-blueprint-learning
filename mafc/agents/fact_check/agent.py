@@ -759,6 +759,7 @@ class FactCheckAgent(Agent):
                 goal=goal,
                 claim=claim,
                 cutoff_date=parent_session.cutoff_date,
+                blocked_urls=parent_session.blocked_urls,
                 parent_session_id=parent_session.id,
                 evidences=list(state.evidences),
             )
@@ -768,6 +769,7 @@ class FactCheckAgent(Agent):
             goal=Prompt(text=instruction or str(claim)),
             claim=claim,
             cutoff_date=parent_session.cutoff_date,
+            blocked_urls=parent_session.blocked_urls,
             parent_session_id=parent_session.id,
             evidences=list(state.evidences),
         )
