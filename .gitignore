@@ -4,6 +4,7 @@ config/google_service_account_key.json
 .DS_Store
 out/
 config/geolocator_url
+geolocation_test/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -213,3 +214,15 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# TruFor model weights (downloaded on first use, ~280 MB)
+mafc/tools/media/trufor/weights/
+
+# Upstream TruFor clone (separate repo, vendored parts live in mafc/tools/media/trufor)
+/TruFor/
+
+# GenD face-detector weights (downloaded on first use, ~17 MB)
+mafc/tools/media/gend/weights/
+
+# Upstream GenD clone (separate repo, vendored parts live in mafc/tools/media/gend)
+/GenD/
