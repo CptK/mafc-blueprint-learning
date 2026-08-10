@@ -12,6 +12,12 @@ from mafc.utils.parsing import get_base_domain
 
 _SERPER_URL = "https://google.serper.dev"
 
+# (connect, read). A Serper call runs a live Google SERP fetch server-side, so the read
+# leg regularly takes several seconds; a shared 3s budget timed out the tail of healthy
+# requests and paid a retry sleep for each one. The connect leg stays tight because a
+# genuinely unreachable host should fail fast.
+_SERPER_TIMEOUT = (3, 30)
+
 
 @dataclass
 class GoogleSearchResults(SearchResults):
@@ -115,7 +121,7 @@ class SerperAPI:
                     f"{_SERPER_URL}/{search_type}",
                     headers=headers,
                     params=params,
-                    timeout=3,
+                    timeout=_SERPER_TIMEOUT,
                 )
 
                 if response.status_code == 400:
