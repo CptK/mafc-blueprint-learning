@@ -321,9 +321,7 @@ class BlueprintConsolidator:
         self._merge(registry, coverage, result)
 
         if result.total_changes:
-            logger.info(
-                f"[BlueprintConsolidator] pruned={len(result.pruned)} " f"merged={len(result.merged)}"
-            )
+            logger.info(f"[BlueprintConsolidator] pruned={len(result.pruned)} merged={len(result.merged)}")
         else:
             logger.debug("[BlueprintConsolidator] No changes.")
 

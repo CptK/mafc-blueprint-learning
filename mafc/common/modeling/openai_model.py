@@ -92,7 +92,6 @@ class OpenAIAPI(API):
 
 
 class OpenAIModel(Model):
-
     def __init__(
         self,
         specifier: str,

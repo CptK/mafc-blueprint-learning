@@ -224,8 +224,7 @@ class EmbeddingClusterSynthesizer:
                 )
             )
             logger.debug(
-                f"[EmbeddingClusterSynthesizer] Cluster {cluster_idx}: "
-                f"label='{label}' size={len(indices)}"
+                f"[EmbeddingClusterSynthesizer] Cluster {cluster_idx}: label='{label}' size={len(indices)}"
             )
 
         return clusters

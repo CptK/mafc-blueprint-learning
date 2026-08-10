@@ -187,7 +187,6 @@ class SelfhostedAPI(API):
 
 
 class SelfhostedModel(Model):
-
     def __init__(
         self,
         specifier: str,

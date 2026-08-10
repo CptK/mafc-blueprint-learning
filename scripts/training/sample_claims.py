@@ -94,9 +94,7 @@ def main() -> None:
         w.writeheader()
         w.writerows(manifest)
 
-    logger.info(
-        f"Wrote {yaml_path}, {out.with_suffix('.manifest.csv')}, " f"{out.with_suffix('.manifest.json')}"
-    )
+    logger.info(f"Wrote {yaml_path}, {out.with_suffix('.manifest.csv')}, {out.with_suffix('.manifest.json')}")
 
 
 if __name__ == "__main__":

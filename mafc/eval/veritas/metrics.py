@@ -176,8 +176,7 @@ def format_veritas_metrics_report(metrics: dict[str, Any], label_scheme: int = 3
     lines += ["", "=== Per-class ==="]
     for label, m in metrics["per_class"].items():
         lines.append(
-            f"  {label:<35s}  P={m['precision']:.3f}  R={m['recall']:.3f}"
-            f"  F1={m['f1']:.3f}  n={m['support']}"
+            f"  {label:<35s}  P={m['precision']:.3f}  R={m['recall']:.3f}  F1={m['f1']:.3f}  n={m['support']}"
         )
     lines += ["", format_confusion_matrix(metrics["confusion_matrix"])]
     coarsened = metrics.get("coarsened_3class")

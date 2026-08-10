@@ -286,7 +286,7 @@ def main() -> None:
             )
             status = "ok" if result.ok else "FAILED(parse)"
             logger.info(
-                f"[epoch {epoch + 1} batch {b + 1}/{len(batches)}] {status} — " f"{len(doc.split())} words"
+                f"[epoch {epoch + 1} batch {b + 1}/{len(batches)}] {status} — {len(doc.split())} words"
             )
             consolidated_last = False
 

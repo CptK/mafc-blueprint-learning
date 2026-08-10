@@ -56,7 +56,6 @@ LOG_LEVELS = {
 
 
 class Logger:
-
     log_filename = "log.txt"
     predictions_filename = "predictions.csv"
     instance_stats_filename = "instance_stats.csv"

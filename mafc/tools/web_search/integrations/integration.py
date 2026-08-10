@@ -23,8 +23,7 @@ class RetrievalIntegration(ABC):
         domain = get_domain(url)
         if "*" not in self.domains and domain not in self.domains:
             logger.error(
-                f"[{type(self).__name__}] Domain '{domain}' is not allowed. "
-                f"Allowed domains: {self.domains}"
+                f"[{type(self).__name__}] Domain '{domain}' is not allowed. Allowed domains: {self.domains}"
             )
             return None
 

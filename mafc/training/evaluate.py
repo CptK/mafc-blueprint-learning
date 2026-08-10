@@ -194,7 +194,7 @@ def compare_reports(baseline: dict, model: dict) -> str:
     lines = ["=== Calibration: baseline (judge verbalized) vs regressor ==="]
     lines.append(f"  ECE       baseline={baseline.get('ece'):.4f}   regressor={model.get('ece'):.4f}")
     lines.append(
-        f"  Accuracy  baseline={baseline.get('accuracy'):.2%}   " f"regressor={model.get('accuracy'):.2%}"
+        f"  Accuracy  baseline={baseline.get('accuracy'):.2%}   regressor={model.get('accuracy'):.2%}"
     )
     if "mse" in baseline and "mse" in model:
         lines.append(f"  MSE       baseline={baseline['mse']:.4f}   regressor={model['mse']:.4f}")

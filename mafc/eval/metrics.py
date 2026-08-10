@@ -133,7 +133,7 @@ def format_blueprint_stats_report(
         iters_str = f"  avg_iters={s['avg_iterations']:.1f}" if s.get("avg_iterations") is not None else ""
         cost_str = f"  avg_cost=${s['avg_cost_usd']:.4f}" if s.get("avg_cost_usd") is not None else ""
         lines.append(
-            f"  {bp_name:<30s}  n={s['count']:>4d}  acc={acc_str}" f"{f1_str}{iters_str}{cost_str}{err_str}"
+            f"  {bp_name:<30s}  n={s['count']:>4d}  acc={acc_str}{f1_str}{iters_str}{cost_str}{err_str}"
         )
     if selection_mode_counts:
         lines += ["", "=== Blueprint Selection Mode ==="]

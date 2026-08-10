@@ -455,8 +455,7 @@ def _process_dir(
         )
 
     logger.info(
-        f"[{data_dir.name}] Done. {len(pool)} blueprints (+ generic) written to {out_dir}. "
-        f"Log: {log_path}."
+        f"[{data_dir.name}] Done. {len(pool)} blueprints (+ generic) written to {out_dir}. Log: {log_path}."
     )
 
 

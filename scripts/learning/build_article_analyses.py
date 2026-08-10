@@ -107,8 +107,7 @@ def _process_dir(
                 claim_id, result = future.result()
             except Exception as exc:
                 logger.warning(
-                    f"[{data_dir.name}] Analysis failed for claim {claim['id']}: "
-                    f"{type(exc).__name__}: {exc}"
+                    f"[{data_dir.name}] Analysis failed for claim {claim['id']}: {type(exc).__name__}: {exc}"
                 )
                 with lock:
                     failures += 1

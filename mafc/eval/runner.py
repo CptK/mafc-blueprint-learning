@@ -111,8 +111,7 @@ def _compute_summary(results: list[dict[str, Any]], run_duration_s: float, bench
 def _log_sample_result(result: dict[str, Any]) -> None:
     status = "✓" if result["correct"] else "✗"
     logger.info(
-        f"[Runner] {status} {result['claim_id']}: "
-        f"predicted={result['predicted']} gt={result['ground_truth']}"
+        f"[Runner] {status} {result['claim_id']}: predicted={result['predicted']} gt={result['ground_truth']}"
     )
 
 

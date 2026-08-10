@@ -171,7 +171,7 @@ def _extract_analyses(
                 # abort the whole extraction. The failed sample stays out of the
                 # cache so the next run picks it up via the `s.id not in cache` filter.
                 logger.warning(
-                    f"[Extraction] Analysis failed for claim {sample.id}: " f"{type(exc).__name__}: {exc}"
+                    f"[Extraction] Analysis failed for claim {sample.id}: {type(exc).__name__}: {exc}"
                 )
                 failures += 1
                 completed += 1
@@ -524,7 +524,7 @@ def main() -> None:
             agent_fingerprint=compute_agent_fingerprint(bench_cfg),
         )
         logger.info(
-            f"[Setup] Execution feedback ON: cache={execution_cache_dir} " f"fingerprint={cache.fingerprint}"
+            f"[Setup] Execution feedback ON: cache={execution_cache_dir} fingerprint={cache.fingerprint}"
         )
 
         def _agent_factory(forced_selector: _MutableSingleBlueprintSelector):

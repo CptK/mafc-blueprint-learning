@@ -132,8 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     api_user, api_secret = checker._resolve_key()
     if not api_user or not api_secret:
         parser.error(
-            "Sightengine API credentials not configured "
-            "(set SIGHTENGINE_API_USER / SIGHTENGINE_API_SECRET)"
+            "Sightengine API credentials not configured (set SIGHTENGINE_API_USER / SIGHTENGINE_API_SECRET)"
         )
 
     store = precompute(

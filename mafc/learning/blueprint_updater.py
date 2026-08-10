@@ -492,7 +492,7 @@ def _format_outcome_claim(i: int, rec: ClaimLearningRecord, bucket: str) -> str:
         # Compact the judge reason — it can be very long.
         if len(judge_reason) > 600:
             judge_reason = judge_reason[:600] + "…"
-        outcome_extra = f"\nPredicted label (wrong): {er.predicted_label}" f"\nJudge reason: {judge_reason}"
+        outcome_extra = f"\nPredicted label (wrong): {er.predicted_label}\nJudge reason: {judge_reason}"
 
     article_section: str = (
         _format_article_section(rec.article_analysis) + "\n" if rec.article_analysis is not None else ""
@@ -674,7 +674,7 @@ def _parse_update_response(text: str) -> BlueprintUpdateResult:
         blueprint = Blueprint.model_validate(wrapper.updated_blueprint)
     except ValidationError as e:
         raise ValueError(
-            "'updated_blueprint' does not match the Blueprint schema:\n" f"{_format_pydantic_errors(e)}"
+            f"'updated_blueprint' does not match the Blueprint schema:\n{_format_pydantic_errors(e)}"
         )
 
     return BlueprintUpdateResult(
