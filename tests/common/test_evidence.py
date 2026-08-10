@@ -29,9 +29,7 @@ def test_evidence_represents_one_source_backed_item() -> None:
 
 def test_referent_defaults_to_unverified() -> None:
     """Unverified is the default, and is not the same as 'different media'."""
-    evidence = Evidence(
-        raw=MultimodalSequence("text"), action=DummyAction(), source="https://example.com/a"
-    )
+    evidence = Evidence(raw=MultimodalSequence("text"), action=DummyAction(), source="https://example.com/a")
     assert evidence.referent is None
 
 

@@ -117,9 +117,7 @@ verification_graph:
         {
             "decision_type": "delegate",
             "rationale": "Investigate on the current layer.",
-            "tasks": [
-                {"task_id": "web_task", "agent_type": "web_search", "instruction": "Find evidence."}
-            ],
+            "tasks": [{"task_id": "web_task", "agent_type": "web_search", "instruction": "Find evidence."}],
         }
     )
     planner = SequencedModel(

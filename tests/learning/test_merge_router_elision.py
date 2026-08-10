@@ -24,9 +24,7 @@ def _merged_pair(match_index: int | None) -> "object":
             json.dumps({"pairs": [], "unmatched_signal": []}),  # branch alignment
             json.dumps({"description": "Both."}),  # description fold
         ]
-    merger = BlueprintTreeMerger(
-        ScriptedModel(outputs), reconcile=False, consolidate=False, sharpen=False
-    )
+    merger = BlueprintTreeMerger(ScriptedModel(outputs), reconcile=False, consolidate=False, sharpen=False)
     base = _blueprint("base", "Verifies AI-generated media.")
     other = _blueprint("other", "Verifies AI-generated media.")
     return merger.merge([base, other], name="merged").blueprint
