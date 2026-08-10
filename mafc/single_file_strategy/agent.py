@@ -308,6 +308,7 @@ class StrategyAgent(Agent):
             goal=goal,
             claim=claim,
             cutoff_date=parent.cutoff_date,
+            blocked_urls=parent.blocked_urls,
             parent_session_id=parent.id,
             evidences=list(evidences),
         )
