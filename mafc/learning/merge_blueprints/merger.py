@@ -57,6 +57,12 @@ class BlueprintTreeMerger:
             "spine"). The first is the seed everything aligns against; default
             prefers ``generic`` as the most general.
         reconcile: Whether to run the sibling-reconciliation pass at the end.
+        force_single_branch: Fold every blueprint into one lane, skipping the
+            entry matcher. For consolidating a pair the merge detector has
+            ALREADY judged redundant — it decided that on entry conditions,
+            graphs, checks and claim types, so re-deciding it from routing
+            prose alone only adds a way to get it wrong. Leave off when merging
+            a pool of strategies that genuinely need separate lanes.
     """
 
     def __init__(
@@ -67,9 +73,11 @@ class BlueprintTreeMerger:
         consolidate: bool = True,
         max_actions: int = 4,
         sharpen: bool = True,
+        force_single_branch: bool = False,
     ) -> None:
         self.matcher = BranchMatcher(model)
         self.seed_first = seed_first
+        self.force_single_branch = force_single_branch
         self.reconcile = reconcile
         self.consolidate = consolidate
         self.sharpen = sharpen
@@ -108,7 +116,10 @@ class BlueprintTreeMerger:
             # Fallback branches are excluded as fold targets: a specialized lane
             # matching "nothing specific" needs its own branch, not the generic one.
             candidates = [e for e in tree.entries if not e.is_fallback]
-            idx = self.matcher.match_entry(bp_routing, [e.description for e in candidates])
+            if self.force_single_branch:
+                idx = 0 if candidates else None
+            else:
+                idx = self.matcher.match_entry(bp_routing, [e.description for e in candidates])
             if idx is None:
                 tree.entries.append(EntryBranch(bp.name, bp.entry_conditions, start, description=bp_routing))
                 logger.debug(f"[TreeMerger] '{bp.name}' -> new router branch.")

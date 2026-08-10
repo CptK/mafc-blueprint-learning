@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from enum import Enum
 
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -30,8 +31,28 @@ from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 from mafc.learning.blueprint_updater import BlueprintUpdater
+from mafc.learning.merge_blueprints.merger import BlueprintTreeMerger
 from mafc.learning.models import ClaimLearningRecord
 from mafc.utils.parsing import extract_json_object, strip_json_fences, try_parse_with_repair
+
+
+class MergeMode(str, Enum):
+    """How an accepted merge pair is turned into one blueprint.
+
+    RESYNTHESIS passes the base blueprint and both parents' claims to the
+    synthesizer, which writes a new blueprint. The removed parent contributes
+    claims but no structure, so its verification graph and required checks
+    survive only insofar as the model reconstructs them from the claims.
+
+    TREE folds the two graphs structurally — aligning matched steps, grafting
+    unmatched ones — and carries both parents' checks through, scoped to the
+    lane. Entry matching is forced off: the detector has already judged this
+    pair redundant on far more evidence than routing prose.
+    """
+
+    RESYNTHESIS = "resynthesis"
+    TREE = "tree"
+
 
 # ---------------------------------------------------------------------------
 # Merge-detection prompts
@@ -261,9 +282,12 @@ class BlueprintConsolidator:
         protected_names: set[str] | None = None,
         merge_size_lookup: dict[str, int] | None = None,
         max_merged_size: int | None = None,
+        merge_mode: MergeMode = MergeMode.RESYNTHESIS,
     ) -> None:
         self.model = model
         self.updater = updater
+        self.merge_mode = merge_mode
+        """How an accepted merge is executed — see MergeMode."""
         self.prune_threshold = prune_threshold
         self.protected_names: set[str] = protected_names if protected_names is not None else {"generic"}
         self.merge_size_lookup = merge_size_lookup
@@ -477,6 +501,48 @@ class BlueprintConsolidator:
     # Merge execution
     # ------------------------------------------------------------------
 
+    def _merge_via_resynthesis(
+        self, base_bp: Blueprint, combined_records: list[ClaimLearningRecord]
+    ) -> Blueprint | None:
+        """Rewrite the base blueprint over both parents' claims."""
+        update_result = self.updater.update(
+            base_bp,
+            combined_records,
+            extra_user_hint=_MERGE_EXECUTION_HINT,
+        )
+        if update_result is None:
+            return None
+        return update_result.updated_blueprint
+
+    def _merge_via_tree(self, base_bp: Blueprint, remove_bp: Blueprint) -> Blueprint | None:
+        """Fold both graphs into one lane, preserving each parent's checks.
+
+        The tree merger emits a router over its lanes; forcing a single branch
+        means there is only one, and the router is elided, so the merged
+        blueprint costs no extra iteration relative to its parents.
+        """
+        merger = BlueprintTreeMerger(
+            self.model,
+            seed_first=(base_bp.name,),
+            force_single_branch=True,
+        )
+        try:
+            merge_result = merger.merge(
+                [base_bp, remove_bp],
+                name=base_bp.name,
+                description=base_bp.description,
+            )
+        except Exception as exc:  # noqa: BLE001 - a failed merge must not abort the pool
+            logger.warning(f"[BlueprintConsolidator] Tree merge raised {type(exc).__name__}: {exc}")
+            return None
+
+        # The folded routing description covers both parents; the seed's own
+        # description only covers the base.
+        entries = merge_result.tree.entries
+        if entries and entries[0].description:
+            return merge_result.blueprint.model_copy(update={"description": entries[0].description})
+        return merge_result.blueprint
+
     def _execute_merge(
         self,
         registry: BlueprintRegistry,
@@ -490,20 +556,19 @@ class BlueprintConsolidator:
         remove_bp = registry.get(remove_name)
         combined_records = coverage.get(base_name, []) + coverage.get(remove_name, [])
 
-        update_result = self.updater.update(
-            base_bp,
-            combined_records,
-            extra_user_hint=_MERGE_EXECUTION_HINT,
-        )
+        if self.merge_mode is MergeMode.TREE:
+            candidate = self._merge_via_tree(base_bp, remove_bp)
+        else:
+            candidate = self._merge_via_resynthesis(base_bp, combined_records)
 
-        if update_result is None or update_result.updated_blueprint is None:
+        if candidate is None:
             logger.warning(
-                f"[BlueprintConsolidator] Updater failed for merge "
+                f"[BlueprintConsolidator] {self.merge_mode.value} merge failed for "
                 f"({base_name} + {remove_name}), skipping."
             )
             return None
 
-        merged_bp = apply_merge_budget_guard(update_result.updated_blueprint, base_bp, remove_bp)
+        merged_bp = apply_merge_budget_guard(candidate, base_bp, remove_bp)
 
         registry.replace(base_name, merged_bp)
         registry.remove(remove_name)

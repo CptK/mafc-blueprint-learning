@@ -180,7 +180,15 @@ class MergedStrategyTree:
                 )
             router.edges.append(MergeEdge(text, entry.start))
 
-        graph_nodes: list = [_emit_node(router, node_check_refs)]
+        # A router over a single lane decides nothing, yet it costs an iteration and a
+        # synthesis call on every run, and lengthens the longest path so the budget
+        # guard raises max_iterations to pay for it. Enter the lane directly instead.
+        # This is the shape a pairwise merge produces whenever the two blueprints align
+        # onto one branch — i.e. exactly when the merge did its job.
+        single_lane = len(ordered_entries) == 1
+        start_node_id = ordered_entries[0].start.id if single_lane else ROUTER_ID
+
+        graph_nodes: list = [] if single_lane else [_emit_node(router, node_check_refs)]
         for node in nodes.values():
             graph_nodes.append(_emit_node(node, node_check_refs))
 
@@ -203,7 +211,7 @@ class MergedStrategyTree:
                 require_counterevidence_search=self.require_counterevidence_search,
             ),
             required_checks=check_defs,
-            verification_graph=BlueprintVerificationGraph(start_node=ROUTER_ID, nodes=graph_nodes),
+            verification_graph=BlueprintVerificationGraph(start_node=start_node_id, nodes=graph_nodes),
         )
 
 
