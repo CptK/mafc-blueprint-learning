@@ -8,7 +8,7 @@ from ezmm import MultimodalSequence
 from mafc.common.modeling.model import API, APIResponse, Model, Response
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
-from mafc.common.modeling.utils import messages_with_videos_as_frames
+from mafc.common.modeling.utils import abbreviate, messages_with_videos_as_frames
 from mafc.common.logger import logger
 
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -183,7 +183,7 @@ class AnthropicAPI(API):
         except Exception as e:
             logger.error(
                 f"An error occurred while communicating with the Anthropic API: {e}\n"
-                f"Input: {[str(m.content) for m in messages]}"
+                f"Input: {[abbreviate(str(m.content)) for m in messages]}"
             )
             raise e
 

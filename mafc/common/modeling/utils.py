@@ -54,6 +54,19 @@ def get_model_api_pricing(name: str) -> tuple[float, float]:
     return input_cost, output_cost
 
 
+def abbreviate(text: str, edge_chars: int = 250) -> str:
+    """Return `text` with its middle elided if it is longer than twice `edge_chars`.
+
+    Failed API calls log their input so the request can be reconstructed, but a full
+    prompt runs to tens of thousands of characters and buries the error that prompted
+    the log line. The head and tail are the identifying parts -- task framing at the
+    front, the claim and the trailing instruction at the back -- so keep those.
+    """
+    if len(text) <= 2 * edge_chars:
+        return text
+    return f"{text[:edge_chars]} ... [{len(text) - 2 * edge_chars} chars omitted] ... {text[-edge_chars:]}"
+
+
 def with_videos_as_frames(content: MultimodalSequence, n_frames: int = 5) -> MultimodalSequence:
     """Return content with videos replaced by sampled image frames."""
     from mafc.common.modeling.prompt import Prompt

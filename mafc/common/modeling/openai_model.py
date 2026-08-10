@@ -12,7 +12,7 @@ from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMess
 from mafc.common.modeling.model import API, APIResponse, Model, Response
 from mafc.common.modeling.message import Message
 from mafc.common.modeling.prompt import Prompt
-from mafc.common.modeling.utils import messages_with_videos_as_frames
+from mafc.common.modeling.utils import abbreviate, messages_with_videos_as_frames
 from mafc.common.logger import logger
 
 _tiktoken_lock = threading.Lock()
@@ -135,7 +135,7 @@ class OpenAIModel(Model):
         except Exception as e:
             logger.error(
                 f"An error occurred while communicating with the OpenAI API: {e}\n"
-                f"Input: {[str(m.content) for m in messages_with_videos_as_frames(messages, self.video_frames_to_sample)]}"
+                f"Input: {[abbreviate(str(m.content)) for m in messages_with_videos_as_frames(messages, self.video_frames_to_sample)]}"
             )
             raise e
 

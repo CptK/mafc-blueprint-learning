@@ -12,6 +12,7 @@ from mafc.common.modeling.anthropic_model import (
 from mafc.common.modeling.model import APIResponse
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
+from tests.common.modeling.helpers import LONG_PROMPT, assert_abbreviated, capture_errors
 
 
 class FakePromptBlocks:
@@ -241,3 +242,26 @@ def test_anthropic_model_generate_reraises(monkeypatch) -> None:
     prompt = [Message(role=MessageRole.USER, content=Prompt(text="hello"))]
     with pytest.raises(RuntimeError):
         model.generate(prompt)
+
+
+def test_anthropic_api_error_abbreviates_logged_input(monkeypatch) -> None:
+    class BrokenClient:
+        class messages:
+            @staticmethod
+            def create(**kwargs):
+                raise RuntimeError("boom")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setattr(
+        "mafc.common.modeling.anthropic_model.format_input", lambda content, context_window: ["x"]
+    )
+    monkeypatch.setattr(
+        "mafc.common.modeling.anthropic_model.anthropic.Anthropic", lambda api_key, timeout: BrokenClient()
+    )
+
+    logged = capture_errors(monkeypatch)
+    api = AnthropicAPI(model="claude", context_window=100)
+    with pytest.raises(RuntimeError):
+        api(messages=[Message(role=MessageRole.USER, content=Prompt(text=LONG_PROMPT))])
+
+    assert_abbreviated(logged)

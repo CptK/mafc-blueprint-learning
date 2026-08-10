@@ -15,6 +15,7 @@ from mafc.common.modeling.gemini_model import (
 from mafc.common.modeling.model import APIResponse
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.prompt import Prompt
+from tests.common.modeling.helpers import LONG_PROMPT, assert_abbreviated, capture_errors
 
 
 class FakePromptBlocks:
@@ -135,6 +136,29 @@ def test_gemini_api_error(monkeypatch) -> None:
     api = GeminiAPI(model="gem", context_window=100)
     with pytest.raises(RuntimeError):
         api(messages=[Message(role=MessageRole.USER, content=Prompt(text="u"))])
+
+
+def test_gemini_api_error_abbreviates_logged_input(monkeypatch) -> None:
+    class BrokenClient:
+        class models:
+            @staticmethod
+            def generate_content(**kwargs):
+                raise RuntimeError("boom")
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setattr("mafc.common.modeling.gemini_model.genai.Client", lambda api_key: BrokenClient())
+    monkeypatch.setattr(
+        "mafc.common.modeling.gemini_model.format_input", lambda content, context_window: ["p"]
+    )
+    monkeypatch.setattr("mafc.common.modeling.gemini_model.Content", lambda **kwargs: kwargs)
+    monkeypatch.setattr("mafc.common.modeling.gemini_model.GenerateContentConfig", lambda **kwargs: kwargs)
+
+    logged = capture_errors(monkeypatch)
+    api = GeminiAPI(model="gem", context_window=100)
+    with pytest.raises(RuntimeError):
+        api(messages=[Message(role=MessageRole.USER, content=Prompt(text=LONG_PROMPT))])
+
+    assert_abbreviated(logged)
 
 
 def test_gemini_model_generate(monkeypatch) -> None:

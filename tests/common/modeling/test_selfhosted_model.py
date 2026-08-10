@@ -6,6 +6,7 @@ from mafc.common.modeling.model import APIResponse
 from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.selfhosted_model import SelfhostedAPI, SelfhostedModel
 from mafc.common.modeling.prompt import Prompt
+from tests.common.modeling.helpers import LONG_PROMPT, assert_abbreviated, capture_errors
 
 
 def _fake_globals(url):
@@ -151,3 +152,38 @@ def test_selfhosted_model_generate_error_paths(monkeypatch) -> None:
     monkeypatch.setattr(model, "api", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("other")))
     with pytest.raises(RuntimeError):
         model.generate(prompt)
+
+
+def test_selfhosted_model_error_abbreviates_logged_input(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mafc.common.modeling.model.model_specifier_to_shorthand",
+        lambda s: ("qwen_3_5_122b", "Qwen/Qwen3.5-122B-A10B-FP8"),
+    )
+    monkeypatch.setattr("mafc.common.modeling.model.get_model_context_window", lambda n: 1000)
+    monkeypatch.setattr("mafc.common.modeling.model.get_model_api_pricing", lambda n: (0.0, 0.0))
+    monkeypatch.setattr(
+        "mafc.common.modeling.selfhosted_model.messages_with_videos_as_frames",
+        lambda messages, n: messages,
+    )
+    monkeypatch.setattr("mafc.common.modeling.selfhosted_model.globals", _fake_globals("http://host/v1"))
+    monkeypatch.setattr(
+        "mafc.common.modeling.selfhosted_model.SelfhostedAPI", lambda model, context_window: None
+    )
+
+    class DummyRateLimitError(Exception):
+        pass
+
+    class DummyAuthError(Exception):
+        pass
+
+    monkeypatch.setattr("mafc.common.modeling.selfhosted_model.openai.RateLimitError", DummyRateLimitError)
+    monkeypatch.setattr("mafc.common.modeling.selfhosted_model.openai.AuthenticationError", DummyAuthError)
+
+    model = SelfhostedModel(specifier="SELFHOSTED:Qwen/Qwen3.5-122B-A10B-FP8")
+    monkeypatch.setattr(model, "api", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    logged = capture_errors(monkeypatch)
+    with pytest.raises(RuntimeError):
+        model.generate([Message(role=MessageRole.USER, content=Prompt(text=LONG_PROMPT))])
+
+    assert_abbreviated(logged)

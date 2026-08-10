@@ -10,7 +10,7 @@ from ezmm.common.items import Image
 from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMessageParam
 from mafc.common.modeling.model import API, APIResponse, Model, Response
 from mafc.common.modeling.message import Message
-from mafc.common.modeling.utils import messages_with_videos_as_frames
+from mafc.common.modeling.utils import abbreviate, messages_with_videos_as_frames
 from mafc.common.logger import logger
 import config.globals as globals
 from mafc.common.modeling.openai_model import count_image_tokens, format_input as _tiktoken_format_input
@@ -235,7 +235,7 @@ class SelfhostedModel(Model):
         except Exception as e:
             logger.error(
                 f"An error occurred while communicating with the Self-Hosted API: {e}\n"
-                f"Input: {[str(m.content)[:3000] for m in messages_with_videos_as_frames(messages, self.video_frames_to_sample)]}"
+                f"Input: {[abbreviate(str(m.content)) for m in messages_with_videos_as_frames(messages, self.video_frames_to_sample)]}"
             )
             raise e
 
