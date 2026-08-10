@@ -142,7 +142,21 @@ class ScrapeMMRetriever(RetrievalIntegration):
     def _run_retrieve(self, url: str) -> Any:
         coro = asyncio.wait_for(_retrieve_url(url), timeout=self.timeout_seconds)
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=self.timeout_seconds + 1.0)
+        try:
+            return future.result(timeout=self.timeout_seconds + 1.0)
+        except TimeoutError as e:
+            # Both deadlines raise a bare TimeoutError whose message is the empty string,
+            # yet they mean very different things -- so say which one fired. A future that
+            # is done means wait_for expired inside the loop: this one URL is slow. A
+            # future that is not means the loop never got round to running wait_for's
+            # timeout at all, i.e. it is blocked rather than slow. Since every retrieval
+            # shares this one loop, that second case stalls the whole process.
+            if future.done():
+                raise TimeoutError(f"no response within {self.timeout_seconds}s") from e
+            raise TimeoutError(
+                f"shared event loop unresponsive for {self.timeout_seconds + 1.0}s -- "
+                f"retrieval is stalled process-wide, not just for this URL"
+            ) from e
 
     def _retrieve(self, url: str) -> MultimodalSequence | None:
         try:
@@ -157,5 +171,8 @@ class ScrapeMMRetriever(RetrievalIntegration):
                 return None
 
         except Exception as e:
-            logger.error(f"[ScrapeMMRetriever] ❌ Failed to retrieve content from {url} with ScrapMM: {e}")
+            logger.error(
+                f"[ScrapeMMRetriever] ❌ Failed to retrieve content from {url} with ScrapMM: "
+                f"{type(e).__name__}: {e}"
+            )
             return None

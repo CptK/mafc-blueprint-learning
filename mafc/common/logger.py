@@ -36,6 +36,12 @@ logging.getLogger("httpx").setLevel(logging.ERROR)
 logging.getLogger("urllib3.connection").setLevel(logging.ERROR)
 logging.getLogger("markdown_it").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
+# scrapeMM warns with a full traceback every time one retrieval method fails, but it
+# then falls back to the next method, so those tracebacks are not outcomes -- the
+# outcome is logged by ScrapeMMRetriever once scrapeMM has run out of methods. ERROR
+# rather than CRITICAL keeps the conditions that really do need attention: a read-only
+# ezMM database, a full disk, and failures to even start a retrieval.
+logging.getLogger("scrapeMM").setLevel(logging.ERROR)
 logging.getLogger("ezMM").propagate = False
 
 

@@ -2,6 +2,7 @@ import asyncio
 import base64
 from unittest.mock import MagicMock, patch
 
+from mafc.common.logger import logger
 from mafc.tools.web_search.integrations.scrapemm_retriever import (
     ScrapeMMRetriever,
     _PDF_BASE64_PREFIX,
@@ -287,3 +288,91 @@ def test_disable_stdin_prompts_survives_upstream_refactor(monkeypatch) -> None:
 
     mod._disable_stdin_prompts()  # must not raise
     assert mod._stdin_prompts_disabled is False
+
+
+def _capture_errors(monkeypatch) -> list[str]:
+    logged: list[str] = []
+    monkeypatch.setattr(logger, "error", lambda *args: logged.append(" ".join(str(a) for a in args)))
+    return logged
+
+
+def test_scrapemm_timeout_is_logged_as_a_timeout(monkeypatch) -> None:
+    """A slow URL must be distinguishable from a site that refused to serve us."""
+    retriever = ScrapeMMRetriever(timeout_seconds=0.01)
+
+    async def fake_retrieve(*args, **kwargs):
+        await asyncio.sleep(0.5)
+        return FakeScrapingResponse(successful=True, content="late")
+
+    monkeypatch.setattr("mafc.tools.web_search.integrations.scrapemm_retriever._retrieve_url", fake_retrieve)
+
+    logged = _capture_errors(monkeypatch)
+    assert retriever.retrieve("https://example.com/slow-logged") is None
+
+    assert len(logged) == 1
+    assert "TimeoutError" in logged[0]
+    assert "no response within 0.01s" in logged[0]
+    # This is the per-URL deadline, not the process-wide one.
+    assert "stalled process-wide" not in logged[0]
+
+
+def test_scrapemm_stalled_event_loop_is_reported_distinctly(monkeypatch) -> None:
+    """A blocked shared loop stalls every retrieval, so it must not read as one slow URL."""
+    retriever = ScrapeMMRetriever(timeout_seconds=0.01)
+    created = []
+
+    async def fake_retrieve(*args, **kwargs):
+        return FakeScrapingResponse(successful=True, content="never delivered")
+
+    def tracking_retrieve(*args, **kwargs):
+        coro = fake_retrieve(*args, **kwargs)
+        created.append(coro)
+        return coro
+
+    class NeverCompletingFuture:
+        def done(self):
+            return False
+
+        def result(self, timeout=None):
+            raise TimeoutError
+
+    def fake_schedule(coro, loop):
+        coro.close()
+        return NeverCompletingFuture()
+
+    monkeypatch.setattr(
+        "mafc.tools.web_search.integrations.scrapemm_retriever._retrieve_url", tracking_retrieve
+    )
+    monkeypatch.setattr(
+        "mafc.tools.web_search.integrations.scrapemm_retriever.asyncio.run_coroutine_threadsafe",
+        fake_schedule,
+    )
+
+    logged = _capture_errors(monkeypatch)
+    try:
+        assert retriever.retrieve("https://example.com/stalled-loop") is None
+    finally:
+        for coro in created:
+            coro.close()
+
+    assert len(logged) == 1
+    assert "TimeoutError" in logged[0]
+    assert "stalled process-wide" in logged[0]
+
+
+def test_scrapemm_exception_log_names_the_exception_type(monkeypatch) -> None:
+    """Exceptions with an empty str() must still say what went wrong."""
+    retriever = ScrapeMMRetriever()
+
+    async def fake_retrieve(*args, **kwargs):
+        raise ValueError
+
+    monkeypatch.setattr("mafc.tools.web_search.integrations.scrapemm_retriever._retrieve_url", fake_retrieve)
+
+    logged = _capture_errors(monkeypatch)
+    assert retriever.retrieve("https://example.com/empty-message") is None
+
+    assert len(logged) == 1
+    assert "ValueError" in logged[0]
+    # The old format ended in a bare colon and left the reader with nothing.
+    assert not logged[0].rstrip().endswith("ScrapMM:")
