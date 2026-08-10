@@ -54,7 +54,7 @@ from mafc.common.claim import Claim
 from mafc.common.logger import logger
 from mafc.common.modeling import make_model
 from mafc.learning.analysis_io import load_analyses
-from mafc.learning.blueprint_consolidator import BlueprintConsolidator
+from mafc.learning.blueprint_consolidator import BlueprintConsolidator, MergeMode
 from mafc.learning.blueprint_contrast import (
     BlueprintContrastPass,
     enforce_iteration_floor,
@@ -287,6 +287,7 @@ def _process_dir(
     consolidate: bool,
     contrast: bool,
     force: bool,
+    merge_mode: MergeMode = MergeMode.RESYNTHESIS,
 ) -> None:
     for filename in ("clusters.json", "embeddings.json", "article_analyses.json", "claims.json"):
         if not (data_dir / filename).exists():
@@ -376,7 +377,9 @@ def _process_dir(
             updater=updater,
             prune_threshold=0,
             merge_size_lookup=dict(sizes),
+            merge_mode=merge_mode,
         )
+        logger.info(f"[{data_dir.name}] Consolidating with merge_mode={merge_mode.value}.")
         c_result = consolidator.consolidate(registry, all_records)
         for detail in c_result.merge_details:
             sizes[detail["kept"]] = sizes.pop(detail["base"], 0) + sizes.pop(detail["removed"], 0)
@@ -508,6 +511,15 @@ def main() -> None:
         help="Skip the pool-level description/selector-hint differentiation pass.",
     )
     parser.add_argument(
+        "--merge-mode",
+        choices=[mode.value for mode in MergeMode],
+        default=MergeMode.RESYNTHESIS.value,
+        help="How an accepted merge is executed. 'resynthesis' rewrites the base "
+        "blueprint over both parents' claims (the removed parent contributes no "
+        "structure). 'tree' folds both graphs structurally and keeps both parents' "
+        "required checks (default: resynthesis).",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Overwrite an out-dir that already contains blueprints.",
@@ -536,6 +548,7 @@ def main() -> None:
             consolidate=not args.no_consolidate,
             contrast=not args.no_contrast,
             force=args.force,
+            merge_mode=MergeMode(args.merge_mode),
         )
 
 
