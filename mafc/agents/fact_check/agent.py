@@ -28,6 +28,7 @@ from mafc.agents.fact_check.prompts import (
     build_action_node_prompt,
     build_check_update_prompt,
     build_final_synthesis_prompt,
+    build_refine_node_prompt,
     build_routing_prompt,
     build_system_prompt,
     render_available_sub_agents,
@@ -51,6 +52,24 @@ from mafc.common.modeling.message import Message, MessageRole
 from mafc.common.modeling.model import Model
 from mafc.common.modeling.prompt import Prompt
 
+REFINE_NODE_ID = "refine"
+"""Id of the synthetic node injected when the graph would finalize with budget left.
+
+Synthetic rather than declared in the blueprints: it applies uniformly to every
+blueprint, and blueprints are loaded once and shared across worker threads, so
+mutating their graphs at runtime would be a data race.
+"""
+
+_REFINE_NODE = BlueprintActionNode(
+    id=REFINE_NODE_ID,
+    type="actions",
+    actions=[],
+    activates_checks=[],
+    transition=[BlueprintTransition(**{"if": "continue", "to": "finalize"})],
+)
+"""Immutable prototype. Its single exit means execution leaves after one pass
+unless the routing layer redirects back into it while budget remains."""
+
 
 class FactCheckAgent(Agent):
     """Top-level orchestration agent that uses a selected blueprint as guidance."""
@@ -68,13 +87,23 @@ class FactCheckAgent(Agent):
         n_workers: int = 1,
         agent_id: str | None = None,
         trace_dir: str | Path | None = None,
+        enable_refine_node: bool = False,
     ):
-        """Initialize the top-level fact-check agent with its selector and delegation pools."""
+        """Initialize the top-level fact-check agent with its selector and delegation pools.
+
+        Args:
+            enable_refine_node: Route to a synthetic ``refine`` node instead of
+                finalizing when iteration budget remains and checks on the taken
+                path are still open. Off by default: it changes the stopping
+                behaviour of every blueprint, so runs opt in rather than shift
+                under existing comparisons.
+        """
         super().__init__(model, n_workers=n_workers, agent_id=agent_id)
         self.blueprint_selector = blueprint_selector
         self.delegation_agents = delegation_agents or {}
         self.judge_agent = judge_agent
         self.trace_dir = trace_dir
+        self.enable_refine_node = enable_refine_node
         self._agent_type_aliases = {
             "media": "media",
             "media_agent": "media",
@@ -266,11 +295,69 @@ class FactCheckAgent(Agent):
 
     def _get_current_node(self, state: FactCheckSessionState) -> BlueprintNode:
         """Return the blueprint node matching the current state position."""
+        if state.current_node_id == REFINE_NODE_ID:
+            return _REFINE_NODE
         return next(
             node
             for node in state.selected_blueprint.verification_graph.nodes
             if node.id == state.current_node_id
         )
+
+    def _refine_budget_remaining(self, state: FactCheckSessionState) -> int:
+        """Iterations still available once the blueprint's own path is complete.
+
+        Refine is only ever entered where the graph would otherwise finalize, so
+        the mandatory path is already behind us and its remaining length is zero —
+        every unspent iteration is free. Entering refine anywhere else would need
+        the longest remaining path subtracted here, which is only well-defined
+        because refine is never added to the blueprint's own (acyclic) graph.
+        """
+        return max(state.selected_blueprint.policy_constraints.max_iterations - state.iteration, 0)
+
+    def _should_refine(self, state: FactCheckSessionState) -> bool:
+        """Whether to divert to (or stay in) the refine node instead of finalizing.
+
+        Requires open checks, not merely spare budget: with nothing unresolved on
+        the taken path there is no stated question left for more search to answer,
+        and diverting would spend budget on claims the planner correctly finished.
+
+        Applies to re-entry as well, so refine can spend the whole remaining budget
+        across several passes. Three things bound it: the run loop's own
+        ``range(1, max_iterations + 1)``, the budget term reaching zero, and the
+        planner's own ``finalize`` — which the refine prompt explicitly invites
+        whenever more search would not change the verdict.
+        """
+        if not self.enable_refine_node:
+            return False
+        return self._refine_budget_remaining(state) > 0 and bool(state.open_check_ids())
+
+    def position_at_refine(self, state: FactCheckSessionState) -> None:
+        """Move state onto the refine node without touching the trace.
+
+        Split out from ``_enter_refine`` because the trace recorder asserts an
+        active iteration, which holds inside the run loop but not for a session
+        rebuilt from a recorded trace (see ``mafc.agents.fact_check.resume``).
+        """
+        # Register the synthetic node in the layer map before moving there: the
+        # system prompt indexes node_layers by the current node every iteration,
+        # and refine is not part of the blueprint topology that built the map.
+        # One past the deepest layer, so the prompt's remaining-layers term is
+        # zero and its `stay_allowed` reads as "budget is all that is left".
+        state.node_layers.setdefault(REFINE_NODE_ID, state.max_layer + 1)
+        state.current_node_id = REFINE_NODE_ID
+        state.node_history.append(REFINE_NODE_ID)
+        state.last_synthesis = None
+
+    def _enter_refine(self, state: FactCheckSessionState, trace: FactCheckTraceRecorder) -> bool:
+        """Divert to the refine node; returns False so the loop keeps running."""
+        self.position_at_refine(state)
+        trace.record_auto_routing(REFINE_NODE_ID, state.iteration)
+        logger.debug(
+            f"[FactCheckAgent] Diverting to refine at iteration {state.iteration}; "
+            f"{self._refine_budget_remaining(state)} iterations left, "
+            f"open checks: {', '.join(state.open_check_ids())}"
+        )
+        return False
 
     def _execute_node(
         self,
@@ -300,9 +387,14 @@ class FactCheckAgent(Agent):
         trace: FactCheckTraceRecorder,
     ) -> bool:
         """Run the LLM execution call for an action node and dispatch delegated tasks."""
+        prompt_text = (
+            build_refine_node_prompt(session, state)
+            if state.current_node_id == REFINE_NODE_ID
+            else build_action_node_prompt(session, state)
+        )
         messages = [
             self._system_message(state),
-            Message(role=MessageRole.USER, content=Prompt(text=build_action_node_prompt(session, state))),
+            Message(role=MessageRole.USER, content=Prompt(text=prompt_text)),
         ]
         trace.record_planner_messages(messages, state.iteration)
         logger.debug(f"[FactCheckAgent] Iteration {state.iteration} action node messages:")
@@ -386,6 +478,11 @@ class FactCheckAgent(Agent):
             # No outgoing transitions — end of graph. No routing call happens here,
             # so the checks get their last chance to be settled before the verdict.
             self._maybe_update_checks(session, state, errors, trace, stage="terminal_node")
+            # Checked after the update so refine sees the settled ledger: this is
+            # the path the graph-exhausted claims take, and their open checks are
+            # only known once this call has run.
+            if self._should_refine(state):
+                return self._enter_refine(state, trace)
             trace.record_auto_routing("finalize", state.iteration)
             return True
 
@@ -394,6 +491,8 @@ class FactCheckAgent(Agent):
             # model settle whatever this node's evidence now resolves.
             self._maybe_update_checks(session, state, errors, trace, stage="single_exit_node")
             target = options[0].to
+            if target == "finalize" and self._should_refine(state):
+                return self._enter_refine(state, trace)
             trace.record_auto_routing(target, state.iteration)
             if target == "finalize":
                 return True
@@ -472,6 +571,11 @@ class FactCheckAgent(Agent):
         self._apply_check_updates(state, routing.check_updates)
 
         if routing.next_node_id == "finalize":
+            # Checked after _apply_check_updates so this routing call's own updates
+            # count: a call that just closed the last open check must be allowed to
+            # finalize rather than be diverted on a stale ledger.
+            if self._should_refine(state):
+                return self._enter_refine(state, trace)
             state.final_answer = routing.final_answer or self._synthesize_findings(
                 session, state, None, trace=trace, stage="routing_finalize"
             )

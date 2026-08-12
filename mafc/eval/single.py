@@ -166,6 +166,7 @@ def build_fact_check_agent(
         judge_agent=judge_agent,
         n_workers=fc_cfg.workers,
         trace_dir=str(trace_dir) if trace_dir else None,
+        enable_refine_node=bp_cfg.enable_refine_node,
     )
 
 
@@ -184,6 +185,7 @@ def compute_agent_fingerprint(config: BenchmarkRunConfig) -> str:
         "blueprints": {
             "selector_model": config.blueprints.selector_model,
             "selector_max_response_length": config.blueprints.selector_max_response_length,
+            "enable_refine_node": config.blueprints.enable_refine_node,
         },
         # Label scheme affects the verdict label space the agent is allowed to
         # emit, so two runs with different schemes must NOT share cache entries.

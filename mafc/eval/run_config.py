@@ -104,6 +104,14 @@ class BlueprintsConfig(BaseModel):
     # either they degrade to llm_tiebreak rather than failing the run.
     selection_method: BlueprintSelectionMethod = BlueprintSelectionMethod.LLM_TIEBREAK
     probe_confidence_threshold: float = DEFAULT_PROBE_CONFIDENCE_THRESHOLD
+    # Route to a synthetic `refine` node instead of finalizing while iteration
+    # budget remains and checks on the taken path are still open. Blueprints
+    # currently finalize with most of their budget unspent (mean 3.2 of 9
+    # iterations, and no claim has ever hit the cap), because the graph runs out
+    # of nodes rather than the budget running out. Off by default: it changes
+    # every blueprint's stopping behaviour, so runs opt in rather than shift
+    # under existing comparisons.
+    enable_refine_node: bool = False
 
 
 class RunConfig(BaseModel):

@@ -126,6 +126,81 @@ def build_action_node_prompt(
     )
 
 
+def _render_check_leads(state: FactCheckSessionState) -> str:
+    """Render checks the blueprint declares but this claim's path never activated.
+
+    Deliberately kept out of the check ledger. Node-attached checks are scoped to
+    the path taken because a lane's checks may be unresolvable — or meaningless —
+    for a claim that never entered it. Surfacing them as *leads* lets the refine
+    node borrow an idea from a lane it skipped; activating them would import
+    obligations that cannot be discharged and would leave the ledger permanently
+    open.
+    """
+    active = set(state.required_check_status)
+    leads = [c for c in state.selected_blueprint.required_checks if c.id not in active]
+    if not leads:
+        return "None"
+    return "\n".join(f"- {c.id}: {c.description}" for c in leads)
+
+
+def build_refine_node_prompt(session: AgentSession, state: FactCheckSessionState) -> str:
+    """Build the execution-phase prompt for the synthetic refine node.
+
+    Reached when the blueprint's graph would finalize while iteration budget is
+    still unspent and checks on the taken path remain open. The blueprint has run
+    out of structure to offer, so this asks the planner to spend what is left —
+    or to stop, which it is explicitly allowed to do.
+    """
+    blueprint = state.selected_blueprint
+    remaining = max(blueprint.policy_constraints.max_iterations - state.iteration, 0)
+    media_source = session.claim if session.claim is not None else session.goal
+    n_images, n_videos = len(media_source.images), len(media_source.videos)
+    image_tags = ", ".join(img.reference[1:-1] for img in media_source.images) if n_images else "none"
+    video_tags = ", ".join(vid.reference[1:-1] for vid in media_source.videos) if n_videos else "none"
+    open_ids = state.open_check_ids()
+    open_lines = (
+        "\n".join(
+            f"- {cid}: {state.required_check_defs[cid].description}"
+            + (
+                f"\n    last status: {state.required_check_reasons[cid]}"
+                if cid in state.required_check_reasons
+                else ""
+            )
+            for cid in open_ids
+            if cid in state.required_check_defs
+        )
+        or "None"
+    )
+    return (
+        f"Claim:\n{_render_claim(session)}\n\n"
+        f"Iteration: {state.iteration} / remaining budget: {remaining}\n"
+        f"Claim modalities:\n"
+        f"- images: {n_images} ({image_tags})\n"
+        f"- videos: {n_videos} ({video_tags})\n"
+        f"- media_delegation_allowed: {n_images > 0 or n_videos > 0}\n\n"
+        "Current node: refine\n"
+        "The blueprint's planned path is complete, but budget remains and some checks "
+        "on the path you took are still unresolved.\n\n"
+        f"UNRESOLVED checks on your path — close these if you can:\n{open_lines}\n\n"
+        f"Checks from lanes this claim never entered — NOT required, and possibly not "
+        f"answerable here. Treat them only as ideas for a useful angle:\n"
+        f"{_render_check_leads(state)}\n\n"
+        f"Accepted evidence summaries:\n{_render_planner_evidence_summaries(state)}\n\n"
+        f"Action history:\n"
+        f"{chr(10).join(f'- {item}' for item in state.action_history) if state.action_history else 'None'}\n\n"
+        f"Delegated task history:\n{_render_delegated_tasks_block(state)}\n\n"
+        f"Required check status:\n{_render_check_status_lines(state)}\n\n"
+        "Delegate only work that could realistically settle something still open — do not "
+        "repeat a task that already ran. If the remaining questions cannot be answered with "
+        "the tools available, finalize now: stopping is the correct choice when more search "
+        "would not change the verdict.\n\n"
+        "Return strict JSON only:\n"
+        '{"decision_type":"delegate|finalize","rationale":"string",'
+        '"tasks":[{"task_id":"string","agent_type":"string","instruction":"string","follow_up_to":"string|null","rationale":"string|null"}],'
+        '"final_answer":"string|null"}'
+    )
+
+
 def build_routing_prompt(
     session: AgentSession,
     state: FactCheckSessionState,
