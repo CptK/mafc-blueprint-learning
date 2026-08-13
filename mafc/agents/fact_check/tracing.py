@@ -15,6 +15,7 @@ from mafc.agents.fact_check.models import (
 )
 from mafc.agents.tracing import (
     BaseTraceRecorder,
+    _empty_model_stats,
     sanitize_filename,
     serialize_claim,
     serialize_message,
@@ -501,14 +502,16 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
                 self._total_calls += child_summary.get("total_calls", 0)
                 self._total_input_tokens += child_summary.get("total_input_tokens", 0)
                 self._total_output_tokens += child_summary.get("total_output_tokens", 0)
+                self._total_cache_write_tokens += child_summary.get("total_cache_write_tokens", 0)
+                self._total_cache_read_tokens += child_summary.get("total_cache_read_tokens", 0)
                 for m_name, m_stats in (child_summary.get("by_model") or {}).items():
-                    entry = self._by_model.setdefault(
-                        m_name, {"cost_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0}
-                    )
+                    entry = self._by_model.setdefault(m_name, _empty_model_stats())
                     entry["cost_usd"] += m_stats.get("cost_usd", 0.0)
                     entry["calls"] += m_stats.get("calls", 0)
                     entry["input_tokens"] += m_stats.get("input_tokens", 0)
                     entry["output_tokens"] += m_stats.get("output_tokens", 0)
+                    entry["cache_write_tokens"] += m_stats.get("cache_write_tokens", 0)
+                    entry["cache_read_tokens"] += m_stats.get("cache_read_tokens", 0)
                 for label, ms in (child_summary.get("timings") or {}).items():
                     self._timings[label] = self._timings.get(label, 0.0) + ms
         judge_summary = (self.trace.get("judge_run") or {}).get("summary") or {}
@@ -516,14 +519,16 @@ class FactCheckTraceRecorder(BaseTraceRecorder):
         self._total_calls += judge_summary.get("total_calls", 0)
         self._total_input_tokens += judge_summary.get("total_input_tokens", 0)
         self._total_output_tokens += judge_summary.get("total_output_tokens", 0)
+        self._total_cache_write_tokens += judge_summary.get("total_cache_write_tokens", 0)
+        self._total_cache_read_tokens += judge_summary.get("total_cache_read_tokens", 0)
         for m_name, m_stats in (judge_summary.get("by_model") or {}).items():
-            entry = self._by_model.setdefault(
-                m_name, {"cost_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0}
-            )
+            entry = self._by_model.setdefault(m_name, _empty_model_stats())
             entry["cost_usd"] += m_stats.get("cost_usd", 0.0)
             entry["calls"] += m_stats.get("calls", 0)
             entry["input_tokens"] += m_stats.get("input_tokens", 0)
             entry["output_tokens"] += m_stats.get("output_tokens", 0)
+            entry["cache_write_tokens"] += m_stats.get("cache_write_tokens", 0)
+            entry["cache_read_tokens"] += m_stats.get("cache_read_tokens", 0)
 
     def _current_iteration(self) -> dict[str, Any]:
         assert self._current_iteration_index is not None, "No iteration is currently active."

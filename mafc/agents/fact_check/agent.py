@@ -23,6 +23,7 @@ from mafc.agents.fact_check.parsing import (
     try_parse_planner_decision,
     try_parse_routing_decision,
 )
+from mafc.utils.media import deduplicate_media, label_media_references
 from mafc.utils.parsing import try_parse_with_repair
 from mafc.agents.fact_check.prompts import (
     build_action_node_prompt,
@@ -30,6 +31,7 @@ from mafc.agents.fact_check.prompts import (
     build_final_synthesis_prompt,
     build_refine_node_prompt,
     build_routing_prompt,
+    build_runtime_state_block,
     build_system_prompt,
     render_available_sub_agents,
 )
@@ -69,6 +71,44 @@ _REFINE_NODE = BlueprintActionNode(
 )
 """Immutable prototype. Its single exit means execution leaves after one pass
 unless the routing layer redirects back into it while budget remains."""
+
+
+def _prepare_planner_media(prompt: Prompt) -> Prompt:
+    """Attach each distinct media item once, named, with later mentions as text tags.
+
+    Two problems, one pass. First, a planner prompt names the same item in several
+    places: the claim, an evidence summary that cites it, and the delegated-task
+    history, since the planner is told to copy a media reference into the instruction
+    it dispatches. Every mention used to upload the payload again, and a video costs
+    its five sampled frames each time; measured on a 10-claim run, 51% of all planner
+    media uploads were redundant. Second, the surviving attachment arrived unlabeled,
+    so the planner had to map names to pixels by attachment order, and evidence media
+    had no name in the prompt at all.
+
+    Deduplicating first means only the attachment that remains gets labeled, so the
+    tag appears exactly once as a caption and once per later mention.
+    """
+    return label_media_references(deduplicate_media(prompt, keep_reference_text=True))
+
+
+def dedupe_evidences_for_judge(evidences: list[Evidence]) -> list[Evidence]:
+    """Collapse repeated findings about the same source, keeping the first of each.
+
+    The key is (source, action), not source alone. Every media finding carries the
+    media reference as its source, so a source-only key kept the first one and
+    dropped the rest: geolocation behind the reverse-image-search no-match note,
+    and all but the first authenticity detector in the `assess_authenticity`
+    fan-out. Repeated hits on one URL from different queries share both source and
+    action, so they still collapse — that case is what this dedup is for.
+    """
+    seen: set[tuple[str, str]] = set()
+    deduped: list[Evidence] = []
+    for evidence in evidences:
+        key = (evidence.source, evidence.action.name)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(evidence)
+    return deduped
 
 
 class FactCheckAgent(Agent):
@@ -227,12 +267,31 @@ class FactCheckAgent(Agent):
         )
 
     def _system_message(self, state: FactCheckSessionState) -> Message:
-        """Build the system message containing the full blueprint and current position."""
+        """Build the system message carrying the blueprint's stable orchestration prefix."""
         available_sub_agents = render_available_sub_agents(self._available_sub_agent_descriptions())
         return Message(
             role=MessageRole.SYSTEM,
             content=Prompt(text=build_system_prompt(state, available_sub_agents)),
         )
+
+    def _planner_messages(self, state: FactCheckSessionState, user_text: str) -> list[Message]:
+        """Assemble a planner call as [stable system prefix, runtime state + task].
+
+        Ordering is the point: the system message is byte-identical across every
+        iteration of a claim, so it can be served from the provider's prompt cache,
+        while the volatile runtime state rides at the front of the user message where
+        it cannot invalidate that prefix. Route every planner call through here so
+        the boundary holds.
+        """
+        return [
+            self._system_message(state),
+            Message(
+                role=MessageRole.USER,
+                content=_prepare_planner_media(
+                    Prompt(text=f"{build_runtime_state_block(state)}\n\n{user_text}")
+                ),
+            ),
+        ]
 
     def _available_sub_agent_descriptions(self) -> dict[str, str]:
         """Return one planner-facing capability description per configured agent type."""
@@ -339,8 +398,8 @@ class FactCheckAgent(Agent):
         rebuilt from a recorded trace (see ``mafc.agents.fact_check.resume``).
         """
         # Register the synthetic node in the layer map before moving there: the
-        # system prompt indexes node_layers by the current node every iteration,
-        # and refine is not part of the blueprint topology that built the map.
+        # runtime state block indexes node_layers by the current node every
+        # iteration, and refine is not part of the topology that built the map.
         # One past the deepest layer, so the prompt's remaining-layers term is
         # zero and its `stay_allowed` reads as "budget is all that is left".
         state.node_layers.setdefault(REFINE_NODE_ID, state.max_layer + 1)
@@ -392,10 +451,7 @@ class FactCheckAgent(Agent):
             if state.current_node_id == REFINE_NODE_ID
             else build_action_node_prompt(session, state)
         )
-        messages = [
-            self._system_message(state),
-            Message(role=MessageRole.USER, content=Prompt(text=prompt_text)),
-        ]
+        messages = self._planner_messages(state, prompt_text)
         trace.record_planner_messages(messages, state.iteration)
         logger.debug(f"[FactCheckAgent] Iteration {state.iteration} action node messages:")
         for msg in messages:
@@ -517,12 +573,7 @@ class FactCheckAgent(Agent):
         trace: FactCheckTraceRecorder,
     ) -> bool:
         """Ask the LLM to choose among multiple routing options and advance the node."""
-        messages = [
-            self._system_message(state),
-            Message(
-                role=MessageRole.USER, content=Prompt(text=build_routing_prompt(session, state, options))
-            ),
-        ]
+        messages = self._planner_messages(state, build_routing_prompt(session, state, options))
         _resp = self.model.generate(messages)
         response_text = _resp.text.strip()
         trace.add_usage(_resp, self.model.name)
@@ -622,7 +673,10 @@ class FactCheckAgent(Agent):
             return
 
         messages = [
-            Message(role=MessageRole.USER, content=Prompt(text=build_check_update_prompt(session, state)))
+            Message(
+                role=MessageRole.USER,
+                content=_prepare_planner_media(Prompt(text=build_check_update_prompt(session, state))),
+            )
         ]
         _resp = self.model.generate(messages)
         response_text = _resp.text.strip()
@@ -900,7 +954,9 @@ class FactCheckAgent(Agent):
         prompt_text = build_final_synthesis_prompt(session, state)
         if instruction:
             prompt_text += f"\n\nAdditional instruction:\n{instruction}"
-        _synth_resp = self.model.generate([Message(role=MessageRole.USER, content=Prompt(text=prompt_text))])
+        _synth_resp = self.model.generate(
+            [Message(role=MessageRole.USER, content=_prepare_planner_media(Prompt(text=prompt_text)))]
+        )
         answer = _synth_resp.text.strip()
         if trace is not None:
             trace.add_usage(_synth_resp, self.model.name)
@@ -947,12 +1003,7 @@ class FactCheckAgent(Agent):
         session.evidences = list(state.evidences)
 
         if self.judge_agent is not None and session.evidences:
-            seen_sources: set[str] = set()
-            deduped_evidences: list[Evidence] = []
-            for ev in session.evidences:
-                if ev.source not in seen_sources:
-                    seen_sources.add(ev.source)
-                    deduped_evidences.append(ev)
+            deduped_evidences = dedupe_evidences_for_judge(session.evidences)
             # Resolve referent status across the assembled set before judging: the
             # page that carries a debunk and the reverse-image-search hit that
             # identifies the media are different evidence items, so the link

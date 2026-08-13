@@ -32,6 +32,24 @@ def timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _empty_model_stats() -> dict[str, Any]:
+    """Zeroed per-model usage counters.
+
+    Shared with the child-usage rollup in ``FactCheckTraceRecorder`` so a new
+    counter cannot be added to one path and silently omitted from the other, which
+    is how the cache fields first came to read zero in run-level summaries while
+    the child traces held the real numbers.
+    """
+    return {
+        "cost_usd": 0.0,
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+    }
+
+
 def sanitize_filename(value: str, default: str = "trace") -> str:
     sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
     return sanitized or default
@@ -131,6 +149,8 @@ class BaseTraceRecorder:
         self._total_calls: int = 0
         self._total_input_tokens: int = 0
         self._total_output_tokens: int = 0
+        self._total_cache_write_tokens: int = 0
+        self._total_cache_read_tokens: int = 0
         self._by_model: dict[str, dict] = {}
         self._timings: dict[str, float] = {}
         self._timings_lock = threading.Lock()
@@ -152,15 +172,23 @@ class BaseTraceRecorder:
         self._total_calls += 1
         in_tok = response.input_token_count or 0
         out_tok = response.output_token_count or 0
+        # Cached prompt tokens are counted separately by the provider and excluded
+        # from input_token_count, so they are tracked apart rather than folded into
+        # the input total. Reads staying at zero across a run is the signal that a
+        # prompt prefix stopped matching and caching has quietly stopped working.
+        cache_write_tok = response.cache_write_token_count or 0
+        cache_read_tok = response.cache_read_token_count or 0
         self._total_input_tokens += in_tok
         self._total_output_tokens += out_tok
-        entry = self._by_model.setdefault(
-            model_name, {"cost_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0}
-        )
+        self._total_cache_write_tokens += cache_write_tok
+        self._total_cache_read_tokens += cache_read_tok
+        entry = self._by_model.setdefault(model_name, _empty_model_stats())
         entry["cost_usd"] += response.total_cost
         entry["calls"] += 1
         entry["input_tokens"] += in_tok
         entry["output_tokens"] += out_tok
+        entry["cache_write_tokens"] = entry.get("cache_write_tokens", 0) + cache_write_tok
+        entry["cache_read_tokens"] = entry.get("cache_read_tokens", 0) + cache_read_tok
 
     # ------------------------------------------------------------------
     # Event logging
@@ -194,12 +222,16 @@ class BaseTraceRecorder:
         self.trace["summary"]["total_calls"] = self._total_calls
         self.trace["summary"]["total_input_tokens"] = self._total_input_tokens
         self.trace["summary"]["total_output_tokens"] = self._total_output_tokens
+        self.trace["summary"]["total_cache_write_tokens"] = self._total_cache_write_tokens
+        self.trace["summary"]["total_cache_read_tokens"] = self._total_cache_read_tokens
         self.trace["summary"]["by_model"] = {
             name: {
                 "cost_usd": round(stats["cost_usd"], 6),
                 "calls": stats.get("calls", 0),
                 "input_tokens": stats["input_tokens"],
                 "output_tokens": stats["output_tokens"],
+                "cache_write_tokens": stats.get("cache_write_tokens", 0),
+                "cache_read_tokens": stats.get("cache_read_tokens", 0),
             }
             for name, stats in self._by_model.items()
         }

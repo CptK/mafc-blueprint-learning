@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 
 from mafc.agents.common import AgentStatus
@@ -179,3 +180,42 @@ def test_already_seen_urls_not_retrieved_again_on_second_run() -> None:
 
     # URL was already in session.evidences — retriever must not be called for it again
     assert len(retriever.calls) == calls_after_first
+
+
+def test_empty_quoted_query_is_retried_without_quotes() -> None:
+    quoted = 'Sheshel RTS "civilet shqiptare"'
+    planner = SequencedModel(outputs=[json.dumps({"queries": [quoted], "done": True})])
+    summarizer = SequencedModel(outputs=["summary", "final"])
+    # Only the relaxed form resolves, which is the case the retry exists for.
+    search_tool = FakeSearchTool(
+        {"Sheshel RTS civilet shqiptare": make_search_result("q1", ["https://a.example.com"])}
+    )
+    retriever = FakeRetriever({"https://a.example.com": "content"})
+    agent = WebSearchAgent(
+        main_model=planner,
+        summarization_model=summarizer,
+        search_tool=search_tool,
+        retriever=retriever,
+    )
+
+    out = agent.run(make_session("Any task"))
+
+    assert search_tool.queries == [quoted, "Sheshel RTS civilet shqiptare"]
+    assert retriever.calls == ["https://a.example.com"]
+    assert out.result is not None
+
+
+def test_empty_plain_query_is_not_retried() -> None:
+    planner = SequencedModel(outputs=['{"queries":["plain keywords"],"done":true}'])
+    summarizer = SequencedModel(outputs=["final"])
+    search_tool = FakeSearchTool({})
+    agent = WebSearchAgent(
+        main_model=planner,
+        summarization_model=summarizer,
+        search_tool=search_tool,
+    )
+
+    agent.run(make_session("Any task"))
+
+    # Nothing to relax, so the retry must not spend a second search call.
+    assert search_tool.queries == ["plain keywords"]

@@ -42,16 +42,23 @@ def build_planner_system_instructions() -> str:
 
 
 def build_system_prompt(state: FactCheckSessionState, available_sub_agents: str) -> str:
-    """Build the system prompt for one orchestration iteration.
+    """Build the stable half of one orchestration iteration's prompt.
 
-    Always includes the full blueprint (graph, checks, policy) and the current
-    runtime state (position, budget, open checks) so the planner has complete
-    forward visibility regardless of which iteration it is.
+    Everything rendered here is constant for the lifetime of a claim, and shared by
+    every claim that selects the same blueprint: the orchestration contract, the
+    worker roster, and the blueprint's identity, policy, and graph. That makes it a
+    reusable prompt prefix, which is the whole reason it is separated from the
+    per-iteration state.
+
+    Per-iteration state (position, budget, open checks) is rendered by
+    ``build_runtime_state_block`` and appended to the *user* message instead, so it
+    lands after the cache breakpoint. Prompt caching is a prefix match, so a single
+    volatile byte in this string would invalidate the cached prefix on every call
+    and silently cost more than not caching at all. Keep additions here stable, or
+    put them in the runtime block.
     """
     blueprint = state.selected_blueprint
     policy = blueprint.policy_constraints
-    progression = _progression_summary(state)
-    open_checks = state.open_check_ids()
     return (
         f"{build_planner_system_instructions()}\n\n"
         f"Available sub-agents:\n{available_sub_agents}\n\n"
@@ -63,8 +70,23 @@ def build_system_prompt(state: FactCheckSessionState, available_sub_agents: str)
         f"- require_counterevidence_search: {policy.require_counterevidence_search}\n\n"
         f"Blueprint layers:\n"
         f"- max_layer: {state.max_layer}\n\n"
+        f"Blueprint graph:\n{_render_full_graph(state)}"
+    )
+
+
+def build_runtime_state_block(state: FactCheckSessionState) -> str:
+    """Render the per-iteration planner state: active checks, position, budget.
+
+    Split out of ``build_system_prompt`` so the stable blueprint prefix stays
+    byte-identical across iterations; see that function for the caching contract.
+    The planner sees exactly the same information as before the split, just carried
+    on the user message rather than the system message.
+    """
+    policy = state.selected_blueprint.policy_constraints
+    progression = _progression_summary(state)
+    open_checks = state.open_check_ids()
+    return (
         f"Required checks:\n{_render_required_checks(state)}\n\n"
-        f"Blueprint graph:\n{_render_full_graph(state)}\n\n"
         f"Current position:\n"
         f"- current node: {state.current_node_id}\n"
         f"- current layer: {state.node_layers[state.current_node_id]}\n"

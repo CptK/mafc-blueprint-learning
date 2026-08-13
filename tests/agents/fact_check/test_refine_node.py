@@ -154,8 +154,12 @@ def test_entering_refine_registers_it_in_the_layer_map():
 
 
 def test_system_prompt_builds_at_the_refine_node():
-    """End-to-end guard on the crash: the prompt must render once refine is entered."""
-    from mafc.agents.fact_check.prompts import build_system_prompt
+    """End-to-end guard on the crash: the prompt must render once refine is entered.
+
+    The position block moved to the runtime state block when the planner prompt was
+    split for caching, so the node_layers lookup that crashed lives there now.
+    """
+    from mafc.agents.fact_check.prompts import build_runtime_state_block, build_system_prompt
 
     class _Trace:
         def record_auto_routing(self, target, iteration):
@@ -163,9 +167,12 @@ def test_system_prompt_builds_at_the_refine_node():
 
     state = _state(iteration=3)
     _make(True)._enter_refine(state, _Trace())
-    text = build_system_prompt(state, "web_search")
+    text = build_runtime_state_block(state)
     assert "current node: refine" in text
     assert "stay_allowed: True" in text
+    # The stable half must still render, and must not carry per-iteration state.
+    system_text = build_system_prompt(state, "web_search")
+    assert "current node:" not in system_text
 
 
 def test_re_entering_refine_keeps_one_layer_entry():
