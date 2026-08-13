@@ -176,6 +176,7 @@ class WebSearchTraceRecorder(BaseTraceRecorder):
         sources: list[Source] | None,
         errors: list[str],
         marked_seen: bool,
+        retried_as: str | None = None,
     ) -> None:
         payload = {
             "query_text": query_text,
@@ -183,6 +184,11 @@ class WebSearchTraceRecorder(BaseTraceRecorder):
             "errors": list(errors),
             "marked_seen": marked_seen,
         }
+        if retried_as is not None:
+            # Only present when the first, quoted attempt came back empty. Without
+            # it the trace shows a query that succeeded and hides that it took two
+            # search calls, which is exactly what a later audit of the retry needs.
+            payload["retried_as"] = retried_as
         self._current_iteration()["search_results"].append(payload)
         self.record_event("search_result", payload, step=step)
 

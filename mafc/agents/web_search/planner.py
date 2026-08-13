@@ -33,6 +33,13 @@ def plan_step(
         '- "done": boolean\n\n'
         "Guidelines:\n"
         "- Keep queries specific and evidence-seeking.\n"
+        "- Quotation marks demand a verbatim match: a quoted phrase finds only pages\n"
+        "  carrying that exact string. Claim text you have seen translated, transcribed or\n"
+        "  paraphrased rarely appears in that exact form, so quoting it tends to return\n"
+        "  nothing at all. The same holds for operators such as site: or filetype:.\n"
+        "  They pay off on a string you expect character for character, such as an official\n"
+        "  title, a published headline or a document number, and cost you the whole query\n"
+        "  otherwise. Plain keywords are the safer default.\n"
         "- If enough evidence is already gathered, set done=true and queries=[].\n"
         f"- If you want to gather more information, set done=false and propose up to {agent.max_queries_per_step} new queries.\n"
         "- You have multiple iterations to gather information, so you can search for facts building on previous findings.\n"

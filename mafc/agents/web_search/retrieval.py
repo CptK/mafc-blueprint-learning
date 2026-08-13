@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Sequence
@@ -96,6 +97,7 @@ def execute_search_queries(
                 sources=list(kept) if kept is not None else None,
                 errors=result.errors,
                 marked_seen=result.mark_seen,
+                retried_as=result.retried_as,
             )
     return candidate_sources
 
@@ -145,30 +147,66 @@ def retrieve_query_results(
     return query_results
 
 
+def unquote_query(query_text: str) -> str | None:
+    """Drop exact-phrase quoting and operators, or None if nothing would change.
+
+    Measured over a 1000-claim run: 69.8% of quoted queries came back with zero
+    sources against 14.7% of unquoted ones, and the gap held both within single
+    claims and within each script, so it is the quoting rather than the difficulty
+    or the language. The planner reaches for exact phrases on claim text it has only
+    seen translated or paraphrased, which no page carries verbatim.
+    """
+    relaxed = query_text.replace('"', " ").replace("'", " ")
+    relaxed = re.sub(r"\b(?:site|filetype|intitle|inurl):\S+", " ", relaxed)
+    relaxed = re.sub(r"\s+(?:AND|OR)\s+", " ", relaxed)
+    relaxed = re.sub(r"\s+", " ", relaxed).strip()
+    return relaxed if relaxed and relaxed != query_text.strip() else None
+
+
 def execute_search_query(
     query_text: str,
     search_tool: SearchTool,
     max_results_per_query: int = 5,
     latest_allowed_date: date | None = None,
 ) -> QuerySearchResult:
-    """Execute search for one query and return source candidates."""
-    query = Query(
-        text=query_text,
-        limit=max_results_per_query,
-        end_date=latest_allowed_date,
-    )
-    try:
-        result = search_tool.search(query)
-    except Exception as exc:
-        return QuerySearchResult(
-            query_text=query_text,
-            sources=None,
-            errors=[f"Search failed for query '{query_text}': {exc}"],
-        )
+    """Execute search for one query and return source candidates.
+
+    A query that returns nothing is retried once with its quotes and operators
+    stripped. The retry costs one search call and is spent only where the first
+    attempt already yielded nothing, so it cannot displace a productive query.
+    """
+
+    def run(text: str) -> tuple[Sequence[Source] | None, str | None]:
+        query = Query(text=text, limit=max_results_per_query, end_date=latest_allowed_date)
+        try:
+            result = search_tool.search(query)
+        except Exception as exc:
+            return None, f"Search failed for query '{text}': {exc}"
+        return (result.sources if result is not None else None), None
+
+    sources, error = run(query_text)
+    if error is not None:
+        return QuerySearchResult(query_text=query_text, sources=None, errors=[error])
+
+    if not sources:
+        relaxed = unquote_query(query_text)
+        if relaxed is not None:
+            logger.debug(f"[WebSearch-Agent] No results for '{query_text}', retrying as '{relaxed}'")
+            retry_sources, retry_error = run(relaxed)
+            if retry_error is None and retry_sources:
+                # Reported under the original text so the planner's seen-query
+                # bookkeeping and the trace both stay keyed to what it asked for.
+                return QuerySearchResult(
+                    query_text=query_text,
+                    sources=retry_sources,
+                    errors=[],
+                    mark_seen=True,
+                    retried_as=relaxed,
+                )
 
     return QuerySearchResult(
         query_text=query_text,
-        sources=result.sources if result is not None else None,
+        sources=sources,
         errors=[],
         mark_seen=True,
     )

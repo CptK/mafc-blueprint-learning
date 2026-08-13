@@ -33,6 +33,8 @@ class QuerySearchResult:
     errors: list[str]
     mark_seen: bool = False
     stopped: bool = False
+    retried_as: str | None = None
+    """Set when the original query returned nothing and a relaxed form was used."""
 
 
 @dataclass
