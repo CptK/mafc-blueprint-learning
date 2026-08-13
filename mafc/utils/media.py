@@ -11,17 +11,30 @@ def extract_media_items(goal: MultimodalSequence) -> list[Image | Video]:
     return items
 
 
-def deduplicate_media(seq: MultimodalSequence) -> MultimodalSequence:
+def deduplicate_media(
+    seq: MultimodalSequence, keep_reference_text: bool = False
+) -> MultimodalSequence:
     """Return a new MultimodalSequence with duplicate media items removed.
 
     Two items are considered duplicates if they share the same ezmm item id
     (same kind + registry id) or the same SHA-256 file hash. The first
     occurrence of each item is kept; subsequent duplicates are dropped.
     Non-media elements (strings) are always kept as-is.
+
+    ``keep_reference_text`` replaces each dropped duplicate with its plain
+    reference tag (``<image:3>``) rather than deleting it. The payload is still
+    uploaded once, but the later mentions stay legible. Use it where the tag
+    carries meaning beyond the pixels — the fact-check planner names the media a
+    task targeted in its delegated-task history, and silently dropping those tags
+    would leave the planner unable to tell which item it had already investigated.
     """
     seen_item_ids: set[tuple[str, int]] = set()
     seen_hashes: set[str] = set()
     new_data: list[str | Item] = []
+
+    def _drop(element: Item) -> None:
+        if keep_reference_text:
+            new_data.append(element.reference)
 
     for element in seq.data:
         if not isinstance(element, Item):
@@ -30,14 +43,40 @@ def deduplicate_media(seq: MultimodalSequence) -> MultimodalSequence:
 
         item_key = (element.kind, element.id)
         if item_key in seen_item_ids:
+            _drop(element)
             continue
 
         item_hash = element.sha256
         if item_hash in seen_hashes:
+            _drop(element)
             continue
 
         seen_item_ids.add(item_key)
         seen_hashes.add(item_hash)
+        new_data.append(element)
+
+    result = MultimodalSequence.__new__(MultimodalSequence)
+    result.data = new_data
+    return result
+
+
+def label_media_references(seq: MultimodalSequence) -> MultimodalSequence:
+    """Insert each media item's reference tag as text immediately before it.
+
+    Attached media otherwise arrives at the model unlabeled: the payload carries a
+    bare image block, and the only place a name appears is the prompt's separate
+    modality line, which lists claim media in attachment order. The binding between
+    a name and its pixels is therefore positional, and evidence media never appears
+    on that line at all, so it has no name anywhere in the prompt.
+
+    Labeling makes the binding explicit and matches the guidance to caption each
+    image when several are present. The tag survives as plain text rather than being
+    re-parsed, so it costs a handful of tokens and attaches nothing extra.
+    """
+    new_data: list[str | Item] = []
+    for element in seq.data:
+        if isinstance(element, Item):
+            new_data.append(element.reference)
         new_data.append(element)
 
     result = MultimodalSequence.__new__(MultimodalSequence)

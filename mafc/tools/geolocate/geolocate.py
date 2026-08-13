@@ -57,6 +57,9 @@ class GeolocationResults(Results):
     model_output: Any | None = None
 
     def __str__(self):
+        if not self.top_k_locations:
+            # The LLM backend returns no locations when it abstains; its `text` explains why.
+            return self.text
         locations_str = ", ".join(self.top_k_locations)
         text = (
             f"Most likely location: {self.most_likely_location}\n"

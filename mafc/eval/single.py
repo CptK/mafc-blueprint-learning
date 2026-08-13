@@ -67,7 +67,14 @@ def build_fact_check_agent(
     bp_cfg = config.blueprints
 
     planner_model = make_model(
-        fc_cfg.model, temperature=fc_cfg.temperature, max_response_length=fc_cfg.max_response_length
+        fc_cfg.model,
+        temperature=fc_cfg.temperature,
+        max_response_length=fc_cfg.max_response_length,
+        # The planner's system prompt is a stable, repeated prefix by construction
+        # (see build_system_prompt) while its user turn changes every iteration, so
+        # the breakpoint belongs at the end of the system block. Providers without
+        # prompt caching ignore this.
+        cache="system",
     )
     worker_model = make_model(
         ws_cfg.model, temperature=ws_cfg.temperature, max_response_length=ws_cfg.max_response_length
@@ -89,7 +96,14 @@ def build_fact_check_agent(
         media_cfg.model, temperature=media_cfg.temperature, max_response_length=media_cfg.max_response_length
     )
     judge_model = make_model(
-        judge_cfg.model, temperature=judge_cfg.temperature, max_response_length=judge_cfg.max_response_length
+        judge_cfg.model,
+        temperature=judge_cfg.temperature,
+        max_response_length=judge_cfg.max_response_length,
+        # With n_samples > 1 the judge sends one identical request per sample, from a
+        # messages list built once before the loop, so the whole prompt is a reusable
+        # prefix. Sampling is unaffected: caching changes how the prompt is processed,
+        # never how the response is drawn, so the samples stay independent.
+        cache="prompt",
     )
 
     # Built here rather than by MediaAgent so store-only mode can be wired in from
