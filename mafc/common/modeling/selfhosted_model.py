@@ -197,6 +197,9 @@ class SelfhostedModel(Model):
         video_frames_to_sample: int = 5,
         thinking: bool = True,
         presence_penalty: float = 0.0,
+        # Absorb provider-specific options the factory passes to every backend
+        # (e.g. `cache`), matching the other model classes.
+        **kwargs,
     ):
         super().__init__(
             specifier=specifier,

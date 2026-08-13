@@ -49,6 +49,8 @@ class Response(BaseModel):
     input_token_count: int | None = None
     output_token_count: int | None = None
     total_token_count: int | None = None
+    cache_write_token_count: int | None = None
+    cache_read_token_count: int | None = None
     total_cost: float
     duration_ms: float | None = None
 
@@ -58,6 +60,12 @@ class APIResponse(BaseModel):
     input_token_count: int | None = None
     output_token_count: int | None = None
     total_token_count: int | None = None
+    # Prompt-cache accounting. `input_token_count` reports only the *uncached*
+    # remainder, so these two are the rest of the prompt and are billed at their own
+    # rates (see Model.compute_cost). Providers without prompt caching leave them None,
+    # which costs the same as before these fields existed.
+    cache_write_token_count: int | None = None
+    cache_read_token_count: int | None = None
 
 
 class API(ABC):
@@ -68,6 +76,13 @@ class API(ABC):
 
 
 class Model(ABC):
+    # Prompt-cache pricing, as multiples of the model's normal input-token rate.
+    # A write costs 1.25x on the default 5-minute TTL and 2x on the 1-hour TTL; a
+    # read costs 0.1x. Subclasses that opt into the long TTL must raise the write
+    # multiplier to match, or reported cost will be half of what was billed.
+    cache_write_cost_multiplier: float = 1.25
+    cache_read_cost_multiplier: float = 0.1
+
     def __init__(
         self,
         specifier: str,
@@ -117,9 +132,27 @@ class Model(ABC):
         return response
 
     def compute_cost(self, api_response: APIResponse) -> float:
-        total_cost = 0.0
-        if api_response.input_token_count and api_response.output_token_count:
-            total_cost = (api_response.input_token_count / 1_000_000) * self.input_token_cost + (
-                api_response.output_token_count / 1_000_000
-            ) * self.output_token_cost
-        return total_cost
+        """Price one response, charging cached prompt tokens at their own rates.
+
+        Cache writes and reads are billed as multiples of the normal input rate, and
+        the provider reports them *separately* from `input_token_count`, which counts
+        only the uncached remainder. Summing just input and output would therefore
+        under-report a cache-heavy run to near zero, so all three input-side counts
+        are priced here.
+        """
+        if api_response.output_token_count is None:
+            return 0.0
+
+        uncached_input = api_response.input_token_count or 0
+        cache_writes = api_response.cache_write_token_count or 0
+        cache_reads = api_response.cache_read_token_count or 0
+        if not (uncached_input or cache_writes or cache_reads):
+            return 0.0
+
+        input_cost = (
+            uncached_input
+            + cache_writes * self.cache_write_cost_multiplier
+            + cache_reads * self.cache_read_cost_multiplier
+        ) * self.input_token_cost
+        output_cost = api_response.output_token_count * self.output_token_cost
+        return (input_cost + output_cost) / 1_000_000
