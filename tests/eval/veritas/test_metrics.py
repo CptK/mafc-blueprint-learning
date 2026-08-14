@@ -78,6 +78,54 @@ def test_compute_veritas_metrics_regression_fields_present():
     assert metrics["mse"] == pytest.approx(0.01, abs=0.001)
 
 
+def test_compute_veritas_metrics_reports_the_flip_decomposition():
+    results = [
+        _r("intact", "intact", integrity_score=0.9),
+        _r("intact", "compromised", integrity_score=0.9),  # direction flip
+    ]
+    metrics = compute_veritas_metrics(results, label_scheme=3)
+    assert metrics["flips"] == 1
+    assert metrics["flip_rate"] == pytest.approx(0.5)
+    assert metrics["n_excl_flips"] == 1
+    # the surviving claim is gt=0.9 vs pred=1.0
+    assert metrics["mse_excl_flips"] == pytest.approx(0.01, abs=1e-4)
+    assert metrics["mse"] > metrics["mse_excl_flips"]
+
+
+def test_compute_veritas_metrics_counts_an_abstention_as_a_flip():
+    """Predicting unknown on a directional claim misses the direction like a reversal."""
+    results = [
+        _r("intact", "intact", integrity_score=0.9),
+        _r("intact", "unknown", integrity_score=0.9),
+    ]
+    metrics = compute_veritas_metrics(results, label_scheme=3)
+    assert metrics["flips"] == 1
+    assert metrics["flips_opposite"] == 0
+    assert metrics["flips_neutral"] == 1
+
+
+def test_compute_veritas_metrics_flip_band_follows_the_label_scheme():
+    """7-class calls direction outside ±1/6; 3-class only outside ±1/3."""
+    m7 = compute_veritas_metrics(
+        [_r("intact (certain)", "intact (certain)", integrity_score=0.9)], label_scheme=7
+    )
+    assert m7["flip_deadband"] == pytest.approx(1 / 6)
+    m3 = compute_veritas_metrics([_r("intact", "intact", integrity_score=0.9)], label_scheme=3)
+    assert m3["flip_deadband"] == pytest.approx(1 / 3)
+
+
+def test_compute_veritas_metrics_flip_fields_reach_the_report():
+    results = [
+        _r("intact", "intact", integrity_score=0.9),
+        _r("intact", "compromised", integrity_score=0.9),
+    ]
+    report = format_veritas_metrics_report(
+        compute_veritas_metrics(results, label_scheme=3), label_scheme=3
+    )
+    assert "Direction flips" in report
+    assert "MSE excl. flips" in report
+
+
 def test_compute_veritas_metrics_regression_skipped_without_scores():
     results = [_r("intact", "intact"), _r("compromised", "compromised")]
     metrics = compute_veritas_metrics(results, label_scheme=3)

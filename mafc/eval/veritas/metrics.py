@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from mafc.eval.metrics import classification_block, regression_metrics, format_confusion_matrix
+from mafc.eval.metrics import (
+    classification_block,
+    direction_metrics,
+    regression_metrics,
+    format_confusion_matrix,
+)
 
 # ---------------------------------------------------------------------------
 # Label ordering (matches Veritas3Label / Veritas7Label .value strings)
@@ -47,6 +52,13 @@ VERDICT_TO_NUMERIC_7: dict[str, float] = {
     "compromised (certain)": -1.0,
 }
 
+# Half-width of the neutral ("unknown") band on the integrity scale, per scheme.
+# These are the benchmark's own thresholds: 7-class labels an absolute score below
+# 1/6 unknown, the 3-class scheme below 1/3. A prediction landing on a different
+# side of this band than the ground truth is a direction flip, an abstention into
+# the band included (see mafc.eval.metrics.direction_metrics).
+DEADBAND_BY_SCHEME: dict[int, float] = {7: 1 / 6, 3: 1 / 3}
+
 COARSEN_7_TO_3: dict[str, str] = {
     "intact (certain)": "intact",
     "intact (rather certain)": "intact",
@@ -63,13 +75,13 @@ COARSEN_7_TO_3: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-def _regression_from_results(
+def _paired_scores(
     results: list[dict[str, Any]],
     verdict_to_numeric: dict[str, float],
     pred_field: str = "predicted",
     score_field: str | None = "predicted_score",
-) -> dict[str, Any]:
-    """Extract paired (gt_integrity_score, pred_numeric) from result dicts and compute MSE/MAE.
+) -> tuple[list[float], list[float]]:
+    """Extract paired (gt_integrity_score, pred_numeric) lists from result dicts.
 
     Ground truth is a continuous integrity score, so when the judge reports the
     un-snapped aggregate of its samples (``score_field``) that value is scored
@@ -98,7 +110,26 @@ def _regression_from_results(
             pred_scores.append(pred_numeric)
         except (TypeError, ValueError):
             pass
-    return regression_metrics(gt_scores, pred_scores)
+    return gt_scores, pred_scores
+
+
+def _regression_from_results(
+    results: list[dict[str, Any]],
+    verdict_to_numeric: dict[str, float],
+    pred_field: str = "predicted",
+    score_field: str | None = "predicted_score",
+    deadband: float | None = None,
+) -> dict[str, Any]:
+    """MSE/MAE over the paired scores, plus the flip decomposition when possible.
+
+    ``deadband`` selects the neutral band used to call a direction flip; passing
+    None reports MSE/MAE alone.
+    """
+    gt_scores, pred_scores = _paired_scores(results, verdict_to_numeric, pred_field, score_field)
+    metrics = regression_metrics(gt_scores, pred_scores)
+    if metrics and deadband is not None:
+        metrics.update(direction_metrics(gt_scores, pred_scores, deadband))
+    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +161,9 @@ def compute_veritas_metrics(results: list[dict[str, Any]], label_scheme: int = 3
     y_pred = [p for _, p in scored]
 
     metrics = classification_block(y_true, y_pred, labels)
-    reg = _regression_from_results(results, verdict_to_numeric)
+    reg = _regression_from_results(
+        results, verdict_to_numeric, deadband=DEADBAND_BY_SCHEME[7 if label_scheme == 7 else 3]
+    )
     if reg:
         metrics.update(reg)
 
@@ -150,13 +183,43 @@ def compute_veritas_metrics(results: list[dict[str, Any]], label_scheme: int = 3
         # Label-based on purpose: the coarsened block measures the 3-bin verdict on
         # the {-1, 0, 1} scale, so the 7-class aggregate does not belong in it.
         reg_c = _regression_from_results(
-            coarsened_results, VERDICT_TO_NUMERIC_3, pred_field="_pred_c", score_field=None
+            coarsened_results,
+            VERDICT_TO_NUMERIC_3,
+            pred_field="_pred_c",
+            score_field=None,
+            deadband=DEADBAND_BY_SCHEME[3],
         )
         if reg_c:
             coarsened.update(reg_c)
         metrics["coarsened_3class"] = coarsened
 
     return metrics
+
+
+def _format_flip_block(metrics: dict[str, Any], indent: str = "  ") -> list[str]:
+    """Render the direction-flip decomposition, or nothing if it was not computed."""
+    if "flips" not in metrics:
+        return []
+    band = metrics.get("flip_deadband", 0.0)
+    split = ""
+    if metrics.get("flips"):
+        split = (
+            f" — {metrics.get('flips_opposite', 0)} reversed, "
+            f"{metrics.get('flips_neutral', 0)} hedged into the band"
+        )
+    lines = [
+        f"{indent}Direction flips: {metrics['flips']} / {metrics['n']} "
+        f"({metrics['flip_rate']:.1%})   [neutral band ±{band:.3f}]{split}",
+        f"{indent}Share of squared error from flips: {metrics.get('flip_se_share', 0.0):.1%}",
+    ]
+    if "mse_excl_flips" in metrics:
+        lines.append(
+            f"{indent}MSE excl. flips: {metrics['mse_excl_flips']:.4f}   "
+            f"MAE excl. flips: {metrics['mae_excl_flips']:.4f}   (n={metrics['n_excl_flips']})"
+        )
+    if "mse_flips_only" in metrics:
+        lines.append(f"{indent}MSE on flips only: {metrics['mse_flips_only']:.4f}")
+    return lines
 
 
 def format_veritas_metrics_report(metrics: dict[str, Any], label_scheme: int = 3) -> str:
@@ -173,6 +236,7 @@ def format_veritas_metrics_report(metrics: dict[str, Any], label_scheme: int = 3
             "=== Regression Metrics ===",
             f"  MSE: {metrics['mse']:.4f}   MAE: {metrics['mae']:.4f}   (n={metrics['n']})",
         ]
+        lines += _format_flip_block(metrics, indent="  ")
     lines += ["", "=== Per-class ==="]
     for label, m in metrics["per_class"].items():
         lines.append(
@@ -190,6 +254,7 @@ def format_veritas_metrics_report(metrics: dict[str, Any], label_scheme: int = 3
             lines.append(
                 f"  MSE: {coarsened['mse']:.4f}   MAE: {coarsened['mae']:.4f}   (n={coarsened['n']})"
             )
+            lines += _format_flip_block(coarsened, indent="  ")
         lines += [
             "",
             format_confusion_matrix(

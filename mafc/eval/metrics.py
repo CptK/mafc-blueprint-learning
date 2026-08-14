@@ -114,6 +114,59 @@ def regression_metrics(gt_scores: list[float], pred_scores: list[float]) -> dict
     return {"mse": round(mse, 4), "mae": round(mae, 4), "n": n}
 
 
+def direction(x: float, deadband: float) -> int:
+    """Sign of a score, with everything inside ±deadband counted as no direction."""
+    if x > deadband:
+        return 1
+    if x < -deadband:
+        return -1
+    return 0
+
+
+def direction_metrics(
+    gt_scores: list[float], pred_scores: list[float], deadband: float
+) -> dict[str, Any]:
+    """Split regression error into direction flips and residual magnitude error.
+
+    A *flip* is a claim whose prediction does not carry the ground truth's
+    direction: each side is scored +1, -1, or 0 (inside ±deadband), and any
+    disagreement counts. A hedge onto the neutral label is therefore a flip as
+    much as an outright reversal is — the judge failed to place the claim on the
+    right side either way. The strictly-opposite subset is reported separately as
+    ``flips_opposite`` for when only true reversals are of interest.
+
+    Flips and magnitude error call for different fixes — the first is an evidence
+    or reasoning failure, the second is calibration — so MSE/MAE are also
+    reported over the non-flipped claims alone, with the share of total squared
+    error the flips account for.
+    """
+    if not gt_scores:
+        return {}
+    n = len(gt_scores)
+    pairs = list(zip(gt_scores, pred_scores))
+    flipped = [(g, p) for g, p in pairs if direction(g, deadband) != direction(p, deadband)]
+    kept = [(g, p) for g, p in pairs if direction(g, deadband) == direction(p, deadband)]
+    opposite = sum(1 for g, p in flipped if direction(g, deadband) * direction(p, deadband) < 0)
+
+    total_se = sum((g - p) ** 2 for g, p in pairs)
+    flip_se = sum((g - p) ** 2 for g, p in flipped)
+    out: dict[str, Any] = {
+        "flips": len(flipped),
+        "flip_rate": round(len(flipped) / n, 4),
+        "flips_opposite": opposite,
+        "flips_neutral": len(flipped) - opposite,
+        "flip_deadband": deadband,
+        "flip_se_share": round(flip_se / total_se, 4) if total_se > 0 else 0.0,
+        "n_excl_flips": len(kept),
+    }
+    if kept:
+        out["mse_excl_flips"] = round(sum((g - p) ** 2 for g, p in kept) / len(kept), 4)
+        out["mae_excl_flips"] = round(sum(abs(g - p) for g, p in kept) / len(kept), 4)
+    if flipped:
+        out["mse_flips_only"] = round(flip_se / len(flipped), 4)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Blueprint stats report
 # ---------------------------------------------------------------------------

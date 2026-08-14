@@ -3,6 +3,7 @@ import pytest
 from mafc.eval.metrics import (
     classification_block,
     confusion_matrix,
+    direction_metrics,
     format_confusion_matrix,
     macro_average,
     per_class_metrics,
@@ -153,6 +154,56 @@ def test_regression_metrics_known_values():
     assert result["mse"] == pytest.approx(0.5)
     assert result["mae"] == pytest.approx(0.5)
     assert result["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# direction_metrics
+# ---------------------------------------------------------------------------
+
+
+def test_direction_metrics_empty():
+    assert direction_metrics([], [], 1 / 6) == {}
+
+
+def test_direction_metrics_counts_hedges_as_flips_too():
+    gt = [0.9, -0.9, 0.9, 0.9]
+    pred = [-0.5, 0.5, 0.1, 1.0]  # reversed, reversed, hedged into the band, correct
+    m = direction_metrics(gt, pred, 1 / 6)
+    assert m["flips"] == 3
+    assert m["flips_opposite"] == 2
+    assert m["flips_neutral"] == 1
+    assert m["flip_rate"] == pytest.approx(0.75)
+    assert m["n_excl_flips"] == 1
+
+
+def test_direction_metrics_excludes_flips_from_mse():
+    gt = [1.0, 1.0]
+    pred = [-1.0, 0.5]
+    m = direction_metrics(gt, pred, 1 / 6)
+    # only the (1.0, 0.5) pair survives: se=0.25
+    assert m["mse_excl_flips"] == pytest.approx(0.25)
+    assert m["mae_excl_flips"] == pytest.approx(0.5)
+    assert m["mse_flips_only"] == pytest.approx(4.0)
+    assert m["flip_se_share"] == pytest.approx(4.0 / 4.25, abs=1e-4)
+
+
+def test_direction_metrics_no_flips_leaves_mse_unchanged():
+    gt = [1.0, -1.0, 0.0]
+    pred = [0.5, -0.5, 0.0]  # third pair is neutral on both sides, so no mismatch
+    m = direction_metrics(gt, pred, 1 / 6)
+    assert m["flips"] == 0
+    assert m["flip_se_share"] == 0.0
+    assert m["mse_excl_flips"] == pytest.approx(0.5 / 3, abs=1e-4)
+    assert "mse_flips_only" not in m
+
+
+def test_direction_metrics_deadband_widens_the_neutral_zone():
+    gt, pred = [0.9], [-0.25]
+    assert direction_metrics(gt, pred, 1 / 6)["flips_opposite"] == 1
+    # -0.25 is inside ±1/3, so it stops being a reversal and becomes a hedge
+    wide = direction_metrics(gt, pred, 1 / 3)
+    assert wide["flips_opposite"] == 0
+    assert wide["flips"] == 1
 
 
 # ---------------------------------------------------------------------------

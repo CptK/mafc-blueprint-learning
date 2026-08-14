@@ -133,13 +133,14 @@ def _sq_err(r: dict, num: dict[str, float]) -> float:
     return (num[r["predicted"]] - r["gt_integrity_score"]) ** 2
 
 
-def _cls(x: float) -> str:
-    return "i" if x > 1 / 6 else ("c" if x < -1 / 6 else "u")
-
-
 def _is_flip(r: dict, num: dict[str, float]) -> bool:
-    p, g = _cls(num[r["predicted"]]), _cls(r["gt_integrity_score"])
-    return "u" not in (p, g) and p != g
+    """The same flip the run metrics report counts: prediction on a different side
+    of the neutral band than the ground truth, an abstention into the band included."""
+    from mafc.eval.metrics import direction
+    from mafc.eval.veritas.metrics import DEADBAND_BY_SCHEME
+
+    band = DEADBAND_BY_SCHEME[7]
+    return direction(num[r["predicted"]], band) != direction(r["gt_integrity_score"], band)
 
 
 def _build_report(
