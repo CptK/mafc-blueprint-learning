@@ -3,7 +3,7 @@
 
     python scripts/ablations/manipulation_detection/score_ablation.py
     python scripts/ablations/manipulation_detection/score_ablation.py --judge opus5
-    python scripts/ablations/manipulation_detection/score_ablation.py --judge both --by-integrity
+    python scripts/ablations/manipulation_detection/score_ablation.py --judge both --by-type
 
 Three arms differ only in which detector the media agent is given. Everything is
 compared PAIRED on the claims scored in all three arms — claim difficulty varies
@@ -67,6 +67,33 @@ DEFAULT_RUNS = {
 DEFAULT_REJUDGE_DIR = "out/rejudge_opus5"
 COMPARISONS = [("sightengine", "baseline"), ("oracle", "baseline"), ("sightengine", "oracle")]
 N_BOOTSTRAP = 20_000
+
+# Manipulation types, most specific first. A claim can carry several images with
+# different types (56 of 423 claims in 2026 Q1 do, 5 of them disagreeing), so the
+# claim inherits the first type in this order that any of its manipulated images
+# carries. Specificity beats frequency: a claim whose image set is one deepfake
+# plus one generically AI-generated image is a deepfake claim, and
+# "other_manipulation" is a catch-all that only wins when nothing else applies.
+TYPE_PRECEDENCE = [
+    "deepfake",
+    "splice_composite",
+    "fabricated_screenshot",
+    "graphic_edit",
+    "ai_generated",
+    "other_manipulation",
+]
+
+# Report order: manipulated types by descending frequency, then the authentic
+# claims, which are the control group rather than a manipulation type.
+TYPE_ORDER = [
+    "ai_generated",
+    "graphic_edit",
+    "fabricated_screenshot",
+    "splice_composite",
+    "deepfake",
+    "other_manipulation",
+    "authentic",
+]
 
 
 def coarsen(label: str) -> str:
@@ -217,14 +244,99 @@ def report_by_integrity(
         print(line)
 
 
+def load_claim_types(data_dir: Path) -> dict[str, str]:
+    """Map claim id -> manipulation type, or "authentic" if no image was altered.
+
+    Claims whose images are all labelled "unknown" get no entry: they are outside
+    the ablation sample anyway.
+    """
+    comparison_csv = data_dir / "manipulation_comparison.csv"
+    if not comparison_csv.exists():
+        return {}
+    per_claim: dict[str, list[tuple[str, str]]] = {}
+    with open(comparison_csv, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            per_claim.setdefault(row["claim_id"], []).append((row["gt_label"], row["manipulation_type"]))
+
+    types = {}
+    for claim_id, images in per_claim.items():
+        manipulated = {t for label, t in images if label == "manipulated"}
+        if manipulated:
+            types[claim_id] = next(
+                (t for t in TYPE_PRECEDENCE if t in manipulated), sorted(manipulated)[0]
+            )
+        elif any(label == "authentic" for label, _ in images):
+            types[claim_id] = "authentic"
+    return types
+
+
+def report_by_type(
+    preds: dict[str, dict[str, str]],
+    truth: dict[str, str],
+    ids: list[str],
+    data_dir: Path,
+    rng: np.random.Generator,
+) -> None:
+    """Split by the kind of manipulation the image carries. Post-hoc and, for the
+    rarer types, very underpowered — the point estimates are observations."""
+    types = load_claim_types(data_dir)
+    if not types:
+        print(f"\n  (no {data_dir / 'manipulation_comparison.csv'}; skipping the type split)")
+        return
+
+    arms = [arm for arm in preds if arm != "baseline"]
+    print("\n  by manipulation type (post-hoc, underpowered):")
+    header = f"    {'type':<22}{'n':>4}{'%comp':>7}{'baseline':>10}"
+    for arm in arms:
+        header += f"{arm[:11]:>12}{'d (CI)':>22}{'p':>8}"
+    print(header)
+
+    for want in TYPE_ORDER + ["ALL"]:
+        subset = [i for i in ids if want == "ALL" or types.get(i) == want]
+        if not subset:
+            continue
+        base = np.array([squared_error(preds["baseline"][i], truth[i]) for i in subset])
+        share_compromised = np.mean([coarsen(truth[i]) == "compromised" for i in subset]) * 100
+        line = f"    {want:<22}{len(subset):>4}{share_compromised:>6.1f}%{base.mean():>10.4f}"
+        for arm in arms:
+            arm_errors = np.array([squared_error(preds[arm][i], truth[i]) for i in subset])
+            d = arm_errors - base
+            low, high = bootstrap_ci(d, rng)
+            _, _, p = sign_test(d)
+            line += f"{arm_errors.mean():>12.4f}{f'{d.mean():+.4f} [{low:+.3f},{high:+.3f}]':>22}{p:>8.3g}"
+        print(line)
+
+    print("\n  exact-label accuracy by manipulation type:")
+    header = f"    {'type':<22}{'n':>4}{'baseline':>10}"
+    for arm in arms:
+        header += f"{arm[:11]:>12}{'pp':>8}{'p':>8}"
+    print(header)
+    for want in TYPE_ORDER + ["ALL"]:
+        subset = [i for i in ids if want == "ALL" or types.get(i) == want]
+        if not subset:
+            continue
+        base = np.array([preds["baseline"][i] == truth[i] for i in subset])
+        line = f"    {want:<22}{len(subset):>4}{base.mean() * 100:>9.1f}%"
+        for arm in arms:
+            arr = np.array([preds[arm][i] == truth[i] for i in subset])
+            _, _, p = mcnemar(arr, base)
+            line += f"{arr.mean() * 100:>11.1f}%{(arr.mean() - base.mean()) * 100:>+8.1f}{p:>8.3g}"
+        print(line)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--judge", choices=("gemini", "opus5", "both"), default="both")
     parser.add_argument("--rejudge-dir", default=DEFAULT_REJUDGE_DIR)
-    parser.add_argument("--data-dir", default="data/veritas_2026_q1")
+    parser.add_argument("--data-dir", default="data/veritas_2026_q1_with_fact_checks")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--by-type",
+        action="store_true",
+        help="additionally split by the image's manipulation type (ai_generated, deepfake, ...)",
+    )
     args = parser.parse_args()
 
     rng = np.random.default_rng(args.seed)
@@ -260,6 +372,8 @@ def main() -> None:
         report_arms(preds, truth, ids, title)
         report_pairs(preds, truth, ids, rng)
         report_by_integrity(preds, truth, ids, Path(args.data_dir), rng)
+        if args.by_type:
+            report_by_type(preds, truth, ids, Path(args.data_dir), rng)
 
     if len(judges) == 2:
         a, b = judges.values()

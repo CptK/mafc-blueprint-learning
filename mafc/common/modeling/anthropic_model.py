@@ -170,7 +170,10 @@ class AnthropicAPI(API):
             raise ValueError(
                 "Missing Anthropic API key. Set ANTHROPIC_API_KEY or anthropic_api_key in the environment or config/.env."
             )
-        self.client = anthropic.Anthropic(api_key=api_key, timeout=300)
+        # Requests are streamed (see __call__), so this timeout bounds the gap between
+        # events rather than the whole generation. It stays generous anyway: a judge
+        # thinking at high effort can pause for a long stretch before its first token.
+        self.client = anthropic.Anthropic(api_key=api_key, timeout=900)
         self._warned_sampling_conflict = False
 
     def _thinking_config(self, enabled: bool, max_response_length: int) -> dict | None:
@@ -271,7 +274,15 @@ class AnthropicAPI(API):
                     system_block["cache_control"] = {"type": "ephemeral"}
                 create_kwargs["system"] = [system_block]
 
-            response = self.client.messages.create(**create_kwargs)
+            # Streamed, not a plain create: with a large `max_tokens` and adaptive
+            # thinking, a single request can generate for many minutes, and a
+            # non-streaming call has to hold one idle connection open for all of it.
+            # That is what the API's own long-request guidance warns about, and it
+            # showed up here as sporadic APITimeoutError on the hardest claims while
+            # the median claim answered in seconds. Streaming keeps events flowing, so
+            # the client timeout measures silence instead of total generation time.
+            with self.client.messages.stream(**create_kwargs) as stream:
+                response = stream.get_final_message()
         except anthropic.RateLimitError as e:
             logger.error("Anthropic rate limit exceeded.")
             raise e
